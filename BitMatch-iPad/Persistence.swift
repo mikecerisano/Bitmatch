@@ -1,8 +1,8 @@
 //
 //  Persistence.swift
-//  BitMatch
+//  BitMatch-iPad
 //
-//  Created by Mike Cerisano on 8/17/25.
+//  Created by Mike Cerisano on 8/28/25.
 //
 
 import CoreData
@@ -15,7 +15,7 @@ struct PersistenceController {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
         for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
+            let newItem = iPadItem(context: viewContext)
             newItem.timestamp = Date()
         }
         do {
@@ -32,7 +32,7 @@ struct PersistenceController {
     let container: NSPersistentContainer
 
     init(inMemory: Bool = false) {
-        container = NSPersistentContainer(name: "BitMatch")
+        container = NSPersistentContainer(name: "BitMatch_iPad")
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }

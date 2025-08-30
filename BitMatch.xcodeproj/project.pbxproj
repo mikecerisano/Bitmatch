@@ -21,17 +21,47 @@
 			remoteGlobalIDString = 271377EC2E52C7C80048DEC7;
 			remoteInfo = BitMatch;
 		};
+		27E11E6C2E6159A000BA16F6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 271377E52E52C7C80048DEC7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 27E11E592E61599E00BA16F6;
+			remoteInfo = "BitMatch-iPad";
+		};
+		27E11E762E6159A000BA16F6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 271377E52E52C7C80048DEC7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 27E11E592E61599E00BA16F6;
+			remoteInfo = "BitMatch-iPad";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		271377ED2E52C7C80048DEC7 /* BitMatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BitMatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		271378002E52C7CA0048DEC7 /* BitMatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BitMatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2713780A2E52C7CA0048DEC7 /* BitMatchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BitMatchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		27E11E5A2E61599E00BA16F6 /* BitMatch-iPad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BitMatch-iPad.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		27E11E6B2E6159A000BA16F6 /* BitMatch-iPadTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BitMatch-iPadTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		27E11E752E6159A000BA16F6 /* BitMatch-iPadUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "BitMatch-iPadUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		27E11EA32E615C1B00BA16F6 /* Exceptions for "BitMatch" folder in "BitMatch-iPad" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				BitMatch.xcdatamodeld,
+			);
+			target = 27E11E592E61599E00BA16F6 /* BitMatch-iPad */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		271377EF2E52C7C80048DEC7 /* BitMatch */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				27E11EA32E615C1B00BA16F6 /* Exceptions for "BitMatch" folder in "BitMatch-iPad" target */,
+			);
 			path = BitMatch;
 			sourceTree = "<group>";
 		};
@@ -43,6 +73,31 @@
 		2713780D2E52C7CA0048DEC7 /* BitMatchUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = BitMatchUITests;
+			sourceTree = "<group>";
+		};
+		27E11E5B2E61599E00BA16F6 /* BitMatch-iPad */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "BitMatch-iPad";
+			sourceTree = "<group>";
+		};
+		27E11E6E2E6159A000BA16F6 /* BitMatch-iPadTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "BitMatch-iPadTests";
+			sourceTree = "<group>";
+		};
+		27E11E782E6159A000BA16F6 /* BitMatch-iPadUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "BitMatch-iPadUITests";
+			sourceTree = "<group>";
+		};
+		27F00A012E6200A000BA16F6 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		27F00A022E6200A000BA16F6 /* Platforms */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Platforms;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -69,6 +124,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27E11E572E61599E00BA16F6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E682E6159A000BA16F6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E722E6159A000BA16F6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -76,8 +152,13 @@
 			isa = PBXGroup;
 			children = (
 				271377EF2E52C7C80048DEC7 /* BitMatch */,
+				27F00A012E6200A000BA16F6 /* Shared */,
+				27F00A022E6200A000BA16F6 /* Platforms */,
 				271378032E52C7CA0048DEC7 /* BitMatchTests */,
 				2713780D2E52C7CA0048DEC7 /* BitMatchUITests */,
+				27E11E5B2E61599E00BA16F6 /* BitMatch-iPad */,
+				27E11E6E2E6159A000BA16F6 /* BitMatch-iPadTests */,
+				27E11E782E6159A000BA16F6 /* BitMatch-iPadUITests */,
 				271377EE2E52C7C80048DEC7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -88,6 +169,9 @@
 				271377ED2E52C7C80048DEC7 /* BitMatch.app */,
 				271378002E52C7CA0048DEC7 /* BitMatchTests.xctest */,
 				2713780A2E52C7CA0048DEC7 /* BitMatchUITests.xctest */,
+				27E11E5A2E61599E00BA16F6 /* BitMatch-iPad.app */,
+				27E11E6B2E6159A000BA16F6 /* BitMatch-iPadTests.xctest */,
+				27E11E752E6159A000BA16F6 /* BitMatch-iPadUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -163,6 +247,76 @@
 			productReference = 2713780A2E52C7CA0048DEC7 /* BitMatchUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		27E11E592E61599E00BA16F6 /* BitMatch-iPad */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27E11E7D2E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPad" */;
+			buildPhases = (
+				27E11E562E61599E00BA16F6 /* Sources */,
+				27E11E572E61599E00BA16F6 /* Frameworks */,
+				27E11E582E61599E00BA16F6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				27E11E5B2E61599E00BA16F6 /* BitMatch-iPad */,
+				27F00A012E6200A000BA16F6 /* Shared */,
+				27F00A022E6200A000BA16F6 /* Platforms */,
+			);
+			name = "BitMatch-iPad";
+			packageProductDependencies = (
+			);
+			productName = "BitMatch-iPad";
+			productReference = 27E11E5A2E61599E00BA16F6 /* BitMatch-iPad.app */;
+			productType = "com.apple.product-type.application";
+		};
+		27E11E6A2E6159A000BA16F6 /* BitMatch-iPadTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27E11E802E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPadTests" */;
+			buildPhases = (
+				27E11E672E6159A000BA16F6 /* Sources */,
+				27E11E682E6159A000BA16F6 /* Frameworks */,
+				27E11E692E6159A000BA16F6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				27E11E6D2E6159A000BA16F6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				27E11E6E2E6159A000BA16F6 /* BitMatch-iPadTests */,
+			);
+			name = "BitMatch-iPadTests";
+			packageProductDependencies = (
+			);
+			productName = "BitMatch-iPadTests";
+			productReference = 27E11E6B2E6159A000BA16F6 /* BitMatch-iPadTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		27E11E742E6159A000BA16F6 /* BitMatch-iPadUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27E11E832E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPadUITests" */;
+			buildPhases = (
+				27E11E712E6159A000BA16F6 /* Sources */,
+				27E11E722E6159A000BA16F6 /* Frameworks */,
+				27E11E732E6159A000BA16F6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				27E11E772E6159A000BA16F6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				27E11E782E6159A000BA16F6 /* BitMatch-iPadUITests */,
+			);
+			name = "BitMatch-iPadUITests";
+			packageProductDependencies = (
+			);
+			productName = "BitMatch-iPadUITests";
+			productReference = 27E11E752E6159A000BA16F6 /* BitMatch-iPadUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -184,6 +338,17 @@
 						CreatedOnToolsVersion = 16.4;
 						TestTargetID = 271377EC2E52C7C80048DEC7;
 					};
+					27E11E592E61599E00BA16F6 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					27E11E6A2E6159A000BA16F6 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 27E11E592E61599E00BA16F6;
+					};
+					27E11E742E6159A000BA16F6 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 27E11E592E61599E00BA16F6;
+					};
 				};
 			};
 			buildConfigurationList = 271377E82E52C7C80048DEC7 /* Build configuration list for PBXProject "BitMatch" */;
@@ -203,6 +368,9 @@
 				271377EC2E52C7C80048DEC7 /* BitMatch */,
 				271377FF2E52C7CA0048DEC7 /* BitMatchTests */,
 				271378092E52C7CA0048DEC7 /* BitMatchUITests */,
+				27E11E592E61599E00BA16F6 /* BitMatch-iPad */,
+				27E11E6A2E6159A000BA16F6 /* BitMatch-iPadTests */,
+				27E11E742E6159A000BA16F6 /* BitMatch-iPadUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -223,6 +391,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		271378082E52C7CA0048DEC7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E582E61599E00BA16F6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E692E6159A000BA16F6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E732E6159A000BA16F6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -253,6 +442,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27E11E562E61599E00BA16F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E672E6159A000BA16F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27E11E712E6159A000BA16F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,6 +475,16 @@
 			isa = PBXTargetDependency;
 			target = 271377EC2E52C7C80048DEC7 /* BitMatch */;
 			targetProxy = 2713780B2E52C7CA0048DEC7 /* PBXContainerItemProxy */;
+		};
+		27E11E6D2E6159A000BA16F6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 27E11E592E61599E00BA16F6 /* BitMatch-iPad */;
+			targetProxy = 27E11E6C2E6159A000BA16F6 /* PBXContainerItemProxy */;
+		};
+		27E11E772E6159A000BA16F6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 27E11E592E61599E00BA16F6 /* BitMatch-iPad */;
+			targetProxy = 27E11E762E6159A000BA16F6 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -325,7 +545,6 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -383,7 +602,6 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -511,6 +729,153 @@
 			};
 			name = Release;
 		};
+		27E11E7E2E6159A000BA16F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPad";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		27E11E7F2E6159A000BA16F6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPad";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		27E11E812E6159A000BA16F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPadTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BitMatch-iPad.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BitMatch-iPad";
+			};
+			name = Debug;
+		};
+		27E11E822E6159A000BA16F6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPadTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BitMatch-iPad.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BitMatch-iPad";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		27E11E842E6159A000BA16F6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPadUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "BitMatch-iPad";
+			};
+			name = Debug;
+		};
+		27E11E852E6159A000BA16F6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AUJW7AGG26;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "BitMatchiOS.BitMatch-iPadUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "BitMatch-iPad";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -546,6 +911,33 @@
 			buildConfigurations = (
 				2713781B2E52C7CA0048DEC7 /* Debug */,
 				2713781C2E52C7CA0048DEC7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		27E11E7D2E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPad" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27E11E7E2E6159A000BA16F6 /* Debug */,
+				27E11E7F2E6159A000BA16F6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		27E11E802E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPadTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27E11E812E6159A000BA16F6 /* Debug */,
+				27E11E822E6159A000BA16F6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		27E11E832E6159A000BA16F6 /* Build configuration list for PBXNativeTarget "BitMatch-iPadUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27E11E842E6159A000BA16F6 /* Debug */,
+				27E11E852E6159A000BA16F6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
