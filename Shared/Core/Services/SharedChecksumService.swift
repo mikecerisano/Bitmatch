@@ -38,7 +38,7 @@ class SharedChecksumService: ChecksumService {
     func verifyFileIntegrity(
         sourceURL: URL,
         destinationURL: URL,
-        type: ChecksumType,
+        type: ChecksumAlgorithm,
         progressCallback: ProgressCallback? = nil
     ) async throws -> VerificationResult {
         

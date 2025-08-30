@@ -19,6 +19,56 @@ enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+// MARK: - BitMatch Error Types
+enum BitMatchError: LocalizedError {
+    case fileAccessDenied(URL)
+    case fileNotFound(URL)
+    case checksumMismatch(String, String)
+    case operationCancelled
+    case insufficientStorage(Int64, Int64) // required, available
+    case networkError(String)
+    case unknownError(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .fileAccessDenied(let url):
+            return "Access denied to file: \(url.lastPathComponent)"
+        case .fileNotFound(let url):
+            return "File not found: \(url.lastPathComponent)"
+        case .checksumMismatch(let expected, let actual):
+            return "Checksum mismatch - Expected: \(expected), Got: \(actual)"
+        case .operationCancelled:
+            return "Operation was cancelled"
+        case .insufficientStorage(let required, let available):
+            return "Insufficient storage - Need: \(ByteCountFormatter().string(fromByteCount: required)), Available: \(ByteCountFormatter().string(fromByteCount: available))"
+        case .networkError(let message):
+            return "Network error: \(message)"
+        case .unknownError(let message):
+            return "Unknown error: \(message)"
+        }
+    }
+}
+
+// MARK: - Verification Result
+struct VerificationResult: Codable {
+    let sourceChecksum: String
+    let destinationChecksum: String
+    let matches: Bool
+    let checksumType: ChecksumAlgorithm
+    let processingTime: TimeInterval
+    let fileSize: Int64
+    
+    var isValid: Bool { matches }
+    
+    var description: String {
+        if matches {
+            return "✅ Files match - \(checksumType.rawValue) verified"
+        } else {
+            return "❌ Files differ - \(checksumType.rawValue) mismatch"
+        }
+    }
+}
+
 // MARK: - App Mode
 enum AppMode: String, CaseIterable, Identifiable {
     case copyAndVerify = "Copy & Verify"
@@ -66,6 +116,7 @@ enum AppMode: String, CaseIterable, Identifiable {
 
 // MARK: - Verification Mode
 enum VerificationMode: String, CaseIterable, Identifiable, Codable {
+    case quick = "Quick"
     case standard = "Standard"
     case thorough = "Thorough" 
     case paranoid = "Paranoid"
@@ -74,14 +125,30 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     
     var description: String {
         switch self {
+        case .quick: return "File size comparison only"
         case .standard: return "Basic checksum verification"
         case .thorough: return "Multiple checksum algorithms"
         case .paranoid: return "Byte-by-byte comparison + checksums"
         }
     }
     
-    var checksumTypes: [ChecksumType] {
+    var requiresMHL: Bool {
         switch self {
+        case .quick, .standard: return false
+        case .thorough, .paranoid: return true
+        }
+    }
+    
+    var useChecksum: Bool {
+        switch self {
+        case .quick: return false
+        case .standard, .thorough, .paranoid: return true
+        }
+    }
+    
+    var checksumTypes: [ChecksumAlgorithm] {
+        switch self {
+        case .quick: return []
         case .standard: return [.sha256]
         case .thorough: return [.sha256, .md5]
         case .paranoid: return [.sha256, .md5, .sha1]
@@ -212,6 +279,8 @@ struct ReportPrefs: Codable {
     var clientName: String = ""
     var projectName: String = ""
     var notes: String = ""
+    var makeReport: Bool = true
+    var verifyWithChecksum: Bool = true
 }
 
 // MARK: - Transfer Metadata
@@ -243,9 +312,41 @@ struct FolderInfo: Identifiable, Equatable {
     var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
     }
+    var formattedFileCount: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: fileCount)) ?? "\(fileCount)"
+    }
     
     static func == (lhs: FolderInfo, rhs: FolderInfo) -> Bool {
         lhs.url == rhs.url
+    }
+}
+
+// MARK: - Camera Type
+enum CameraType: String, CaseIterable, Identifiable, Codable {
+    case sony = "Sony"
+    case canon = "Canon"
+    case arri = "ARRI"
+    case red = "RED"
+    case blackmagic = "Blackmagic Design"
+    case panasonic = "Panasonic"
+    case fujifilm = "Fujifilm"
+    case generic = "Generic"
+    
+    var id: String { self.rawValue }
+    
+    var description: String {
+        switch self {
+        case .sony: return "Sony cameras (A7, FX series)"
+        case .canon: return "Canon cameras (C series, EOS)"
+        case .arri: return "ARRI professional cameras"
+        case .red: return "RED digital cinema cameras"
+        case .blackmagic: return "Blackmagic Design cameras"
+        case .panasonic: return "Panasonic cameras (GH, EVA series)"
+        case .fujifilm: return "Fujifilm cameras (X, GFX series)"
+        case .generic: return "Generic or unknown camera type"
+        }
     }
 }
 

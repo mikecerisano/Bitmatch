@@ -76,7 +76,7 @@ final class ComparisonOperationService {
                     
                     // Check if counterpart exists
                     guard FileManager.default.fileExists(atPath: counterpart.path) else {
-                        return ResultRow(path: relativePath, target: nil, status: .missingInDestination)
+                        return ResultRow(path: relativePath, status: "Missing in Destination", size: 0, checksum: nil)
                     }
                     
                     // Update progress
@@ -240,10 +240,12 @@ final class ComparisonOperationService {
         
         for (relativePath, fullPath) in destinationFileData {
             if !sourceFiles.contains(relativePath) {
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: fullPath.path)[.size] as? Int64) ?? 0
                 extraFiles.append(ResultRow(
                     path: relativePath,
-                    target: fullPath,
-                    status: .extraInDestination
+                    status: "Extra in Destination",
+                    size: fileSize,
+                    checksum: nil
                 ))
             }
             

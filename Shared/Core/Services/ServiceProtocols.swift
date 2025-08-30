@@ -18,8 +18,8 @@ protocol FileSystemService {
 protocol ChecksumService {
     typealias ProgressCallback = (Double, String?) -> Void
     
-    func generateChecksum(for fileURL: URL, type: ChecksumType, progressCallback: ProgressCallback?) async throws -> String
-    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumType, progressCallback: ProgressCallback?) async throws -> VerificationResult
+    func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String
+    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult
     func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool
 }
 
