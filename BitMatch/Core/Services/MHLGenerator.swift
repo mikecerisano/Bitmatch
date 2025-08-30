@@ -127,11 +127,11 @@ final class MHLGenerator {
         
         // Create production info if available
         let productionInfo: MHLFile.ProductionInfo? = {
-            if !prefs.production.isEmpty || !prefs.client.isEmpty || !prefs.company.isEmpty {
+            if !prefs.projectName.isEmpty || !prefs.clientName.isEmpty {
                 return MHLFile.ProductionInfo(
-                    title: prefs.production,
-                    client: prefs.client,
-                    company: prefs.company
+                    title: prefs.projectName,
+                    client: prefs.clientName,
+                    company: prefs.clientName // Use clientName for company as well
                 )
             }
             return nil

@@ -193,6 +193,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				271377EF2E52C7C80048DEC7 /* BitMatch */,
+				27F00A012E6200A000BA16F6 /* Shared */,
 			);
 			name = BitMatch;
 			packageProductDependencies = (
