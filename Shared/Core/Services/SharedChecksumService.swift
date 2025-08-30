@@ -13,7 +13,7 @@ class SharedChecksumService: ChecksumService {
     
     func generateChecksum(
         for fileURL: URL,
-        type: ChecksumType,
+        type: ChecksumAlgorithm,
         progressCallback: ProgressCallback? = nil
     ) async throws -> String {
         

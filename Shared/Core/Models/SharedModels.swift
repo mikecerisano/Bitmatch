@@ -2,6 +2,23 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Checksum Algorithm
+enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
+    case sha256 = "SHA-256"
+    case sha1 = "SHA-1"
+    case md5 = "MD5"
+    
+    var id: String { self.rawValue }
+    
+    var description: String {
+        switch self {
+        case .sha256: return "SHA-256 (Recommended)"
+        case .sha1: return "SHA-1"
+        case .md5: return "MD5 (Legacy)"
+        }
+    }
+}
+
 // MARK: - App Mode
 enum AppMode: String, CaseIterable, Identifiable {
     case copyAndVerify = "Copy & Verify"
