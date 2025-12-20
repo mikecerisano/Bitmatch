@@ -1,23 +1,6 @@
+// ConcurrencyHelpers.swift - macOS-specific concurrency gates
+// Uses shared AsyncSemaphore from Shared/Core/Services/AsyncSemaphore.swift
 import Foundation
-import Darwin
-
-/// An actor-based semaphore to safely limit concurrency in async contexts.
-actor AsyncSemaphore {
-    private var count: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    init(count: Int) { self.count = count }
-
-    func wait() async {
-        if count > 0 { count -= 1; return }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func signal() {
-        if waiters.isEmpty { count += 1 }
-        else { waiters.removeFirst().resume() }
-    }
-}
 
 let BigFileGate = AsyncSemaphore(
     count: ProcessInfo.processInfo.activeProcessorCount > 8 ? 3 : 2
@@ -26,8 +9,14 @@ let BigFileGate = AsyncSemaphore(
 @inline(__always)
 func withBigFileGate<T>(_ op: () async throws -> T) async rethrows -> T {
     await BigFileGate.wait()
-    defer { Task { await BigFileGate.signal() } }
-    return try await op()
+    do {
+        let result = try await op()
+        await BigFileGate.signal()
+        return result
+    } catch {
+        await BigFileGate.signal()
+        throw error
+    }
 }
 
 
@@ -37,8 +26,14 @@ let ChecksumGate = AsyncSemaphore(count: max(1, ProcessInfo.processInfo.activePr
 @inline(__always)
 func withChecksumGate<T>(_ op: () async throws -> T) async rethrows -> T {
     await ChecksumGate.wait()
-    defer { Task { await ChecksumGate.signal() } }
-    return try await op()
+    do {
+        let result = try await op()
+        await ChecksumGate.signal()
+        return result
+    } catch {
+        await ChecksumGate.signal()
+        throw error
+    }
 }
 
 // Gate for concurrent file copy operations to prevent filesystem overload
@@ -47,6 +42,12 @@ let FileCopyGate = AsyncSemaphore(count: max(4, ProcessInfo.processInfo.activePr
 @inline(__always)
 func withFileCopyGate<T>(_ op: () async throws -> T) async rethrows -> T {
     await FileCopyGate.wait()
-    defer { Task { await FileCopyGate.signal() } }
-    return try await op()
+    do {
+        let result = try await op()
+        await FileCopyGate.signal()
+        return result
+    } catch {
+        await FileCopyGate.signal()
+        throw error
+    }
 }

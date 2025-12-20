@@ -15,6 +15,16 @@ struct PlatformFilePickerView: View {
     
     @State private var isShowingPicker = false
     
+    // MARK: - Platform Manager Access
+    
+    private var currentPlatformManager: any PlatformManager {
+        #if os(macOS)
+        return MacOSPlatformManager.shared
+        #else
+        return IOSPlatformManager.shared
+        #endif
+    }
+    
     init(
         title: String,
         subtitle: String? = nil,
@@ -30,7 +40,7 @@ struct PlatformFilePickerView: View {
     }
     
     var body: some View {
-        if PlatformManager.shared.supportsDragAndDrop {
+        if currentPlatformManager.supportsDragAndDrop {
             // macOS: Use drag-and-drop interface
             macOSDragDropView
         } else {
@@ -105,7 +115,7 @@ struct PlatformFilePickerView: View {
     }
     
     private var platformHint: String {
-        if PlatformManager.shared.supportsDragAndDrop {
+        if currentPlatformManager.supportsDragAndDrop {
             return "Drag folders here or click to select"
         } else {
             return "Tap to select from Files app"
@@ -114,12 +124,12 @@ struct PlatformFilePickerView: View {
     
     private func selectFiles() async {
         if allowsMultipleSelection {
-            let urls = await PlatformManager.shared.fileSystem.selectDestinationFolders()
+            let urls = await currentPlatformManager.fileSystem.selectDestinationFolders()
             if !urls.isEmpty {
                 onFileSelected(urls)
             }
         } else {
-            if let url = await PlatformManager.shared.fileSystem.selectSourceFolder() {
+            if let url = await currentPlatformManager.fileSystem.selectSourceFolder() {
                 onFileSelected([url])
             }
         }

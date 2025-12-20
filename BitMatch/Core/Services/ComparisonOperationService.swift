@@ -17,110 +17,103 @@ final class ComparisonOperationService {
         mhlCollector: MHLOperationService.MHLCollectorActor?
     ) async throws {
         
-        // Use fake operations if dev mode is enabled
-        if DevModeManager.shared.isDevModeEnabled {
-            print("🎭 Using fake comparison operations")
-            try await performFakeComparison(
-                left: left,
-                right: right,
-                verificationMode: verificationMode,
-                progressViewModel: progressViewModel,
-                onProgress: onProgress,
-                onComplete: onComplete
-            )
-            return
-        }
+        // Always perform real comparison in production testing
         
         // Count files for progress tracking
-        let totalFiles = try await FileOperationsService.countFiles(at: left)
+        let totalFiles = try await countFilesInDirectory(at: left)
         await MainActor.run {
             progressViewModel.setFileCountTotal(totalFiles)
         }
         
-        let workers = ProcessInfo.processInfo.activeProcessorCount
+        // Limit verification concurrency to keep memory footprint predictable
+        let workers = min(2, ProcessInfo.processInfo.activeProcessorCount)
         let needsMHL = shouldGenerateMHL
         
-        // Collect all files to compare
-        let filesToCompare = await Task {
-            var files: [URL] = []
-            let fileManager = FileManager.default
-            if let enumerator = fileManager.enumerator(
-                at: left,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            ) {
-                for case let fileURL as URL in enumerator {
-                    do {
-                        if try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
-                            files.append(fileURL)
-                        }
-                    } catch {
-                        print("Error checking file \(fileURL.path): \(error)")
-                    }
-                }
-            }
-            return files
-        }.value
-        
-        // Process comparisons concurrently
+        // Process comparisons concurrently without materializing the full file list in memory
         try await withThrowingTaskGroup(of: ResultRow.self) { group in
             let semaphore = AsyncSemaphore(count: workers)
-            
-            for fileURL in filesToCompare {
-                group.addTask {
-                    await semaphore.wait()
-                    defer { Task { await semaphore.signal() } }
-                    
-                    let relativePath = String(fileURL.path.dropFirst(left.path.count + 1))
-                    let counterpart = right.appendingPathComponent(relativePath)
-                    
-                    // Check if counterpart exists
-                    guard FileManager.default.fileExists(atPath: counterpart.path) else {
-                        return ResultRow(path: relativePath, status: "Missing in Destination", size: 0, checksum: nil)
-                    }
-                    
-                    // Update progress
-                    await MainActor.run {
-                        progressViewModel.setCurrentFile(fileURL.lastPathComponent)
-                    }
-                    
-                    // Perform comparison
-                    let result = await FileOperationsService.compareFile(
-                        leftURL: fileURL,
-                        rightURL: counterpart,
-                        relativePath: relativePath,
-                        verificationMode: verificationMode
-                    )
-                    
-                    // Collect checksum for MHL if needed
-                    if needsMHL && result.status == .match {
-                        if let collector = mhlCollector {
-                            do {
-                                try await MHLOperationService.collectMHLEntry(
-                                    for: counterpart,
-                                    algorithm: .sha256, // Use SHA-256 for MHL
-                                    collector: collector
-                                )
-                            } catch {
-                                print("Failed to collect MHL entry: \(error)")
-                            }
-                        }
-                    }
-                    
-                    return result
-                }
-            }
-            
-            // Process results in batches
+            // Batch results to reduce UI churn and memory pressure
             var batch: [ResultRow] = []
             batch.reserveCapacity(50)
             
+            let fm = FileManager.default
+            let enumKeys: [URLResourceKey] = [.isRegularFileKey]
+            let maxInFlightTasks = max(128, workers * 32) // bound task graph to keep memory stable
+            var inFlight = 0
+            if let enumerator = fm.enumerator(at: left, includingPropertiesForKeys: enumKeys, options: [.skipsHiddenFiles]) {
+                while let nextObj = enumerator.nextObject() as? URL {
+                    do {
+                        let isFile = try nextObj.resourceValues(forKeys: Set(enumKeys)).isRegularFile ?? false
+                        if !isFile { continue }
+                    } catch {
+                        continue
+                    }
+                    let fileURL = nextObj
+                    // Backpressure: if too many tasks are queued, drain one result before queuing more
+                    if inFlight >= maxInFlightTasks {
+                        if let row = try await group.next() { 
+                            await OperationManager.checkPause()
+                            await MainActor.run {
+                                progressViewModel.incrementFileCompleted()
+                                if row.status.contains("✅") || row.status.contains("Match") {
+                                    progressViewModel.incrementMatch()
+                                }
+                            }
+                            batch.append(row)
+                            if batch.count >= 50 {
+                                let toAdd = batch
+                                batch.removeAll(keepingCapacity: true)
+                                onProgress(toAdd)
+                            }
+                            inFlight -= 1
+                        }
+                    }
+                    inFlight += 1
+                    group.addTask {
+                        await semaphore.wait()
+                        let relativePath = String(fileURL.path.dropFirst(left.path.count + 1))
+                        let counterpart = right.appendingPathComponent(relativePath)
+                        
+                        // Check if counterpart exists
+                        guard FileManager.default.fileExists(atPath: counterpart.path) else {
+                            await semaphore.signal()
+                            return ResultRow(path: relativePath, status: "Missing in Destination", size: 0, checksum: nil, destination: nil)
+                        }
+                        
+                        // Update progress: set current file name
+                        await MainActor.run {
+                            progressViewModel.setCurrentFile(fileURL.lastPathComponent)
+                        }
+                        
+                        // Perform comparison
+                        let result = await VerifyService.compare(leftURL: fileURL, rightURL: counterpart, relativePath: relativePath, verificationMode: verificationMode)
+                        
+                        // Collect checksum for MHL if needed
+                        if needsMHL && (result.status.contains("✅") || result.status.contains("Match")) {
+                            if let collector = mhlCollector {
+                                do {
+                                    try await MHLOperationService.collectMHLEntry(
+                                        for: counterpart,
+                                        algorithm: .sha256,
+                                        collector: collector
+                                    )
+                                } catch {
+                                    SharedLogger.warning("Failed to collect MHL entry: \(error)", category: .transfer)
+                                }
+                            }
+                        }
+                        await semaphore.signal()
+                        return result
+                    }
+                }
+            }
+            // Process any remaining results in batches
             while let row = try await group.next() {
                 await OperationManager.checkPause()
                 
                 await MainActor.run {
                     progressViewModel.incrementFileCompleted()
-                    if row.status == .match {
+                    if row.status.contains("✅") || row.status.contains("Match") {
                         progressViewModel.incrementMatch()
                     }
                 }
@@ -140,7 +133,7 @@ final class ComparisonOperationService {
         }
         
         // Check for extra files in destination
-        try await checkForExtraFiles(in: right, comparedTo: left, onProgress: onProgress)
+        try await FileDiffService.checkForExtraFiles(in: right, comparedTo: left, onProgress: onProgress)
         
         onComplete()
     }
@@ -151,6 +144,7 @@ final class ComparisonOperationService {
         source: URL,
         destinations: [URL],
         verificationMode: VerificationMode,
+        cameraLabelSettings: CameraLabelSettings,
         progressViewModel: ProgressViewModel,
         onProgress: @escaping ([ResultRow]) -> Void,
         onComplete: @escaping () -> Void,
@@ -158,55 +152,123 @@ final class ComparisonOperationService {
         mhlCollector: MHLOperationService.MHLCollectorActor?
     ) async throws {
         
-        // Use fake operations if dev mode is enabled
-        if DevModeManager.shared.isDevModeEnabled {
-            print("🎭 Using fake copy and verify operations")
-            try await performFakeCopyAndVerify(
-                source: source,
-                destinations: destinations,
-                verificationMode: verificationMode,
-                progressViewModel: progressViewModel,
-                onProgress: onProgress,
-                onComplete: onComplete
-            )
-            return
-        }
+        // Always perform real copy+verify in production testing
         
         // Safety checks
-        try await FileOperationsService.performSafetyChecks(
+        try await performSafetyChecks(
             source: source,
             destinations: destinations
         )
-        
-        // Copy files to all destinations concurrently
-        let workers = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
-        
-        await withThrowingTaskGroup(of: Void.self) { group in
+
+        // Establish file counts for progress (copy phase) without holding full list
+        let perDestFileCount = FileTreeEnumerator.countRegularFiles(base: source)
+        let totalPlanned = perDestFileCount * max(1, destinations.count)
+        await MainActor.run {
+            progressViewModel.setFileCountTotal(totalPlanned)
+            progressViewModel.configureDestinations(totalPerDestination: perDestFileCount, count: destinations.count)
+            progressViewModel.setProgressMessage("Copying files…")
+        }
+
+        let destinationRootFor: (URL) -> URL = { destination in
+            let baseName = source.lastPathComponent
+            let labeledName = cameraLabelSettings.formattedFolderName(for: baseName)
+            if cameraLabelSettings.groupByCamera {
+                let raw = cameraLabelSettings.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                let group = raw.isEmpty ? "Camera" : raw
+                return destination.appendingPathComponent(group).appendingPathComponent(baseName)
+            } else {
+                let folderName = labeledName.isEmpty ? baseName : labeledName
+                return destination.appendingPathComponent(folderName)
+            }
+        }
+
+        // Pre-scan destinations to seed resume progress when files already exist and match size
+        let alreadyPresentPerDestination: [Int] = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
             for destination in destinations {
                 group.addTask {
-                    try await FileOperationsService.copyAllSafely(
+                    let destRoot = destinationRootFor(destination)
+                    return await PreScanService.countAlreadyPresentStreaming(sourceBase: source, destRoot: destRoot, verificationMode: verificationMode)
+                }
+            }
+            var counts: [Int] = []
+            for await c in group { counts.append(c) }
+            return counts
+        }
+        let seeded = alreadyPresentPerDestination.reduce(0, +)
+        if seeded > 0 {
+            await MainActor.run {
+                progressViewModel.incrementFileCompleted(seeded)
+                // Bump per-destination counters to reflect seeded progress
+                for (idx, c) in alreadyPresentPerDestination.enumerated() where c > 0 {
+                    for _ in 0..<c { progressViewModel.incrementDestinationCompleted(index: idx) }
+                }
+                progressViewModel.setReusedFileCopies(seeded)
+                // Only show the resume message if the reuse count is meaningful
+                if seeded >= 3 {
+                    progressViewModel.setProgressMessage("Resuming: \(seeded) already present…")
+                }
+            }
+        }
+        // Reuse enumerated file list via closure capture when copying to each destination
+        
+        // Diagnostics
+        let resolvedDestinations = destinations.map { destinationRootFor($0).path }
+        SharedLogger.info("Starting Copy & Verify - Source: \(source.path), Destinations: \(resolvedDestinations)", category: .transfer)
+
+        // Copy files to all destinations.
+        // Use conservative per-destination concurrency to keep memory stable under large file loads.
+        let workers = 1
+        await withThrowingTaskGroup(of: Void.self) { group in
+            for (destIndex, destination) in destinations.enumerated() {
+                group.addTask {
+                    try Task.checkCancellation()
+                    // Create a top-level folder named after the source (e.g., card volume name)
+                    let destRoot = destinationRootFor(destination)
+                    do {
+                        if !FileManager.default.fileExists(atPath: destRoot.path) {
+                            try FileManager.default.createDirectory(at: destRoot, withIntermediateDirectories: true, attributes: nil)
+                        }
+                    } catch {
+                        SharedLogger.error("Failed to prepare destination folder \(destRoot.path): \(error.localizedDescription)", category: .transfer)
+                        throw error
+                    }
+                    SharedLogger.debug("Copying to: \(destRoot.path)", category: .transfer)
+
+                    try await FileCopyService.copyAllSafely(
                         from: source,
-                        toRoot: destination,
+                        toRoot: destRoot,
                         workers: workers,
+                        preEnumeratedFiles: nil,
+                        pauseCheck: nil,
                         onProgress: { fileName, fileSize in
+                            // Dispatch to main actor without making this closure async
                             Task { @MainActor in
-                                progressViewModel.setCurrentFile(fileName)
+                                // Skip UI updates if cancelled to reduce warnings/spam
+                                guard !Task.isCancelled else { return }
+                                progressViewModel.setCurrentFile(fileName, size: fileSize)
                                 progressViewModel.updateBytesProcessed(fileSize)
+                                progressViewModel.incrementFileCompleted()
+                                progressViewModel.incrementDestinationCompleted(index: destIndex)
                             }
                         },
                         onError: { fileName, error in
-                            print("Copy error for \(fileName): \(error)")
+                            SharedLogger.error("Copy error for \(fileName): \(error.localizedDescription)", category: .transfer)
                         }
                     )
                 }
             }
         }
         
-        // Verify copied files
+        // Respect cancellation between copy and verify phases
+        try Task.checkCancellation()
+        
+        // Verify copied files (compare against the per-card subfolder we created)
         for destination in destinations {
+            let destRoot = destinationRootFor(destination)
+            try Task.checkCancellation()
             try await performComparison(
                 left: source,
-                right: destination,
+                right: destRoot,
                 verificationMode: verificationMode,
                 progressViewModel: progressViewModel,
                 onProgress: onProgress,
@@ -221,212 +283,81 @@ final class ComparisonOperationService {
     
     // MARK: - Helper Methods
     
-    private static func checkForExtraFiles(
-        in destination: URL,
-        comparedTo source: URL,
-        onProgress: @escaping ([ResultRow]) -> Void
-    ) async throws {
-        
-        // Collect source file paths using non-async approach
-        let sourceFiles = await Task.detached {
-            return await collectFilePathsSync(at: source, relativeTo: source)
-        }.value
-        
-        // Check destination for extra files using non-async approach
-        var extraFiles: [ResultRow] = []
-        let destinationFileData = await Task.detached {
-            return await collectFilePathsWithFullPaths(at: destination, relativeTo: destination)
-        }.value
-        
-        for (relativePath, fullPath) in destinationFileData {
-            if !sourceFiles.contains(relativePath) {
-                let fileSize = (try? FileManager.default.attributesOfItem(atPath: fullPath.path)[.size] as? Int64) ?? 0
-                extraFiles.append(ResultRow(
-                    path: relativePath,
-                    status: "Extra in Destination",
-                    size: fileSize,
-                    checksum: nil
-                ))
-            }
-            
-            if extraFiles.count >= 50 {
-                onProgress(extraFiles)
-                extraFiles.removeAll()
-            }
-        }
-        
-        if !extraFiles.isEmpty {
-            onProgress(extraFiles)
-        }
-    }
     
-    // MARK: - Fake Operations for Dev Mode
-    
-    private static func performFakeComparison(
-        left: URL,
-        right: URL,
-        verificationMode: VerificationMode,
-        progressViewModel: ProgressViewModel,
-        onProgress: @escaping ([ResultRow]) -> Void,
-        onComplete: @escaping () -> Void
-    ) async throws {
-        
-        let fakeFileCount = Int.random(in: 150...450)
-        await MainActor.run {
-            progressViewModel.setFileCountTotal(fakeFileCount)
-            progressViewModel.startProgressTracking()
-        }
-        
-        print("🎭 Starting fake comparison of \(fakeFileCount) files")
-        
-        try await DevModeManager.simulateFakeVerifyProgress(
-            totalFiles: fakeFileCount,
-            sourceURL: left,
-            destURL: right,
-            onProgress: { fileName in
-                progressViewModel.setCurrentFile(fileName)
-            },
-            onResult: { result in
-                progressViewModel.incrementFileCompleted()
-                // Add fake bytes for speed calculation during verification
-                let fakeFileSize = Int64.random(in: 15_000_000...85_000_000) // 15-85 MB per file
-                progressViewModel.updateBytesProcessed(fakeFileSize)
-                if result.status == .match {
-                    progressViewModel.incrementMatch()
-                }
-                onProgress([result])
-            }
-        )
-        
-        // Clear current file display when complete
-        await MainActor.run {
-            progressViewModel.clearCurrentFile()
-        }
-        
-        onComplete()
-    }
-    
-    private static func performFakeCopyAndVerify(
-        source: URL,
-        destinations: [URL],
-        verificationMode: VerificationMode,
-        progressViewModel: ProgressViewModel,
-        onProgress: @escaping ([ResultRow]) -> Void,
-        onComplete: @escaping () -> Void
-    ) async throws {
-        
-        let fakeFileCount = Int.random(in: 150...450)
-        await MainActor.run {
-            progressViewModel.setFileCountTotal(fakeFileCount)
-            progressViewModel.startProgressTracking()
-        }
-        
-        print("🎭 Starting fake copy and verify of \(fakeFileCount) files to \(destinations.count) destinations")
-        
-        // Simulate copy phase
-        try await DevModeManager.simulateFakeCopyProgress(
-            totalFiles: fakeFileCount,
-            onProgress: { fileName, fileSize in
-                progressViewModel.setCurrentFile(fileName)
-                progressViewModel.updateBytesProcessed(fileSize)
-            },
-            onError: { fileName, error in
-                print("🎭 Fake copy error for \(fileName): \(error)")
-            }
-        )
-        
-        // Simulate verify phase for each destination
-        for (index, destination) in destinations.enumerated() {
-            print("🎭 Fake verifying destination \(index + 1)/\(destinations.count)")
-            
-            try await DevModeManager.simulateFakeVerifyProgress(
-                totalFiles: fakeFileCount,
-                sourceURL: source,
-                destURL: destination,
-                onProgress: { fileName in
-                    progressViewModel.setCurrentFile(fileName)
-                },
-                onResult: { result in
-                    progressViewModel.incrementFileCompleted()
-                    // Add fake bytes for speed calculation during verification
-                    let fakeFileSize = Int64.random(in: 15_000_000...85_000_000) // 15-85 MB per file
-                    progressViewModel.updateBytesProcessed(fakeFileSize)
-                    if result.status == .match {
-                        progressViewModel.incrementMatch()
-                    }
-                    onProgress([result])
-                }
-            )
-        }
-        
-        // Clear current file display when complete
-        await MainActor.run {
-            progressViewModel.clearCurrentFile()
-        }
-        
-        onComplete()
-    }
-    
-    // MARK: - Sync File Collection Helpers
-    
-    private static func collectFilePathsSync(at url: URL, relativeTo base: URL) async -> Set<String> {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .utility) {
-                var files = Set<String>()
-                let fileManager = FileManager.default
-                
-                guard let enumerator = fileManager.enumerator(
-                    at: url,
-                    includingPropertiesForKeys: [.isRegularFileKey],
-                    options: [.skipsHiddenFiles]
-                ) else {
-                    continuation.resume(returning: files)
-                    return
-                }
-                
-                let enumeratorArray = Array(enumerator)
-                for case let fileURL as URL in enumeratorArray {
-                    do {
-                        if try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
-                            let relativePath = String(fileURL.path.dropFirst(base.path.count + 1))
-                            files.insert(relativePath)
+    // MARK: - Helper Functions
+
+    private static func countFilesInDirectory(at url: URL) async throws -> Int {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey])
+                    var count = 0
+                    while let fileURL = enumerator?.nextObject() as? URL {
+                        let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                        if resourceValues.isRegularFile == true {
+                            count += 1
                         }
-                    } catch {
-                        print("Error checking file \(fileURL.path): \(error)")
                     }
+                    continuation.resume(returning: count)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
-                continuation.resume(returning: files)
             }
         }
     }
-    
-    private static func collectFilePathsWithFullPaths(at url: URL, relativeTo base: URL) async -> [(String, String)] {
-        return await withCheckedContinuation { continuation in
-            Task.detached(priority: .utility) {
-                var files: [(String, String)] = []
-                let fileManager = FileManager.default
-                
-                guard let enumerator = fileManager.enumerator(
-                    at: url,
-                    includingPropertiesForKeys: [.isRegularFileKey],
-                    options: [.skipsHiddenFiles]
-                ) else {
-                    continuation.resume(returning: files)
-                    return
-                }
-                
-                let enumeratorArray = Array(enumerator)
-                for case let fileURL as URL in enumeratorArray {
-                    do {
-                        if try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
-                            let relativePath = String(fileURL.path.dropFirst(base.path.count + 1))
-                            files.append((relativePath, fileURL.path))
+
+    // Count how many files already exist at destination with matching size (resume heuristic)
+    private static func countAlreadyPresentFiles(
+        sourceFiles: [URL],
+        sourceBase: URL,
+        destRoot: URL,
+        verificationMode: VerificationMode
+    ) async -> Int {
+        let fm = FileManager.default
+        var count = 0
+        for fileURL in sourceFiles {
+            do {
+                let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                let relative = String(fileURL.path.dropFirst(sourceBase.path.count + 1))
+                let destURL = destRoot.appendingPathComponent(relative)
+                if fm.fileExists(atPath: destURL.path) {
+                    let destSize = (try fm.attributesOfItem(atPath: destURL.path)[.size] as? NSNumber)?.int64Value ?? -1
+                    if destSize == Int64(values.fileSize ?? -2) {
+                        // Optional: when checksum verification is enabled, require a quick checksum for small files
+                        if verificationMode.useChecksum, let fsize = values.fileSize, fsize > 0, fsize <= 5 * 1024 * 1024 {
+                            do {
+                                let srcHash = try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: .sha256, progressCallback: nil)
+                                let dstHash = try await SharedChecksumService.shared.generateChecksum(for: destURL, type: .sha256, progressCallback: nil)
+                                if srcHash == dstHash { count += 1 }
+                            } catch {
+                                // If checksum fails, don't count as present; verify phase will catch issues
+                            }
+                        } else {
+                            count += 1
                         }
-                    } catch {
-                        print("Error checking file \(fileURL.path): \(error)")
                     }
                 }
-                continuation.resume(returning: files)
+            } catch {
+                continue
+            }
+        }
+        return count
+    }
+
+    // No persistent state; helpers only
+
+    // moved to VerifyService.compare
+
+    private static func performSafetyChecks(source: URL, destinations: [URL]) async throws {
+        // Basic safety checks
+        guard FileManager.default.fileExists(atPath: source.path) else {
+            throw BitMatchError.fileNotFound(source)
+        }
+        
+        for dest in destinations {
+            let parentDir = dest.deletingLastPathComponent()
+            if !FileManager.default.fileExists(atPath: parentDir.path) {
+                try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
             }
         }
     }

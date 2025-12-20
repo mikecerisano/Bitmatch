@@ -97,7 +97,7 @@ struct PreferencesWindow: View {
                 if coordinator.settingsViewModel.prefs.makeReport {
                     GroupBox("Report Settings") {
                         VStack(alignment: .leading, spacing: 12) {
-                            TextField("Client Name:", text: $coordinator.settingsViewModel.prefs.client)
+                            TextField("Client Name:", text: $coordinator.settingsViewModel.prefs.clientName)
                                 .textFieldStyle(.roundedBorder)
                             
                             TextField("Production Title:", text: $coordinator.settingsViewModel.prefs.production)

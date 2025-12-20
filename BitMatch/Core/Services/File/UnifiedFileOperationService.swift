@@ -22,7 +22,7 @@ final class UnifiedFileOperationService {
         
         // Step 2: Count files for progress tracking
         let totalFiles = try await FileCounter.countFiles(at: source)
-        print("📊 Total files to process: \(totalFiles)")
+        SharedLogger.info("Total files to process: \(totalFiles)", category: .transfer)
         
         // Step 3: Perform copying to each destination
         for destination in destinations {
@@ -30,6 +30,8 @@ final class UnifiedFileOperationService {
                 from: source,
                 toRoot: destination,
                 workers: workers,
+                preEnumeratedFiles: nil,
+                pauseCheck: nil,
                 onProgress: onProgress,
                 onError: onError
             )

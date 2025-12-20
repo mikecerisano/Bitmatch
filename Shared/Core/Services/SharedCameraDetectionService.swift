@@ -13,6 +13,45 @@ class SharedCameraDetectionService: CameraDetectionService {
         var detectionMethod = "unknown"
         
         do {
+            // Guard against scanning huge destination volumes (≥ 1 TB)
+            if let rv = try? folderURL.resourceValues(forKeys: [.volumeTotalCapacityKey]),
+               let cap = rv.volumeTotalCapacity, cap >= 1_000_000_000_000 {
+                SharedLogger.debug("Skip SharedCameraDetectionService on large volume: \(ByteCountFormatter.string(fromByteCount: Int64(cap), countStyle: .file)) at \(folderURL.path)", category: .transfer)
+                return CameraDetectionResult(cameraCard: nil, confidence: 0.0, metadata: ["skip": "large_volume"], detectionMethod: "guard", processingTime: Date().timeIntervalSince(startTime))
+            }
+            // Fast path: use orchestrator’s folder/name heuristics when available (macOS target)
+            #if os(macOS)
+            if let orchestrated = CameraDetectionOrchestrator.shared.detectCamera(at: folderURL) {
+                metadata["orchestrator_hint"] = orchestrated
+                // Parse manufacturer/model from the returned string
+                let parts = orchestrated.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+                let manufacturerFromHint = parts.first.map(String.init)
+                let modelFromHint = parts.count > 1 ? String(parts[1]) : nil
+                // If we recognize a specific make (e.g., Sony/Canon/FUJI/ARRI/RED/etc.), bump confidence
+                if let make = manufacturerFromHint, ["Sony","Canon","FUJIFILM","Fujifilm","ARRI","RED","Blackmagic","Panasonic","DJI","GoPro"].contains(where: { make.localizedCaseInsensitiveContains($0) }) {
+                    confidence = max(confidence, 0.9)
+                    detectionMethod = "orchestrator_hint"
+                    // Pre-seed a card so UI can label immediately
+                    let fileURLs = try await getFileList(from: folderURL)
+                    // Prefer the model for display if available (e.g., FX3 over SONY)
+                    let preferredLabel = (modelFromHint?.isEmpty == false) ? modelFromHint! : make
+                    let cleanName = Self.cleanCameraName(preferredLabel)
+                    detectedCard = CameraCard(
+                        name: cleanName,
+                        manufacturer: make,
+                        model: modelFromHint,
+                        fileCount: fileURLs.count,
+                        totalSize: calculateTotalSize(fileURLs),
+                        detectionConfidence: confidence,
+                        metadata: metadata,
+                        volumeURL: folderURL,
+                        cameraType: .generic,
+                        mediaPath: folderURL
+                    )
+                }
+            }
+            #endif
+
             // Step 1: Analyze folder structure
             let folderStructure = try await analyzeFolderStructure(at: folderURL)
             metadata.merge(folderStructure) { _, new in new }
@@ -43,11 +82,14 @@ class SharedCameraDetectionService: CameraDetectionService {
                         let videoMetadata = try await extractVideoMetadata(from: videoURL)
                         metadata.merge(videoMetadata) { _, new in new }
                         
-                        let (videoManufacturer, videoModel, videoConfidence) = extractCameraFromVideoMetadata(videoMetadata)
+                        let (mf, mdl, videoConfidence) = extractCameraFromVideoMetadata(videoMetadata)
                         if videoConfidence > confidence {
                             confidence = videoConfidence
                             detectionMethod = "video_metadata"
                         }
+                        // If model identified, prefer it for display
+                        if let m = mf { metadata["make_inferred"] = m }
+                        if let model = mdl { metadata["model_inferred"] = model }
                     } catch {
                         // Video metadata extraction failed, continue with other methods
                     }
@@ -60,7 +102,7 @@ class SharedCameraDetectionService: CameraDetectionService {
                 for xmlURL in xmlURLs.prefix(3) { // Only check first 3 XML files
                     do {
                         let xmlMetadata = try await parseXMLMetadata(from: xmlURL)
-                        let (xmlManufacturer, xmlModel, xmlConfidence) = extractCameraFromXMLMetadata(xmlMetadata)
+                        let (_, _, xmlConfidence) = extractCameraFromXMLMetadata(xmlMetadata)
                         if xmlConfidence > confidence {
                             confidence = xmlConfidence
                             detectionMethod = "xml_metadata"
@@ -72,20 +114,50 @@ class SharedCameraDetectionService: CameraDetectionService {
                 }
             }
             
-            // Create camera card if we have sufficient confidence
+            // Create or update camera card if we have sufficient confidence
             if confidence > 0.5 {
-                let finalManufacturer = manufacturer ?? fileManufacturer ?? "Unknown"
-                let finalModel = model ?? fileModel
+                let finalManufacturer = manufacturer ?? fileManufacturer ?? detectedCard?.manufacturer ?? "Unknown"
+                let finalModel = model ?? fileModel ?? detectedCard?.model
                 
-                detectedCard = CameraCard(
-                    name: finalModel ?? finalManufacturer,
-                    manufacturer: finalManufacturer,
-                    model: finalModel,
-                    fileCount: fileURLs.count,
-                    totalSize: calculateTotalSize(fileURLs),
-                    detectionConfidence: confidence,
-                    metadata: metadata
-                )
+                if detectedCard == nil {
+                    let cleanName = Self.cleanCameraName("\(finalManufacturer) \(finalModel ?? "")")
+                    detectedCard = CameraCard(
+                        name: cleanName,
+                        manufacturer: finalManufacturer,
+                        model: finalModel,
+                        fileCount: fileURLs.count,
+                        totalSize: calculateTotalSize(fileURLs),
+                        detectionConfidence: confidence,
+                        metadata: metadata,
+                        volumeURL: folderURL,
+                        cameraType: Self.inferCameraType(
+                            manufacturer: finalManufacturer,
+                            model: finalModel,
+                            extensions: Array(Set(fileURLs.map { $0.pathExtension.lowercased() }))
+                        ),
+                        mediaPath: folderURL
+                    )
+                } else {
+                    // Prefer model when present for the user-facing name
+                    let display = finalModel?.isEmpty == false ? finalModel! : finalManufacturer
+                    let cleanName = Self.cleanCameraName(display)
+                    detectedCard = CameraCard(
+                        name: cleanName,
+                        manufacturer: finalManufacturer,
+                        model: finalModel,
+                        fileCount: detectedCard?.fileCount ?? fileURLs.count,
+                        totalSize: detectedCard?.totalSize ?? calculateTotalSize(fileURLs),
+                        detectionConfidence: confidence,
+                        metadata: metadata.merging(detectedCard?.metadata ?? [:]) { a, _ in a },
+                        volumeURL: folderURL,
+                        cameraType: Self.inferCameraType(
+                            manufacturer: finalManufacturer,
+                            model: finalModel,
+                            extensions: Array(Set(fileURLs.map { $0.pathExtension.lowercased() }))
+                        ),
+                        mediaPath: folderURL
+                    )
+                }
             }
             
         } catch {
@@ -102,6 +174,18 @@ class SharedCameraDetectionService: CameraDetectionService {
             detectionMethod: detectionMethod,
             processingTime: processingTime
         )
+    }
+
+    // Lightweight, platform-agnostic camera name cleaner
+    private static func cleanCameraName(_ full: String) -> String {
+        var result = full
+        result = result.replacingOccurrences(of: "-", with: " ")
+        result = result.replacingOccurrences(of: "_", with: " ")
+        result = result.replacingOccurrences(of: "  ", with: " ")
+        result = result.replacingOccurrences(of: "Mark ", with: "MK", options: .caseInsensitive)
+        result = result.replacingOccurrences(of: "III", with: "3")
+        result = result.replacingOccurrences(of: "II", with: "2")
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "").prefix(8).description
     }
     
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any] {
@@ -132,19 +216,19 @@ class SharedCameraDetectionService: CameraDetectionService {
     }
     
     func extractVideoMetadata(from fileURL: URL) async throws -> [String: Any] {
-        let asset = AVAsset(url: fileURL)
+        let asset = AVURLAsset(url: fileURL)
         var metadata: [String: Any] = [:]
         
         // Get common metadata
-        for item in await asset.metadata {
+        for item in try await asset.load(.metadata) {
             if let key = item.commonKey?.rawValue, let value = try? await item.load(.value) {
                 metadata[key] = value
             }
         }
         
         // Get format-specific metadata
-        for format in await asset.availableMetadataFormats {
-            let items = await asset.metadata(forFormat: format)
+        for format in try await asset.load(.availableMetadataFormats) {
+            let items = try await asset.loadMetadata(for: format)
             for item in items {
                 if let key = item.key as? String, let value = try? await item.load(.value) {
                     metadata["format_\(format.rawValue)_\(key)"] = value
@@ -202,22 +286,32 @@ class SharedCameraDetectionService: CameraDetectionService {
     }
     
     private func detectFromFolderName(_ folderName: String) -> (manufacturer: String?, model: String?, confidence: Double) {
-        let patterns: [(String, String?, Double)] = [
-            ("ARRI", "ALEXA", 0.9),
-            ("CANON", nil, 0.8),
-            ("SONY", nil, 0.8),
-            ("PANASONIC", nil, 0.8),
-            ("FUJI", nil, 0.8),
-            ("BLACKMAGIC", nil, 0.8),
-            ("RED", nil, 0.9),
+        // First, check for common model codes in folder or volume names
+        let modelPatterns: [(String, String, Double)] = [
+            ("SONY", "FX3", 0.95), ("SONY", "FX6", 0.95), ("SONY", "FX9", 0.95),
+            ("SONY", "A7SIII", 0.9), ("SONY", "A7S3", 0.9),
+            ("SONY", "BURANO", 0.95),
+            ("CANON", "C70", 0.95), ("CANON", "C300", 0.9),
+            ("ARRI", "ALEXA", 0.95), ("ARRI", "AMIRA", 0.95),
+            ("RED", "KOMODO", 0.95), ("RED", "RAPTOR", 0.95)
         ]
-        
-        for (manufacturer, model, confidence) in patterns {
-            if folderName.contains(manufacturer) {
-                return (manufacturer, model, confidence)
+        for (make, model, conf) in modelPatterns {
+            if folderName.contains(model) {
+                return (make, model, conf)
             }
         }
-        
+
+        // Fallback to manufacturer-only detection
+        let makePatterns: [(String, Double)] = [
+            ("ARRI", 0.9), ("CANON", 0.8), ("SONY", 0.8), ("PANASONIC", 0.8),
+            ("FUJI", 0.8), ("BLACKMAGIC", 0.8), ("RED", 0.9)
+        ]
+        for (make, conf) in makePatterns {
+            if folderName.contains(make) {
+                return (make, nil, conf)
+            }
+        }
+
         return (nil, nil, 0.0)
     }
     
@@ -237,15 +331,29 @@ class SharedCameraDetectionService: CameraDetectionService {
     
     private func extractCameraFromVideoMetadata(_ metadata: [String: Any]) -> (manufacturer: String?, model: String?, confidence: Double) {
         // Look for camera information in video metadata
-        for (key, value) in metadata {
-            let keyLower = key.lowercased()
+        for (_, value) in metadata {
             let valueString = "\(value)".lowercased()
             
-            if keyLower.contains("camera") || keyLower.contains("device") {
-                if valueString.contains("arri") { return ("ARRI", nil, 0.9) }
-                if valueString.contains("canon") { return ("Canon", nil, 0.9) }
-                if valueString.contains("sony") { return ("Sony", nil, 0.9) }
-                if valueString.contains("panasonic") { return ("Panasonic", nil, 0.9) }
+            // Manufacturer detection
+            var make: String? = nil
+            if valueString.contains("arri") { make = "ARRI" }
+            else if valueString.contains("canon") { make = "Canon" }
+            else if valueString.contains("sony") { make = "Sony" }
+            else if valueString.contains("panasonic") { make = "Panasonic" }
+
+            // Model detection for common Sony/Canon/ARRI/RED patterns
+            var model: String? = nil
+            let modelCandidates = ["fx3","fx6","fx9","a7siii","a7s3","burano","c70","c300","alexa","amira","komodo","raptor"]
+            for cand in modelCandidates {
+                if valueString.contains(cand) {
+                    model = cand.uppercased()
+                    break
+                }
+            }
+
+            if make != nil || model != nil {
+                let conf = model != nil ? 0.96 : 0.9
+                return (make, model, conf)
             }
         }
         
@@ -274,5 +382,21 @@ class SharedCameraDetectionService: CameraDetectionService {
         return fileURLs.compactMap { url in
             try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64
         }.reduce(0, +)
+    }
+}
+
+// MARK: - Helpers
+extension SharedCameraDetectionService {
+    static func inferCameraType(manufacturer: String, model: String?, extensions: [String]) -> CameraType {
+        let m = manufacturer.lowercased()
+        let mod = (model ?? "").lowercased()
+        let exts = Set(extensions.map { $0.lowercased() })
+        if m.contains("arri") || (mod.contains("alexa")) || exts.contains("ari") { return .arri }
+        if m.contains("red") || exts.contains("r3d") { return .red }
+        if m.contains("sony") || exts.contains("mxf") { return .sony }
+        if m.contains("canon") { return .canon }
+        if m.contains("blackmagic") || exts.contains("braw") { return .blackmagic }
+        if m.contains("panasonic") { return .panasonic }
+        return .generic
     }
 }

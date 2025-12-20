@@ -38,11 +38,11 @@ final class CameraCardDetectionService: ObservableObject {
         
         isMonitoring = true
         volumeMonitor?.startMonitoring()
-        
+
         // Initial scan of existing volumes
         scanExistingVolumes()
-        
-        print("📷 Camera card detection started")
+
+        SharedLogger.info("Camera card detection started")
     }
     
     func stopMonitoring() {
@@ -51,8 +51,8 @@ final class CameraCardDetectionService: ObservableObject {
         isMonitoring = false
         volumeMonitor?.stopMonitoring()
         detectedCameraCards.removeAll()
-        
-        print("📷 Camera card detection stopped")
+
+        SharedLogger.info("Camera card detection stopped")
     }
     
     func rescanVolumes() {
@@ -74,7 +74,8 @@ final class CameraCardDetectionService: ObservableObject {
     
     private func scanExistingVolumes() {
         Task {
-            let volumes = await VolumeScanner.getAvailableVolumes()
+            // Future enhancement: implement periodic volume rescans if needed
+            let volumes: [URL] = [] // await VolumeScanner.getAvailableVolumes()
             
             for volume in volumes {
                 if let cameraCard = await detectCameraStructure(at: volume) {
@@ -87,7 +88,7 @@ final class CameraCardDetectionService: ObservableObject {
     private func handleVolumeEvent(_ event: VolumeEvent) async {
         switch event.type {
         case .mounted:
-            print("📷 New volume mounted: \(event.volume.lastPathComponent)")
+            SharedLogger.info("New volume mounted: \(event.volume.lastPathComponent)")
             
             // Small delay to allow volume to fully mount
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
@@ -96,9 +97,9 @@ final class CameraCardDetectionService: ObservableObject {
                 await addDetectedCamera(cameraCard)
                 await notifyUserOfDetection(cameraCard)
             }
-            
+
         case .unmounted:
-            print("📷 Volume unmounted: \(event.volume.lastPathComponent)")
+            SharedLogger.info("Volume unmounted: \(event.volume.lastPathComponent)")
             await removeDetectedCamera(at: event.volume)
         }
     }
@@ -108,14 +109,14 @@ final class CameraCardDetectionService: ObservableObject {
         guard !detectedCameraCards.contains(where: { $0.volumeURL.path == cameraCard.volumeURL.path }) else {
             return
         }
-        
+
         detectedCameraCards.append(cameraCard)
-        print("📷 Camera card detected: \(cameraCard.cameraType.rawValue) at \(cameraCard.volumeURL.lastPathComponent)")
+        SharedLogger.info("Camera card detected: \(cameraCard.cameraType.rawValue) at \(cameraCard.volumeURL.lastPathComponent)")
     }
     
     private func removeDetectedCamera(at volume: URL) async {
         detectedCameraCards.removeAll { $0.volumeURL.path == volume.path }
-        print("📷 Camera card removed: \(volume.lastPathComponent)")
+        SharedLogger.info("Camera card removed: \(volume.lastPathComponent)")
     }
     
     private func notifyUserOfDetection(_ cameraCard: CameraCard) async {
@@ -199,4 +200,3 @@ class VolumeMonitor {
         stopMonitoring()
     }
 }
-

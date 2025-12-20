@@ -47,7 +47,9 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 @main
 struct BitMatchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #if DEBUG
     @ObservedObject private var devModeManager = DevModeManager.shared
+    #endif
     private let notifDelegate = NotificationDelegate()
 
     init() {
@@ -105,6 +107,7 @@ struct BitMatchApp: App {
                 .keyboardShortcut("3", modifiers: .command)
             }
             
+            #if DEBUG
             CommandMenu("Developer") {
                 Button(devModeManager.isDevModeEnabled ? "Disable Dev Mode" : "Enable Dev Mode") {
                     devModeManager.isDevModeEnabled.toggle()
@@ -124,6 +127,18 @@ struct BitMatchApp: App {
                 }
                 .keyboardShortcut("q", modifiers: [.command, .option])
                 .disabled(!devModeManager.isDevModeEnabled)
+
+                Divider()
+                Button("Stress Test (Small)") { NotificationCenter.default.post(name: .runStressTestSmall, object: nil) }
+                    .disabled(!devModeManager.isDevModeEnabled)
+                Button("Stress Test (Medium)") { NotificationCenter.default.post(name: .runStressTestMedium, object: nil) }
+                    .disabled(!devModeManager.isDevModeEnabled)
+                Button("Stress Test (Large)") { NotificationCenter.default.post(name: .runStressTestLarge, object: nil) }
+                    .disabled(!devModeManager.isDevModeEnabled)
+
+                Divider()
+                Toggle("Verbose Dev Logs", isOn: $devModeManager.verboseLogs)
+                    .disabled(!devModeManager.isDevModeEnabled)
                 
                 Divider()
                 
@@ -132,6 +147,7 @@ struct BitMatchApp: App {
                 }
                 .disabled(!devModeManager.isDevModeEnabled)
             }
+            #endif
         }
     }
     
@@ -187,4 +203,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 // - switchToMasterReportMode
 // - cameraLabelExpandedChanged
 // - verificationModeExpandedChanged
-

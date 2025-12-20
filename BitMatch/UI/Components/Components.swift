@@ -42,9 +42,9 @@ struct ModeSelectorView: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: appMode.icon)
+                        Image(systemName: appMode.systemImage)
                             .font(.system(size: 11))
-                        Text(appMode.shortTitle)
+                        Text(appMode.rawValue)
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundColor(mode == appMode ? .white : .white.opacity(0.5))
@@ -98,5 +98,29 @@ struct CompletionView: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white.opacity(0.03))
         )
+    }
+}
+
+// MARK: - Toast View
+struct ToastView: View {
+    let icon: String
+    let message: String
+    let tint: Color
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(tint)
+            Text(message)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule().fill(Color.black.opacity(0.6))
+                .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+        )
+        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 4)
     }
 }

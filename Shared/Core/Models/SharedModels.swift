@@ -1,6 +1,10 @@
-// SharedModels.swift - Unified models for both macOS and iPad
+// SharedModels.swift - Core shared models for both macOS and iPad
 import Foundation
 import SwiftUI
+
+// Import specialized model files
+// These imports make all models available throughout the app
+// while keeping the code organized in focused files
 
 // MARK: - Checksum Algorithm
 enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
@@ -158,6 +162,7 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     func estimatedTime(fileCount: Int) -> String {
         let complexityFactor: Double
         switch self {
+        case .quick: complexityFactor = 0.5
         case .standard: complexityFactor = 1.0
         case .thorough: complexityFactor = 1.8
         case .paranoid: complexityFactor = 2.5
@@ -177,128 +182,9 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-// MARK: - Checksum Types
-enum ChecksumType: String, CaseIterable {
-    case md5 = "MD5"
-    case sha256 = "SHA-256"
-    case sha1 = "SHA-1"
-    
-    var displayName: String { rawValue }
-}
 
-// MARK: - Operation State
-enum OperationState {
-    case notStarted
-    case inProgress
-    case completed
-    case failed
-    case cancelled
-}
 
-// MARK: - Completion State
-enum CompletionState {
-    case notStarted
-    case inProgress
-    case completed
-    case failed
-}
 
-// MARK: - Progress Stage
-enum ProgressStage {
-    case idle
-    case preparing
-    case copying
-    case verifying
-    case generating
-    case completed
-    
-    var displayName: String {
-        switch self {
-        case .idle: return "Ready"
-        case .preparing: return "Preparing..."
-        case .copying: return "Copying files..."
-        case .verifying: return "Verifying integrity..."
-        case .generating: return "Generating reports..."
-        case .completed: return "Complete"
-        }
-    }
-}
-
-// MARK: - Camera Label Settings
-struct CameraLabelSettings: Codable {
-    var label: String = ""
-    var position: LabelPosition = .prefix
-    var separator: Separator = .underscore
-    var autoNumber: Bool = true
-    var groupByCamera: Bool = false
-    
-    enum LabelPosition: String, CaseIterable, Codable {
-        case prefix = "Prefix"
-        case suffix = "Suffix"
-    }
-    
-    enum Separator: String, CaseIterable, Codable {
-        case underscore = "_"
-        case dash = "-"
-        case dot = "."
-        case space = " "
-        
-        var displayName: String {
-            switch self {
-            case .underscore: return "Underscore (_)"
-            case .dash: return "Dash (-)"
-            case .dot: return "Dot (.)"
-            case .space: return "Space ( )"
-            }
-        }
-    }
-}
-
-// MARK: - Result Row
-struct ResultRow: Identifiable {
-    let id = UUID()
-    let path: String
-    let status: String
-    let size: Int64
-    let checksum: String?
-    
-    var fileName: String {
-        URL(fileURLWithPath: path).lastPathComponent
-    }
-    
-    var formattedSize: String {
-        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
-    }
-}
-
-// MARK: - Report Preferences  
-struct ReportPrefs: Codable {
-    var generatePDF: Bool = true
-    var generateCSV: Bool = true
-    var includeThumbnails: Bool = false
-    var clientName: String = ""
-    var projectName: String = ""
-    var notes: String = ""
-    var makeReport: Bool = true
-    var verifyWithChecksum: Bool = true
-}
-
-// MARK: - Transfer Metadata
-struct TransferMetadata: Codable {
-    let sourceURL: URL
-    let destinationURLs: [URL]
-    let startTime: Date
-    let endTime: Date?
-    let totalFiles: Int
-    let totalSize: Int64
-    let verificationMode: VerificationMode
-    let cameraSettings: CameraLabelSettings?
-    
-    var duration: TimeInterval? {
-        guard let endTime = endTime else { return nil }
-        return endTime.timeIntervalSince(startTime)
-    }
-}
 
 // MARK: - Folder Info
 struct FolderInfo: Identifiable, Equatable {
@@ -307,6 +193,7 @@ struct FolderInfo: Identifiable, Equatable {
     let fileCount: Int
     let totalSize: Int64
     let lastModified: Date
+    let isInternalDrive: Bool
     
     var name: String { url.lastPathComponent }
     var formattedSize: String {
@@ -323,84 +210,172 @@ struct FolderInfo: Identifiable, Equatable {
     }
 }
 
-// MARK: - Camera Type
-enum CameraType: String, CaseIterable, Identifiable, Codable {
-    case sony = "Sony"
-    case canon = "Canon"
-    case arri = "ARRI"
-    case red = "RED"
-    case blackmagic = "Blackmagic Design"
-    case panasonic = "Panasonic"
-    case fujifilm = "Fujifilm"
-    case generic = "Generic"
-    
-    var id: String { self.rawValue }
-    
-    var description: String {
-        switch self {
-        case .sony: return "Sony cameras (A7, FX series)"
-        case .canon: return "Canon cameras (C series, EOS)"
-        case .arri: return "ARRI professional cameras"
-        case .red: return "RED digital cinema cameras"
-        case .blackmagic: return "Blackmagic Design cameras"
-        case .panasonic: return "Panasonic cameras (GH, EVA series)"
-        case .fujifilm: return "Fujifilm cameras (X, GFX series)"
-        case .generic: return "Generic or unknown camera type"
-        }
-    }
-}
-
-// MARK: - Camera Card Detection
-struct CameraCard: Identifiable {
+// MARK: - Enhanced Folder Info
+struct EnhancedFolderInfo: Identifiable, Equatable {
     let id = UUID()
-    let name: String
-    let manufacturer: String
-    let model: String?
+    let url: URL
     let fileCount: Int
     let totalSize: Int64
-    let detectionConfidence: Double
-    let metadata: [String: Any]
+    let lastModified: Date
+    let isInternalDrive: Bool
+    
+    // Enhanced metadata
+    let fileTypeBreakdown: [String: Int] // File extension -> count
+    let largestFile: (name: String, size: Int64)?
+    let oldestFileDate: Date?
+    let newestFileDate: Date?
+    
+    var name: String { url.lastPathComponent }
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
+    }
+    var formattedFileCount: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: fileCount)) ?? "\(fileCount)"
+    }
+    
+    var topFileTypes: [(type: String, count: Int)] {
+        Array(fileTypeBreakdown.sorted { $0.value > $1.value }.prefix(3))
+            .map { (type: $0.key, count: $0.value) }
+    }
+    
+    var averageFileSize: Int64 {
+        fileCount > 0 ? totalSize / Int64(fileCount) : 0
+    }
+    
+    var formattedAverageFileSize: String {
+        ByteCountFormatter.string(fromByteCount: averageFileSize, countStyle: .file)
+    }
+    
+    var formattedLargestFile: String {
+        guard let largest = largestFile else { return "No files" }
+        let size = ByteCountFormatter.string(fromByteCount: largest.size, countStyle: .file)
+        return "\(largest.name) (\(size))"
+    }
+    
+    var dateRangeDescription: String {
+        guard let oldest = oldestFileDate, let newest = newestFileDate else {
+            return "No date info"
+        }
+        
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        
+        if Calendar.current.isDate(oldest, inSameDayAs: newest) {
+            return "All from \(formatter.string(from: oldest))"
+        } else {
+            return "\(formatter.string(from: oldest)) - \(formatter.string(from: newest))"
+        }
+    }
+    
+    static func == (lhs: EnhancedFolderInfo, rhs: EnhancedFolderInfo) -> Bool {
+        lhs.url == rhs.url
+    }
+}
+
+// MARK: - Drive Type
+enum DriveType {
+    case internalDrive
+    case externalDrive
+    case cameraCard
+    case networkDrive
+    case unknown
     
     var displayName: String {
-        if let model = model {
-            return "\(manufacturer) \(model)"
+        switch self {
+        case .internalDrive: return "Internal Drive"
+        case .externalDrive: return "External Drive"
+        case .cameraCard: return "Camera Card"
+        case .networkDrive: return "Network Drive"
+        case .unknown: return "Unknown Drive"
         }
-        return manufacturer
+    }
+    
+    var systemImage: String {
+        switch self {
+        case .internalDrive: return "internaldrive"
+        case .externalDrive: return "externaldrive"
+        case .cameraCard: return "sdcard"
+        case .networkDrive: return "network"
+        case .unknown: return "questionmark.square.dashed"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .internalDrive: return .blue
+        case .externalDrive: return .green
+        case .cameraCard: return .orange
+        case .networkDrive: return .purple
+        case .unknown: return .gray
+        }
     }
 }
 
-// MARK: - Transfer Card
-struct TransferCard: Identifiable {
-    let id = UUID()
-    let source: FolderInfo
-    let destinations: [FolderInfo]
-    let cameraCard: CameraCard?
-    let metadata: TransferMetadata?
-    let progress: Double
-    let state: OperationState
-}
-
-// MARK: - Operation Progress
-struct OperationProgress {
-    let overallProgress: Double
-    let currentFile: String?
-    let filesProcessed: Int
-    let totalFiles: Int
-    let currentStage: ProgressStage
-    let speed: Double? // bytes per second
-    let timeRemaining: TimeInterval?
+// MARK: - Folder Display Info
+struct FolderDisplayInfo {
+    let baseInfo: FolderInfo
+    let driveType: DriveType
+    let availableSpace: Int64?
+    let isLoading: Bool
     
-    var formattedSpeed: String? {
-        guard let speed = speed else { return nil }
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(speed)) + "/s"
+    // If enhanced details are needed, obtain via coordinator helpers.
+    
+    var formattedAvailableSpace: String? {
+        guard let space = availableSpace else { return nil }
+        return ByteCountFormatter.string(fromByteCount: space, countStyle: .file)
     }
     
-    var formattedTimeRemaining: String? {
-        guard let timeRemaining = timeRemaining else { return nil }
-        let minutes = Int(timeRemaining / 60)
-        let seconds = Int(timeRemaining.truncatingRemainder(dividingBy: 60))
-        return minutes > 0 ? "\(minutes)m \(seconds)s" : "\(seconds)s"
+    var spaceUtilizationWarning: String? {
+        guard let available = availableSpace else { return nil }
+        
+        let requiredSpace = baseInfo.totalSize
+        let utilizationRatio = Double(requiredSpace) / Double(available)
+        
+        if utilizationRatio > 0.9 {
+            return "⚠️ Low disk space"
+        } else if utilizationRatio > 0.7 {
+            return "⚡ Limited space"
+        }
+        return nil
+    }
+    
+    var professionalSummary: String {
+        let parts = [
+            baseInfo.formattedFileCount + " files",
+            baseInfo.formattedSize,
+            driveType.displayName
+        ]
+        
+        if let warning = spaceUtilizationWarning {
+            return parts.joined(separator: " • ") + " • \(warning)"
+        } else {
+            return parts.joined(separator: " • ")
+        }
+    }
+}
+
+// MARK: - Notifications
+extension NSNotification.Name {
+    static let cameraCardDetected = NSNotification.Name("cameraCardDetected")
+    static let showPreferences = NSNotification.Name("showPreferences")
+    static let fakeTransferQueued = NSNotification.Name("fakeTransferQueued")
+    static let simulateTransferCompletion = NSNotification.Name("simulateTransferCompletion")
+    static let operationCancelledByUser = NSNotification.Name("operationCancelledByUser")
+    static let operationCompleted = NSNotification.Name("operationCompleted")
+}
+
+// MARK: - FolderInfo Compatibility Extension
+extension EnhancedFolderInfo {
+    /// Convert to base FolderInfo for backward compatibility
+    var asFolderInfo: FolderInfo {
+        return FolderInfo(
+            url: url,
+            fileCount: fileCount,
+            totalSize: totalSize,
+            lastModified: lastModified,
+            isInternalDrive: isInternalDrive
+        )
     }
 }

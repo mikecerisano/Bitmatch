@@ -17,6 +17,7 @@ struct CompactTransferCard: View {
     let progress: Double
     let currentFile: String?
     let speed: String?
+    let filesRemaining: String?
     let timeRemaining: String?
     let destinationProgress: [Double] // Individual progress for each destination
     
@@ -27,6 +28,7 @@ struct CompactTransferCard: View {
     
     enum TransferState {
         case idle
+        case preparing
         case copying
         case verifying  
         case completed
@@ -35,6 +37,7 @@ struct CompactTransferCard: View {
         var icon: String {
             switch self {
             case .idle: return "folder.fill"
+            case .preparing: return "arrow.triangle.2.circlepath"
             case .copying: return "doc.on.doc.fill"
             case .verifying: return "checkmark.shield.fill"
             case .completed: return "checkmark.circle.fill"
@@ -45,6 +48,7 @@ struct CompactTransferCard: View {
         var color: Color {
             switch self {
             case .idle: return .white.opacity(0.5)
+            case .preparing: return .yellow
             case .copying: return .blue
             case .verifying: return .orange
             case .completed: return .green
@@ -91,6 +95,8 @@ struct CompactTransferCard: View {
         switch transferState {
         case .copying, .verifying:
             baseHeight = 60 // Full height for active transfers
+        case .preparing:
+            baseHeight = 60
         case .queued:
             baseHeight = 45 // Reduced height for queued items
         case .completed:
@@ -107,6 +113,8 @@ struct CompactTransferCard: View {
         switch transferState {
         case .copying, .verifying:
             return 1.0 // Full scale for active transfers
+        case .preparing:
+            return 1.0
         case .queued:
             return 0.95 // Slightly smaller for queued
         case .completed:
@@ -120,6 +128,8 @@ struct CompactTransferCard: View {
         switch transferState {
         case .copying, .verifying:
             return 1.0 // Full opacity for active
+        case .preparing:
+            return 1.0
         case .queued:
             return 0.8 // Slightly faded for queued
         case .completed:
@@ -133,6 +143,8 @@ struct CompactTransferCard: View {
         switch transferState {
         case .copying, .verifying:
             return Color.white.opacity(0.08) // Brighter for active
+        case .preparing:
+            return Color.white.opacity(0.05)
         case .queued:
             return Color.white.opacity(0.04) // Dimmer for queued
         case .completed:
@@ -146,6 +158,8 @@ struct CompactTransferCard: View {
         switch transferState {
         case .copying, .verifying:
             return 0.5 // Strong border for active
+        case .preparing:
+            return 0.3
         case .queued:
             return 0.2 // Subtle border for queued
         case .completed:
@@ -216,29 +230,37 @@ struct CompactTransferCard: View {
                     if let currentFile = currentFile {
                         Text(currentFile)
                             .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundColor(.white.opacity(0.6))
                             .lineLimit(1)
+                            .truncationMode(.middle)
+                            .layoutPriority(0) // Prefer truncating filename first
                     }
-                    
-                    Spacer()
-                    
+
+                    Spacer(minLength: 8)
+
                     HStack(spacing: 4) {
                         Text("\(Int(progress * 100))%")
-                            .font(.system(size: 8, weight: .semibold))
-                        
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+
                         if let speed = speed {
                             Text("•")
                             Text(speed)
+                                .font(.system(size: 8, design: .monospaced))
+                        }
+                        if let files = filesRemaining {
+                            Text("•")
+                            Text(files)
                                 .font(.system(size: 8))
                         }
-                        
+
                         if let timeRemaining = timeRemaining {
                             Text("•")
                             Text(timeRemaining)
                                 .font(.system(size: 8))
                         }
                     }
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.white.opacity(0.7))
+                    .layoutPriority(1) // Keep metrics readable even with long filenames
                 }
                 .frame(height: 12)
             } else {
@@ -355,7 +377,8 @@ struct CompactTransferCard: View {
     
     private var statusText: String {
         switch transferState {
-        case .idle: return "Ready to transfer"
+        case .idle: return "Ready"
+        case .preparing: return "Preparing…"
         case .copying: return "Copying..."
         case .verifying: return "Verifying..."
         case .completed: return "✓ Complete"

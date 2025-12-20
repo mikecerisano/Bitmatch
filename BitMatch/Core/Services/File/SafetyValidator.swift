@@ -7,11 +7,7 @@ final class SafetyValidator {
     // MARK: - Pre-Operation Safety Checks
     
     static func performSafetyChecks(source: URL, destinations: [URL]) async throws {
-        // Dev mode bypass for fake transfers
-        if DevModeManager.shared.isDevModeEnabled {
-            print("🎭 Dev mode: Skipping safety checks for fake transfer")
-            return
-        }
+        // Always perform safety checks in production testing
         
         // Validate source exists and is accessible
         guard FileManager.default.fileExists(atPath: source.path) else {
@@ -33,7 +29,7 @@ final class SafetyValidator {
         // Check for sufficient space
         try await validateAvailableSpace(source: source, destinations: destinations)
         
-        print("✅ Safety checks passed for \\(destinations.count) destinations")
+        SharedLogger.info("Safety checks passed for \(destinations.count) destinations", category: .transfer)
     }
     
     private static func validateDestination(_ destination: URL, source: URL) async throws {
@@ -60,7 +56,7 @@ final class SafetyValidator {
         
         // Network drive warning
         if isNetworkVolume(destination) {
-            print("⚠️ Network destination detected: \\(destination.lastPathComponent) - may be slower")
+            SharedLogger.warning("Network destination detected: \(destination.lastPathComponent) - may be slower", category: .transfer)
         }
     }
     

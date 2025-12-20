@@ -55,8 +55,8 @@ class DropView: NSView {
     }
     
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        print("Available types: \(sender.draggingPasteboard.types ?? [])")
-        
+        SharedLogger.debug("Available types: \(sender.draggingPasteboard.types ?? [])", category: .transfer)
+
         // Check if we can handle this drag
         if canHandleDrag(sender) {
             onTargetChanged?(true)
@@ -83,7 +83,7 @@ class DropView: NSView {
         // Try to get multiple URLs from readObjects (this handles multi-selection)
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] {
             for (index, url) in urls.enumerated() {
-                print("  URL \(index + 1): \(url.path)")
+                SharedLogger.debug("  URL \(index + 1): \(url.path)", category: .transfer)
             }
             droppedURLs = urls
         } else if let fileURL = pasteboard.string(forType: .fileURL),
@@ -92,7 +92,7 @@ class DropView: NSView {
         }
         
         guard !droppedURLs.isEmpty else {
-            print("❌ Could not extract any URLs from drag")
+            SharedLogger.warning("Could not extract any URLs from drag", category: .transfer)
             return false
         }
         
@@ -116,12 +116,12 @@ class DropView: NSView {
                isDirectory.boolValue {
                 validDirectories.append(url)
             } else {
-                print("⚠️ Skipping non-directory: \(url.lastPathComponent)")
+                SharedLogger.warning("Skipping non-directory: \(url.lastPathComponent)", category: .transfer)
             }
         }
         
         guard !validDirectories.isEmpty else {
-            print("❌ No valid directories found in drop")
+            SharedLogger.warning("No valid directories found in drop", category: .transfer)
             return false
         }
         

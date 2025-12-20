@@ -13,13 +13,13 @@ class SharedReportGenerationService: ObservableObject {
     // MARK: - Report Configuration
     
     struct ReportConfiguration {
-        let production: String
-        let client: String
-        let company: String
-        let technician: String
-        let productionNotes: String
-        let includeThumbnails: Bool
-        let logoPath: String?
+        var production: String
+        var client: String
+        var company: String
+        var technician: String
+        var productionNotes: String
+        var includeThumbnails: Bool
+        var logoPath: String?
         
         // Visual styling
         let primaryColor: String
@@ -126,19 +126,79 @@ class SharedReportGenerationService: ObservableObject {
             kCGPDFContextSubject: "Production: \(configuration.production)",
             kCGPDFContextAuthor: configuration.company
         ] as CFDictionary
-        
-        let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // Letter size
+
+        var pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // Letter size
         let mutableData = NSMutableData()
-        
-        guard let context = CGContext(consumer: CGDataConsumer(data: mutableData)!,
-                                    mediaBox: &pageRect.pointee,
-                                    pdfMetaData) else {
+        guard let consumer = CGDataConsumer(data: mutableData as CFMutableData) else {
             throw ReportGenerationError.pdfCreationFailed
         }
-        
+        guard let context = CGContext(consumer: consumer,
+                                      mediaBox: &pageRect,
+                                      pdfMetaData) else {
+            throw ReportGenerationError.pdfCreationFailed
+        }
         try await renderPDFContent(context: context, reportData: reportData, configuration: configuration, pageRect: pageRect)
-        
+        context.closePDF()
         return mutableData as Data
+    }
+    #endif
+
+    #if os(macOS)
+    private func renderPDFContent(
+        context: CGContext,
+        reportData: ReportData,
+        configuration: ReportConfiguration,
+        pageRect: CGRect
+    ) async throws {
+        let contentRect = CGRect(
+            x: configuration.margins.left,
+            y: configuration.margins.top,
+            width: max(0, pageRect.width - configuration.margins.left - configuration.margins.right),
+            height: max(0, pageRect.height - configuration.margins.top - configuration.margins.bottom)
+        )
+        var yPosition: CGFloat = contentRect.minY
+        
+        // Helper to handle page creation and context setup consistently
+        let setupNewPage = {
+            context.beginPDFPage(nil)
+            
+            // Flip coordinate system to match standard top-left origin
+            context.translateBy(x: 0, y: pageRect.height)
+            context.scaleBy(x: 1.0, y: -1.0)
+            
+            // Bridge CG to NSGraphics for text drawing helpers
+            NSGraphicsContext.saveGraphicsState()
+            let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
+            NSGraphicsContext.current = nsContext
+        }
+        
+        // Start first page
+        setupNewPage()
+        
+        // Render sections using shared helpers
+        yPosition = renderHeader(in: contentRect, at: yPosition, reportData: reportData, configuration: configuration)
+        yPosition = renderSummary(in: contentRect, at: yPosition, reportData: reportData, configuration: configuration)
+        
+        if !configuration.productionNotes.isEmpty {
+            yPosition = renderProductionNotes(in: contentRect, at: yPosition, reportData: reportData, configuration: configuration)
+        }
+        
+        for cameraGroup in reportData.cameraGroups {
+            if yPosition > contentRect.maxY - 150 {
+                // Finish current page
+                NSGraphicsContext.restoreGraphicsState()
+                context.endPDFPage()
+                
+                // Start new page
+                setupNewPage()
+                yPosition = contentRect.minY
+            }
+            yPosition = renderCameraGroup(cameraGroup, in: contentRect, at: yPosition, configuration: configuration)
+        }
+        
+        // End final page
+        NSGraphicsContext.restoreGraphicsState()
+        context.endPDFPage()
     }
     #endif
     
@@ -158,7 +218,7 @@ class SharedReportGenerationService: ObservableObject {
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
         
         return renderer.pdfData { context in
-            try! self.renderPDFContentIOS(context: context, reportData: reportData, configuration: configuration, pageRect: pageRect)
+            self.renderPDFContentIOS(context: context, reportData: reportData, configuration: configuration, pageRect: pageRect)
         }
     }
     
@@ -167,10 +227,15 @@ class SharedReportGenerationService: ObservableObject {
         reportData: ReportData,
         configuration: ReportConfiguration,
         pageRect: CGRect
-    ) throws {
+    ) {
         context.beginPage()
         
-        let contentRect = pageRect.insetBy(dx: configuration.margins.left, dy: configuration.margins.top)
+        let contentRect = CGRect(
+            x: configuration.margins.left,
+            y: configuration.margins.top,
+            width: max(0, pageRect.width - configuration.margins.left - configuration.margins.right),
+            height: max(0, pageRect.height - configuration.margins.top - configuration.margins.bottom)
+        )
         var yPosition: CGFloat = contentRect.minY
         
         // Render header
@@ -255,7 +320,11 @@ class SharedReportGenerationService: ObservableObject {
         
         let linePath = platformBezierPath()
         linePath.move(to: CGPoint(x: rect.minX, y: currentY))
+        #if os(macOS)
         linePath.line(to: CGPoint(x: rect.maxX, y: currentY))
+        #else
+        linePath.addLine(to: CGPoint(x: rect.maxX, y: currentY))
+        #endif
         linePath.lineWidth = 1
         linePath.stroke()
         currentY += 15
@@ -266,12 +335,43 @@ class SharedReportGenerationService: ObservableObject {
             NSAttributedString.Key.foregroundColor: platformColor(hex: "#000000")
         ]
         
-        let summaryLines = [
+        var summaryLines = [
             "Total Transfers: \(reportData.summary.totalTransfers)",
             "Total Files: \(reportData.summary.totalFiles.formatted())",
             "Total Size: \(reportData.summary.formattedSize)",
             "Verification Rate: \(String(format: "%.1f%%", reportData.summary.verificationRate * 100))"
         ]
+        
+        if reportData.summary.totalTransfers > 0 {
+            let averageFiles = Double(reportData.summary.totalFiles) / Double(reportData.summary.totalTransfers)
+            let averageSize = reportData.summary.totalSize / Int64(reportData.summary.totalTransfers)
+            let sizeFormatter = ByteCountFormatter()
+            sizeFormatter.allowedUnits = [.useGB, .useMB, .useKB]
+            sizeFormatter.countStyle = .file
+            summaryLines.append("Average Files / Transfer: \(String(format: "%.1f", averageFiles))")
+            summaryLines.append("Average Transfer Size: \(sizeFormatter.string(fromByteCount: averageSize))")
+        }
+        
+        if let largest = reportData.allTransfers.max(by: { $0.totalSize < $1.totalSize }) {
+            let sizeFormatter = ByteCountFormatter()
+            sizeFormatter.allowedUnits = [.useGB, .useMB]
+            sizeFormatter.countStyle = .file
+            let name = URL(fileURLWithPath: largest.sourcePath).lastPathComponent.isEmpty ?
+                URL(fileURLWithPath: largest.sourcePath).deletingLastPathComponent().lastPathComponent :
+                URL(fileURLWithPath: largest.sourcePath).lastPathComponent
+            summaryLines.append("Largest Transfer: \(name) (\(sizeFormatter.string(fromByteCount: largest.totalSize)), \(largest.fileCount) files)")
+        }
+        
+        let destinationCounts = reportData.allTransfers
+            .flatMap { $0.destinationPaths }
+            .reduce(into: [String: Int]()) { counts, path in
+                counts[path, default: 0] += 1
+            }
+        
+        if let (topDestination, count) = destinationCounts.max(by: { $0.value < $1.value }) {
+            let leaf = URL(fileURLWithPath: topDestination).lastPathComponent
+            summaryLines.append("Most Used Destination: \(leaf.isEmpty ? topDestination : leaf) (\(count) transfers)")
+        }
         
         for line in summaryLines {
             line.draw(at: CGPoint(x: rect.minX, y: currentY), withAttributes: summaryAttributes)
@@ -323,23 +423,31 @@ class SharedReportGenerationService: ObservableObject {
             NSAttributedString.Key.font: platformFont(name: configuration.fontFamily, size: configuration.fontSize - 1),
             NSAttributedString.Key.foregroundColor: platformColor(hex: "#333333")
         ]
-        
         for transfer in group.transfers {
             let transferSize = ByteCountFormatter.string(fromByteCount: transfer.totalSize, countStyle: .file)
-            let verificationStatus = transfer.verified ? "✅ Verified" : "⚠️ Pending"
-            
-            let transferInfo = "  • \(transfer.sourcePath.components(separatedBy: "/").last ?? "Unknown") - \(transferSize) (\(transfer.fileCount) files) - \(verificationStatus)"
-            transferInfo.draw(at: CGPoint(x: rect.minX, y: currentY), withAttributes: detailAttributes)
-            currentY += configuration.fontSize + 2
-            
-            // Destination paths (indented)
-            for destination in transfer.destinationPaths {
-                let destInfo = "    → \(destination.components(separatedBy: "/").last ?? destination)"
-                destInfo.draw(at: CGPoint(x: rect.minX, y: currentY), withAttributes: detailAttributes)
-                currentY += configuration.fontSize + 1
+            let statusSymbol = transfer.verified ? "✅" : "⚠️"
+            let sourceLeaf = URL(fileURLWithPath: transfer.sourcePath).lastPathComponent.isEmpty ?
+                URL(fileURLWithPath: transfer.sourcePath).deletingLastPathComponent().lastPathComponent :
+                URL(fileURLWithPath: transfer.sourcePath).lastPathComponent
+            let destinationLeafs = transfer.destinationPaths.map { path -> String in
+                let leaf = URL(fileURLWithPath: path).lastPathComponent
+                if !leaf.isEmpty {
+                    return leaf
+                }
+                let fallback = URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent
+                return fallback.isEmpty ? path : fallback
+            }
+            var destinationSummary = destinationLeafs.prefix(3).joined(separator: ", ")
+            if destinationLeafs.count > 3 {
+                destinationSummary.append(" …+\(destinationLeafs.count - 3)")
+            }
+            if destinationSummary.isEmpty {
+                destinationSummary = "—"
             }
             
-            currentY += 4 // Space between transfers
+            let transferLine = "\(statusSymbol) \(sourceLeaf) → \(destinationSummary) • \(transfer.fileCount) files • \(transferSize)"
+            transferLine.draw(at: CGPoint(x: rect.minX, y: currentY), withAttributes: detailAttributes)
+            currentY += configuration.fontSize + 4
         }
         
         return currentY + 10

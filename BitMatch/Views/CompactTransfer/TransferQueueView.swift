@@ -128,6 +128,7 @@ struct TransferQueueView: View {
                 progress: activeTransfer.progress,
                 currentFile: activeTransfer.currentFile,
                 speed: activeTransfer.speed,
+                filesRemaining: coordinator.progressViewModel.formattedFilesRemaining,
                 timeRemaining: activeTransfer.timeRemaining,
                 destinationProgress: activeTransfer.destinationProgress,
                 onDestinationTap: { index, destination, progress, frame in
@@ -175,6 +176,7 @@ struct TransferQueueView: View {
                     progress: transfer.progress,
                     currentFile: transfer.currentFile,
                     speed: transfer.speed,
+                    filesRemaining: nil,
                     timeRemaining: transfer.timeRemaining,
                     destinationProgress: transfer.destinationProgress,
                     onDestinationTap: { index, destination, progress, frame in
@@ -234,6 +236,7 @@ struct TransferQueueView: View {
                         progress: 1.0,
                         currentFile: nil,
                         speed: nil,
+                        filesRemaining: nil,
                         timeRemaining: nil,
                         destinationProgress: Array(repeating: 1.0, count: transfer.destinations.count),
                         onDestinationTap: { index, destination, progress, frame in
@@ -263,12 +266,14 @@ struct TransferQueueView: View {
             case .copying: return .copying
             case .verifying: return .verifying
             case .completed: return .completed
+            case .inProgress: return .preparing
             default: return .idle
             }
         }()
         
         let progress = coordinator.progressPercentage
-        let speed = coordinator.progressViewModel.formattedSpeed
+        // Prefer average data rate (bytes/s) in human readable form
+        let speed = coordinator.progressViewModel.formattedAverageDataRate
         let timeRemaining = coordinator.progressViewModel.formattedTimeRemaining
         let currentFile = getCurrentFileName()
         
@@ -283,10 +288,8 @@ struct TransferQueueView: View {
             currentFile: currentFile,
             speed: speed,
             timeRemaining: timeRemaining,
-            destinationProgress: generateDestinationProgress(
-                for: coordinator.fileSelectionViewModel.destinationURLs,
-                overallProgress: progress,
-                state: state
+            destinationProgress: coordinator.progressViewModel.destinationProgressFractions(
+                expectedCount: coordinator.fileSelectionViewModel.destinationURLs.count
             )
         )
     }
@@ -410,7 +413,7 @@ struct TransferQueueView: View {
             }
         case .completed:
             return Array(repeating: 1.0, count: destinations.count)
-        case .queued, .idle:
+        case .queued, .idle, .preparing:
             return Array(repeating: 0.0, count: destinations.count)
         }
     }

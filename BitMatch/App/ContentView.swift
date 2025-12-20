@@ -4,7 +4,10 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var coordinator = AppCoordinator()
+    @ObservedObject private var errorHandler = GlobalErrorHandler.shared
+#if DEBUG
     @ObservedObject private var devModeManager = DevModeManager.shared
+#endif
     @State private var showResumeDialog = false
     @State private var resumableOperation: OperationStateManager.PersistedOperation?
     
@@ -19,6 +22,7 @@ struct ContentView: View {
     // Dynamic window height management
     @State private var cameraLabelExpanded = false
     @State private var verificationModeExpanded = false
+    @State private var showCancelNotice = false
     
     // Calculate ideal window height based on content and current mode
     private var idealWindowHeight: CGFloat {
@@ -95,6 +99,13 @@ struct ContentView: View {
                 updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
                 checkForResumableOperations()
             }
+            .alert("Error", isPresented: $errorHandler.showErrorAlert) {
+                Button("OK") {
+                    errorHandler.clearError()
+                }
+            } message: {
+                Text(errorHandler.currentError?.localizedDescription ?? "An unknown error occurred")
+            }
     }
     
     @ViewBuilder
@@ -111,6 +122,15 @@ struct ContentView: View {
     private var mainContentView: some View {
         ZStack {
             contentHStack
+            // Lightweight, temporary overlay when user cancels an operation
+            if showCancelNotice {
+                VStack {
+                    ToastView(icon: "xmark.circle", message: "User cancelled transfer", tint: .red)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer()
+                }
+                .padding(.top, 16)
+            }
         }
     }
     
@@ -160,11 +180,14 @@ struct ContentView: View {
     
     @ViewBuilder
     private var mainContentSwitch: some View {
-        if coordinator.completionState != .idle {
+        switch coordinator.completionState {
+        case .idle, .inProgress:
+            // While in progress, keep showing the active mode's view.
+            // Copy & Verify view renders its compact progress UI when in progress.
+            modeSpecificView
+        default:
             completionView
                 .frame(height: lockHeight ? contentHeight : nil)
-        } else {
-            modeSpecificView
         }
     }
     
@@ -175,7 +198,10 @@ struct ContentView: View {
             (!coordinator.results.isEmpty && coordinator.completionState != .idle)) {
             ResultsTableView(
                 coordinator: coordinator,
-                showOnlyIssues: $coordinator.settingsViewModel.showOnlyIssues
+                showOnlyIssues: Binding(
+                    get: { coordinator.settingsViewModel.showOnlyIssues },
+                    set: { coordinator.settingsViewModel.showOnlyIssues = $0 }
+                )
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -235,7 +261,9 @@ struct ContentView: View {
             case .copyAndVerify:
                 CopyAndVerifyView(
                     coordinator: coordinator,
-                    showReportSettings: .constant(false)
+                    showReportSettings: .constant(false),
+                    cameraLabelExpanded: $cameraLabelExpanded,
+                    verificationModeExpanded: $verificationModeExpanded
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -245,7 +273,8 @@ struct ContentView: View {
             case .compareFolders:
                 CompareFoldersView(
                     coordinator: coordinator,
-                    showReportSettings: .constant(false)
+                    showReportSettings: .constant(false),
+                    verificationModeExpanded: $verificationModeExpanded
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -425,7 +454,9 @@ struct ContentView: View {
         switch coordinator.completionState {
         case .success(let msg): return msg
         case .issues(let msg): return msg
+        case .failed(let msg): return msg
         case .idle: return ""
+        case .inProgress: return ""
         }
     }
     
@@ -433,7 +464,9 @@ struct ContentView: View {
         switch coordinator.completionState {
         case .success: return "checkmark.circle.fill"
         case .issues: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark.circle.fill"
         case .idle: return ""
+        case .inProgress: return "clock.fill"
         }
     }
     
@@ -441,7 +474,9 @@ struct ContentView: View {
         switch coordinator.completionState {
         case .success: return .green
         case .issues: return .yellow
+        case .failed: return .red
         case .idle: return .gray
+        case .inProgress: return .blue
         }
     }
     
@@ -532,6 +567,16 @@ struct ContentView: View {
                     updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
                 }
             }
+            .onChange(of: cameraLabelExpanded) { _, _ in
+                if !coordinator.isOperationInProgress {
+                    updateWindowHeight(to: idealWindowHeight)
+                }
+            }
+            .onChange(of: verificationModeExpanded) { _, _ in
+                if !coordinator.isOperationInProgress {
+                    updateWindowHeight(to: idealWindowHeight)
+                }
+            }
             .onChange(of: coordinator.isOperationInProgress) { oldValue, newValue in
                 handleOperationStateChange(oldValue: oldValue, newValue: newValue)
             }
@@ -561,18 +606,35 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelOperation)) { _ in
                 coordinator.cancelOperation()
+                showUserCancelToast()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showPreferences)) { _ in
                 openPreferences()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .operationCancelledByUser)) { _ in
+                showUserCancelToast()
+            }
+            // Dev-only shortcuts
+#if DEBUG
             .onReceive(NotificationCenter.default.publisher(for: .fillTestData)) { _ in
                 DevModeManager.shared.fillTestDataOnly(coordinator: coordinator)
             }
             .onReceive(NotificationCenter.default.publisher(for: .addFakeQueueItem)) { _ in
                 DevModeManager.shared.addFakeQueueItem(coordinator: coordinator)
             }
+            // Legacy stress notification removed; use preset-specific hooks below
+#endif
             .onReceive(NotificationCenter.default.publisher(for: .clearTestData)) { _ in
                 coordinator.resetForNewOperation()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .runStressTestSmall)) { _ in
+                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .small)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .runStressTestMedium)) { _ in
+                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .medium)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .runStressTestLarge)) { _ in
+                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .large)
             }
     }
 }
@@ -584,7 +646,7 @@ extension Notification.Name {
     static let switchToCopyMode = Notification.Name("switchToCopyMode")
     static let switchToCompareMode = Notification.Name("switchToCompareMode")
     static let switchToMasterReportMode = Notification.Name("switchToMasterReportMode")
-    static let showPreferences = Notification.Name("showPreferences")
+    // NOTE: showPreferences, fakeTransferQueued, and simulateTransferCompletion are now in SharedModels.swift
     static let cameraLabelExpandedChanged = Notification.Name("cameraLabelExpandedChanged")
     static let verificationModeExpandedChanged = Notification.Name("verificationModeExpandedChanged")
     
@@ -592,7 +654,22 @@ extension Notification.Name {
     static let fillTestData = Notification.Name("fillTestData")
     static let addFakeQueueItem = Notification.Name("addFakeQueueItem")
     static let clearTestData = Notification.Name("clearTestData")
-    static let fakeTransferQueued = Notification.Name("fakeTransferQueued")
-    static let simulateTransferCompletion = Notification.Name("simulateTransferCompletion")
+    static let runStressTestSmall = Notification.Name("runStressTestSmall")
+    static let runStressTestMedium = Notification.Name("runStressTestMedium")
+    static let runStressTestLarge = Notification.Name("runStressTestLarge")
+    // operationCancelledByUser is defined in Shared/Core/Models/SharedModels.swift
 }
 
+// MARK: - Helpers
+private extension ContentView {
+    func showUserCancelToast() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            showCancelNotice = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                showCancelNotice = false
+            }
+        }
+    }
+}

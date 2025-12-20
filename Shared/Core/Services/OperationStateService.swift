@@ -1,6 +1,11 @@
 // OperationStateService.swift - Manages pause/resume state and persistence
 import Foundation
 import Combine
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 @MainActor
 class OperationStateService: ObservableObject {
@@ -12,6 +17,11 @@ class OperationStateService: ObservableObject {
     
     // MARK: - Private State
     private var currentOperationId: UUID?
+    private var currentSourceURL: URL?
+    private var currentDestinationURLs: [URL] = []
+    private var currentVerificationMode: String?
+    private var currentMode: String?
+    private var startTime: Date?
     private var pausedOperationData: SavedOperationState?
     private let userDefaults = UserDefaults.standard
     private let savedOperationsKey = "BitMatch_SavedOperations"
@@ -25,17 +35,22 @@ class OperationStateService: ObservableObject {
     
     // MARK: - Operation Lifecycle
     
-    func startOperation(id: UUID, sourceURL: URL, destinationURLs: [URL], totalFiles: Int, totalBytes: Int64) {
+    func startOperation(id: UUID, sourceURL: URL, destinationURLs: [URL], totalFiles: Int, totalBytes: Int64, verificationMode: String? = nil, mode: String? = nil) {
         currentOperationId = id
         currentState = .inProgress
+        currentSourceURL = sourceURL
+        currentDestinationURLs = destinationURLs
+        currentVerificationMode = verificationMode
+        currentMode = mode
+        startTime = Date()
         
         // Clear any existing paused state for fresh operations
         if let existingIndex = savedOperations.firstIndex(where: { $0.operationId == id }) {
             savedOperations.remove(at: existingIndex)
             saveToDisk()
         }
-        
-        print("⏯️ Started operation \(id) - ready for pause/resume")
+
+        SharedLogger.info("StateService: started operation id=\(id)", category: .transfer)
     }
     
     func pauseOperation(reason: PauseInfo.PauseReason, currentProgress: OperationProgress?) {
@@ -60,7 +75,11 @@ class OperationStateService: ObservableObject {
                 pausedAt: Date(),
                 pauseInfo: pauseInfo,
                 progress: progress,
-                reason: reason
+                reason: reason,
+                sourceURL: currentSourceURL,
+                destinationURLs: currentDestinationURLs,
+                verificationMode: currentVerificationMode,
+                startTime: startTime
             )
             
             // Update or add saved state
@@ -72,8 +91,8 @@ class OperationStateService: ObservableObject {
             
             saveToDisk()
         }
-        
-        print("⏸️ Operation paused - reason: \(reason)")
+
+        SharedLogger.info("StateService: paused (reason=\(reason))", category: .transfer)
     }
     
     func resumeOperation() -> Bool {
@@ -95,7 +114,7 @@ class OperationStateService: ObservableObject {
             }
         }
         
-        print("▶️ Operation resumed")
+        SharedLogger.info("StateService: resumed", category: .transfer)
         return true
     }
     
@@ -109,7 +128,7 @@ class OperationStateService: ObservableObject {
         }
         
         currentOperationId = nil
-        print("✅ Operation completed and cleaned up")
+        SharedLogger.info("StateService: completed and cleaned up", category: .transfer)
     }
     
     func cancelOperation() {
@@ -124,7 +143,7 @@ class OperationStateService: ObservableObject {
         }
         
         currentOperationId = nil
-        print("❌ Operation cancelled and cleaned up")
+        SharedLogger.warning("StateService: cancelled and cleaned up", category: .transfer)
     }
     
     // MARK: - Saved Operations Management
@@ -145,13 +164,13 @@ class OperationStateService: ObservableObject {
         currentState = .paused(savedState.pauseInfo)
         pausedOperationData = savedState
         
-        print("🔄 Restored operation from saved state")
+        SharedLogger.info("StateService: restored from saved state", category: .transfer)
     }
     
     // MARK: - System Integration
     
     private func setupSystemNotifications() {
-        #if os(iOS)
+        #if canImport(UIKit)
         // iOS background/foreground notifications
         NotificationCenter.default.addObserver(
             self,
@@ -177,7 +196,7 @@ class OperationStateService: ObservableObject {
         )
         #endif
         
-        #if os(macOS)
+        #if canImport(AppKit)
         // macOS sleep/wake notifications
         NotificationCenter.default.addObserver(
             self,
@@ -197,7 +216,7 @@ class OperationStateService: ObservableObject {
     
     // MARK: - System Event Handlers
     
-    #if os(iOS)
+    #if canImport(UIKit)
     @objc private func appDidEnterBackground() {
         if currentState.canPause {
             pauseOperation(reason: .backgrounded, currentProgress: nil)
@@ -207,7 +226,7 @@ class OperationStateService: ObservableObject {
     @objc private func appWillEnterForeground() {
         // Could automatically resume or prompt user
         if currentState.isPaused {
-            print("📱 App returned to foreground with paused operation")
+            SharedLogger.info("StateService: app foreground with paused operation", category: .transfer)
         }
     }
     
@@ -215,12 +234,12 @@ class OperationStateService: ObservableObject {
         let batteryLevel = UIDevice.current.batteryLevel
         if batteryLevel < 0.15 && batteryLevel > 0 && currentState.canPause {
             pauseOperation(reason: .lowBattery, currentProgress: nil)
-            print("🔋 Auto-paused due to low battery: \(Int(batteryLevel * 100))%")
+            SharedLogger.warning("StateService: auto-paused (battery=\(Int(batteryLevel * 100))%)", category: .transfer)
         }
     }
     #endif
     
-    #if os(macOS)
+    #if canImport(AppKit)
     @objc private func systemWillSleep() {
         if currentState.canPause {
             pauseOperation(reason: .systemSleep, currentProgress: nil)
@@ -229,7 +248,7 @@ class OperationStateService: ObservableObject {
     
     @objc private func systemDidWake() {
         if currentState.isPaused {
-            print("💻 System woke up with paused operation")
+            SharedLogger.info("StateService: system wake with paused operation", category: .transfer)
         }
     }
     #endif
@@ -242,9 +261,9 @@ class OperationStateService: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(savedOperations)
             userDefaults.set(data, forKey: savedOperationsKey)
-            print("💾 Saved \(savedOperations.count) operations to disk")
+            SharedLogger.debug("StateService: saved \(savedOperations.count) operations", category: .transfer)
         } catch {
-            print("❌ Failed to save operations: \(error)")
+            SharedLogger.error("StateService: failed to save operations: \(error)", category: .transfer)
         }
     }
     
@@ -255,9 +274,9 @@ class OperationStateService: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             savedOperations = try decoder.decode([SavedOperationState].self, from: data)
-            print("📂 Loaded \(savedOperations.count) saved operations")
+            SharedLogger.debug("StateService: loaded \(savedOperations.count) saved operations", category: .transfer)
         } catch {
-            print("❌ Failed to load saved operations: \(error)")
+            SharedLogger.error("StateService: failed to load saved operations: \(error)", category: .transfer)
         }
     }
     
@@ -294,17 +313,65 @@ class OperationStateService: ObservableObject {
             priority: .normal
         )
     }
+
+    // MARK: - Checkpoint Updates (for crash/interruption resume)
+    func updateCheckpoint(operationId: UUID, filesProcessed: Int, totalFiles: Int, lastFile: String?) {
+        let progress = OperationProgress(
+            overallProgress: totalFiles > 0 ? Double(filesProcessed) / Double(totalFiles) : 0,
+            currentFile: lastFile,
+            filesProcessed: filesProcessed,
+            totalFiles: totalFiles,
+            currentStage: .copying,
+            speed: nil,
+            timeRemaining: nil,
+            elapsedTime: nil,
+            averageSpeed: nil,
+            peakSpeed: nil,
+            bytesProcessed: nil,
+            totalBytes: nil,
+            stageProgress: nil,
+            reusedCopies: nil
+        )
+        let savedState = SavedOperationState(
+            operationId: operationId,
+            pausedAt: Date(),
+            pauseInfo: PauseInfo(
+                pausedAt: Date(),
+                currentFile: lastFile,
+                filesProcessed: filesProcessed,
+                totalFiles: totalFiles,
+                bytesProcessed: 0,
+                reason: .error
+            ),
+            progress: progress,
+            reason: .error,
+            sourceURL: currentSourceURL,
+            destinationURLs: currentDestinationURLs,
+            verificationMode: currentVerificationMode,
+            startTime: startTime
+        )
+        if let existingIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
+            savedOperations[existingIndex] = savedState
+        } else {
+            savedOperations.append(savedState)
+        }
+        saveToDisk()
+    }
 }
 
 // MARK: - Supporting Types
 
 struct SavedOperationState: Codable, Identifiable {
-    let id = UUID()
+    var id: UUID = UUID()
     let operationId: UUID
     let pausedAt: Date
     let pauseInfo: PauseInfo
     let progress: OperationProgress
     let reason: PauseInfo.PauseReason
+    let sourceURL: URL?
+    let destinationURLs: [URL]?
+    let verificationMode: String?
+    let startTime: Date?
     
     var formattedPauseTime: String {
         let formatter = DateFormatter()
@@ -358,12 +425,4 @@ struct ResumeRecommendation {
     }
 }
 
-// MARK: - PauseInfo Codable Extension
-
-extension PauseInfo: Codable {
-    enum CodingKeys: String, CodingKey {
-        case pausedAt, currentFile, filesProcessed, totalFiles, bytesProcessed, reason
-    }
-}
-
-extension PauseInfo.PauseReason: Codable {}
+// MARK: - Codable conformance for PauseInfo is declared in OperationModels.swift

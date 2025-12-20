@@ -78,8 +78,8 @@ final class CameraMemoryService {
                 lastSeen: Date()
             )
             memory[uniqueID] = fingerprint
-            
-            print("🆕 New Sony camera fingerprinted: \(fingerprint.displayName)")
+
+            SharedLogger.info("New Sony camera fingerprinted: \(fingerprint.displayName)", category: .transfer)
             return fingerprint
         }
     }
@@ -132,8 +132,8 @@ final class CameraMemoryService {
         updated.assignedLabel = label
         updated.lastSeen = Date()
         memory[fingerprint.uniqueID] = updated
-        
-        print("📷 Remembered: \(fingerprint.displayName) = \"\(label)\"")
+
+        SharedLogger.info("Remembered: \(fingerprint.displayName) = \"\(label)\"", category: .transfer)
     }
     
     /// Get the remembered label for a camera
@@ -148,7 +148,7 @@ final class CameraMemoryService {
             existing.assignedLabel = newLabel
             existing.lastSeen = Date()
             memory[fingerprint.uniqueID] = existing
-            print("📷 Updated: \(fingerprint.displayName) = \"\(newLabel)\" (was: \(oldLabel))")
+            SharedLogger.info("Updated: \(fingerprint.displayName) = \"\(newLabel)\" (was: \(oldLabel))", category: .transfer)
         } else {
             rememberLabel(newLabel, for: fingerprint)
         }
@@ -441,7 +441,7 @@ final class CameraMemoryService {
             return
         }
         memory = decoded
-        print("📷 Loaded \(memory.count) remembered cameras")
+        SharedLogger.info("Loaded \(memory.count) remembered cameras", category: .transfer)
     }
     
     private func saveMemory() {

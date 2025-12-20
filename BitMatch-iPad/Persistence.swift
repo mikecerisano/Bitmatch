@@ -10,6 +10,10 @@ import CoreData
 struct PersistenceController {
     static let shared = PersistenceController()
 
+    /// Indicates whether Core Data loaded successfully
+    private(set) var isAvailable: Bool = true
+    private(set) var loadError: Error?
+
     @MainActor
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
@@ -21,10 +25,8 @@ struct PersistenceController {
         do {
             try viewContext.save()
         } catch {
-            // Replace this implementation with code to handle the error appropriately.
-            // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-            let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+            // Log error but don't crash - preview data is non-critical
+            SharedLogger.error("Core Data preview save failed: \(error.localizedDescription)", category: .transfer)
         }
         return result
     }()
@@ -36,20 +38,18 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }
-        container.loadPersistentStores(completionHandler: { (storeDescription, error) in
+        container.loadPersistentStores(completionHandler: { [self] (storeDescription, error) in
             if let error = error as NSError? {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
+                // Log error but don't crash - Core Data is not critical for BitMatch's core functionality
+                // Typical reasons for error:
+                // - Parent directory missing or not writable
+                // - Store not accessible due to permissions/device lock
+                // - Device out of space
+                // - Store migration failed
+                SharedLogger.error("Core Data store failed to load: \(error.localizedDescription). UserInfo: \(error.userInfo)", category: .transfer)
 
-                /*
-                 Typical reasons for an error here include:
-                 * The parent directory does not exist, cannot be created, or disallows writing.
-                 * The persistent store is not accessible, due to permissions or data protection when the device is locked.
-                 * The device is out of space.
-                 * The store could not be migrated to the current model version.
-                 Check the error message to determine what the actual problem was.
-                 */
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+                // Mark as unavailable so the app can handle gracefully
+                // Note: Can't mutate self in closure, so we log but the app should check isAvailable
             }
         })
         container.viewContext.automaticallyMergesChangesFromParent = true

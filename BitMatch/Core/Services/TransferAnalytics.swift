@@ -52,7 +52,7 @@ class TransferAnalytics: ObservableObject {
         }
         
         saveRecords()
-        print("📊 Recorded transfer: \(fileCount) files, \(String(format: "%.1f", totalSizeGB))GB in \(String(format: "%.1f", actualDurationMinutes))m")
+        SharedLogger.info("Recorded transfer: \(fileCount) files, \(String(format: "%.1f", totalSizeGB))GB in \(String(format: "%.1f", actualDurationMinutes))m", category: .transfer)
     }
     
     // MARK: - Improved Time Estimation

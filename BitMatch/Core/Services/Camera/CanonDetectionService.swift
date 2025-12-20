@@ -96,7 +96,9 @@ final class CanonDetectionService {
                         break
                     }
                 }
-            } catch { }
+            } catch {
+                SharedLogger.debug("Could not read Canon DCIM contents: \(error.localizedDescription)", category: .transfer)
+            }
         }
         
         return foundIndicators >= 2 ? "Canon" : nil
@@ -123,9 +125,15 @@ final class CanonDetectionService {
                 "80D": "80D",
                 "M50 Mark II": "M50 Mark II",
                 "M50": "M50",
+                // Cinema/XF series
+                "EOS C70": "C70",
                 "C70": "C70",
+                "EOS C300 Mark III": "C300 Mark III",
                 "C300 Mark III": "C300 Mark III",
-                "C500 Mark II": "C500 Mark II"
+                "EOS C500 Mark II": "C500 Mark II",
+                "C500 Mark II": "C500 Mark II",
+                "XF605": "XF605",
+                "XF705": "XF705"
             ]
             
             for (pattern, model) in canonModels {
@@ -133,8 +141,10 @@ final class CanonDetectionService {
                     return model
                 }
             }
-            
-        } catch { }
+
+        } catch {
+            SharedLogger.debug("Could not read Canon metadata file: \(error.localizedDescription)", category: .transfer)
+        }
         
         return nil
     }
@@ -168,4 +178,3 @@ final class CanonDetectionService {
         return nil
     }
 }
-

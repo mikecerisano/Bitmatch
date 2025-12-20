@@ -25,7 +25,7 @@ struct MasterReportPDFView: View {
     }
     
     private var totalRolls: Int {
-        transfers.reduce(0) { $0 + $1.rolls }
+        transfers.count
     }
     
     var body: some View {

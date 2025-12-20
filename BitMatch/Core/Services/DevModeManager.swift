@@ -1,5 +1,6 @@
 // DevModeManager.swift - Development mode testing utilities
 import Foundation
+import Combine
 import SwiftUI
 
 #if os(macOS)
@@ -18,9 +19,19 @@ class DevModeManager: ObservableObject {
         }
     }
     
+    // Controls whether verbose dev logs are printed from subsystems (e.g., volume scanning)
+    @Published var verboseLogs: Bool = false {
+        didSet {
+            UserDefaults.standard.set(verboseLogs, forKey: "VerboseDevLogs")
+        }
+    }
+    
     private init() {
         self.isDevModeEnabled = UserDefaults.standard.bool(forKey: "DevModeEnabled")
+        self.verboseLogs = UserDefaults.standard.bool(forKey: "VerboseDevLogs")
     }
+    
+    private var stressCancellables = Set<AnyCancellable>()
     
     // MARK: - Fake Data Generation
     
@@ -41,7 +52,7 @@ class DevModeManager: ObservableObject {
             ("Canon C70", ["MVI_", "Canon_"], ["MP4", "MOV"])
         ]
         
-        let selectedCameraModel = cameraModels.randomElement()!
+        _ = cameraModels.randomElement()!
         
         // Just create fake URL - no actual directory needed for UI testing
         let fakeURL = URL(fileURLWithPath: "/Volumes/\(selectedCamera)")
@@ -58,7 +69,8 @@ class DevModeManager: ObservableObject {
             url: fakeURL,
             fileCount: fileCount,
             totalSize: totalSize,
-            lastModified: Date()
+            lastModified: Date(),
+            isInternalDrive: false
         )
         
         return (fakeURL, fakeInfo)
@@ -87,7 +99,8 @@ class DevModeManager: ObservableObject {
                 url: fakeURL,
                 fileCount: 0, // Destinations start empty
                 totalSize: capacity,
-                lastModified: Date()
+                lastModified: Date(),
+                isInternalDrive: false
             )
             return (fakeURL, fakeInfo)
         }
@@ -96,8 +109,147 @@ class DevModeManager: ObservableObject {
     // MARK: - Fake Data Population
     
     #if os(macOS)
+    enum StressPreset { case small, medium, large }
+
+    @MainActor
+    func runStressTest(coordinator: AppCoordinator, preset: StressPreset, verify: Bool = false, cleanupAfter: Bool = true) {
+        guard isDevModeEnabled else {
+            SharedLogger.debug("Stress test skipped: Dev Mode disabled")
+            return
+        }
+        guard !coordinator.isOperationInProgress else {
+            SharedLogger.debug("Stress test skipped: operation already in progress")
+            return
+        }
+        
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+        let src = tmp.appendingPathComponent("bitmatch_stress_src_\(UUID().uuidString)", isDirectory: true)
+        let dst = tmp.appendingPathComponent("bitmatch_stress_dst_\(UUID().uuidString)", isDirectory: true)
+        do {
+            try fm.createDirectory(at: src, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        } catch {
+            SharedLogger.error("Failed to create temp dirs: \(error)")
+            return
+        }
+        
+        // Preset configurations targeting approximate totals: ~10MB, ~100MB, ~300MB
+        let dirCount: Int
+        let filesPerDir: Int
+        let smallSize = 4 * 1024 // 4KB tiny files
+        let largeFiles: Int
+        let largeSize: Int
+        switch preset {
+        case .small:
+            dirCount = 20; filesPerDir = 50; largeFiles = 4; largeSize = 1 * 1024 * 1024 // ~3.8MB + 4MB
+        case .medium:
+            dirCount = 40; filesPerDir = 200; largeFiles = 70; largeSize = 1 * 1024 * 1024 // ~32MB + 70MB
+        case .large:
+            dirCount = 60; filesPerDir = 300; largeFiles = 230; largeSize = 1 * 1024 * 1024 // ~70MB + 230MB
+        }
+        let estimatedBytes = Int64(dirCount * filesPerDir * smallSize + largeFiles * largeSize)
+        SharedLogger.info("Preparing synthetic dataset (~\(ByteCountFormatter.string(fromByteCount: estimatedBytes, countStyle: .file))) …")
+        
+        // Generate files off the main thread
+        Task.detached(priority: .userInitiated) {
+            var dataSmall = Data(count: smallSize)
+            var dataLarge = Data(count: largeSize)
+            // Fill with a simple pattern to avoid compressible zeros
+            dataSmall.withUnsafeMutableBytes { buf in
+                for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i) }
+            }
+            dataLarge.withUnsafeMutableBytes { buf in
+                for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i & 0xFF) }
+            }
+            
+            let fm = FileManager.default
+            // Create directories and small files
+            for d in 1...dirCount {
+                let dirURL = src.appendingPathComponent(String(format: "dir%03d", d), isDirectory: true)
+                try? fm.createDirectory(at: dirURL, withIntermediateDirectories: true)
+                for f in 1...filesPerDir {
+                    let fileURL = dirURL.appendingPathComponent(String(format: "file%04d.bin", f))
+                    try? dataSmall.write(to: fileURL, options: .atomic)
+                }
+            }
+            // Add a handful of larger files at root
+            for i in 1...largeFiles {
+                let f = src.appendingPathComponent(String(format: "large%03d.bin", i))
+                try? dataLarge.write(to: f, options: .atomic)
+            }
+            
+            await MainActor.run {
+                // Wire up coordinator selections
+                coordinator.fileSelectionViewModel.sourceURL = src
+                coordinator.fileSelectionViewModel.sourceFolderInfo = FolderInfo(
+                    url: src,
+                    fileCount: dirCount * filesPerDir + largeFiles,
+                    totalSize: estimatedBytes,
+                    lastModified: Date(),
+                    isInternalDrive: true
+                )
+                coordinator.fileSelectionViewModel.destinationURLs = [dst]
+                coordinator.verificationMode = verify ? .standard : .quick
+                coordinator.switchMode(to: .copyAndVerify)
+                
+                // Subscribe for cleanup on completion/cancel
+                self.stressCancellables.removeAll()
+                coordinator.operationViewModel.$state
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] state in
+                        guard let self = self else { return }
+                        switch state {
+                        case .completed, .failed, .cancelled:
+                            if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
+                            self.stressCancellables.removeAll()
+                        default:
+                            break
+                        }
+                    }
+                    .store(in: &self.stressCancellables)
+                // Also observe shared-core completion broadcast
+                NotificationCenter.default.publisher(for: .operationCompleted)
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] _ in
+                        guard let self = self else { return }
+                        if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
+                        self.stressCancellables.removeAll()
+                    }
+                    .store(in: &self.stressCancellables)
+                NotificationCenter.default.publisher(for: .operationCancelledByUser)
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] _ in
+                        guard let self = self else { return }
+                        if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
+                        self.stressCancellables.removeAll()
+                    }
+                    .store(in: &self.stressCancellables)
+                
+                // Start the transfer
+                coordinator.startOperation()
+            }
+        }
+    }
+
+    // Backwards compatibility shim for prior call sites
+    @MainActor
+    func runStressTest(coordinator: AppCoordinator, smallFootprint: Bool = true) {
+        let preset: StressPreset = smallFootprint ? .small : .medium
+        runStressTest(coordinator: coordinator, preset: preset, verify: false, cleanupAfter: true)
+    }
+    
+    @MainActor
+    private func cleanupSynthetic(at src: URL, and dst: URL) {
+        SharedLogger.info("Cleaning up synthetic data…")
+        let fm = FileManager.default
+        try? fm.removeItem(at: src)
+        try? fm.removeItem(at: dst)
+        SharedLogger.info("Cleanup complete.")
+    }
+    
     @MainActor func fillTestDataOnly(coordinator: AppCoordinator) {
-        print("🎭 Fill Test Data called - Dev Mode: \(isDevModeEnabled)")
+        SharedLogger.debug("Fill Test Data called - Dev Mode: \(isDevModeEnabled)")
         
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
@@ -108,15 +260,15 @@ class DevModeManager: ObservableObject {
         
         // Set fake destinations
         coordinator.fileSelectionViewModel.destinationURLs = destinations.map { $0.url }
-        
+
         // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.2) {
                 // We can't easily set individual destination info, so we'll just log it
-                print("📁 Fake destination \(index): \(info.formattedSize)")
+                SharedLogger.debug("Fake destination \(index): \(info.formattedSize)")
             }
         }
-        
+
         // Switch to copy mode but don't start operation
         coordinator.switchMode(to: .copyAndVerify)
     }
@@ -126,7 +278,7 @@ class DevModeManager: ObservableObject {
     
     #if os(iOS)
     @MainActor func fillTestDataOnly(sourceFolder: inout URL?, destinationFolders: inout [URL]) {
-        print("🎭 Fill Test Data called for iPad - Dev Mode: \(isDevModeEnabled)")
+        SharedLogger.debug("Fill Test Data called for iPad - Dev Mode: \(isDevModeEnabled)")
         
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
@@ -136,20 +288,20 @@ class DevModeManager: ObservableObject {
         
         // Set fake destinations
         destinationFolders = destinations.map { $0.url }
-        
-        print("📁 Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
+
+        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
         for (index, (_, info)) in destinations.enumerated() {
-            print("📁 Fake destination \(index): \(info.name) - \(info.formattedSize)")
+            SharedLogger.debug("Fake destination \(index): \(info.name) - \(info.formattedSize)")
         }
     }
     
     // MARK: - Shared Coordinator Test Data Population (for iPad)
     
     @MainActor func fillTestDataOnly(coordinator: SharedAppCoordinator) {
-        print("🎭 Fill Test Data called for SharedAppCoordinator - Dev Mode: \(isDevModeEnabled)")
-        
+        SharedLogger.debug("Fill Test Data called for SharedAppCoordinator - Dev Mode: \(isDevModeEnabled)")
+
         guard isDevModeEnabled else {
-            print("🎭 Dev mode is disabled, not filling fake data")
+            SharedLogger.debug("Dev mode is disabled, not filling fake data")
             return
         }
         
@@ -159,13 +311,13 @@ class DevModeManager: ObservableObject {
         // Set fake source
         coordinator.sourceURL = sourceURL
         coordinator.sourceFolderInfo = sourceInfo
-        print("🎭 Set source URL: \(sourceURL)")
-        print("🎭 Source URL is now: \(coordinator.sourceURL?.path ?? "nil")")
-        
+        SharedLogger.debug("Set source URL: \(sourceURL)")
+        SharedLogger.debug("Source URL is now: \(coordinator.sourceURL?.path ?? "nil")")
+
         // Set fake destinations
         coordinator.destinationURLs = destinations.map { $0.url }
-        print("🎭 Set \(destinations.count) destinations")
-        print("🎭 Destinations are now: \(coordinator.destinationURLs.map { $0.path })")
+        SharedLogger.debug("Set \(destinations.count) destinations")
+        SharedLogger.debug("Destinations are now: \(coordinator.destinationURLs.map { $0.path })")
         
         // Set fake camera detection
         let cameraName = "Sony A7S III"
@@ -181,10 +333,10 @@ class DevModeManager: ObservableObject {
                 "path": sourceURL.path
             ]
         )
-        
-        print("📁 Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
+
+        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
         for (index, (_, info)) in destinations.enumerated() {
-            print("📁 Fake destination \(index): \(info.name) - \(info.formattedSize)")
+            SharedLogger.debug("Fake destination \(index): \(info.name) - \(info.formattedSize)")
         }
     }
     #endif
@@ -193,7 +345,7 @@ class DevModeManager: ObservableObject {
     
     #if os(macOS)
     @MainActor func startFakeTransfer(coordinator: AppCoordinator) {
-        print("🎭 Starting fake transfer simulation")
+        SharedLogger.info("Starting fake transfer simulation")
         
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
@@ -204,15 +356,15 @@ class DevModeManager: ObservableObject {
         
         // Set fake destinations
         coordinator.fileSelectionViewModel.destinationURLs = destinations.map { $0.url }
-        
+
         // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.2) {
                 // We can't easily set individual destination info, so we'll just log it
-                print("📁 Fake destination \(index): \(info.formattedSize)")
+                SharedLogger.debug("Fake destination \(index): \(info.formattedSize)")
             }
         }
-        
+
         // Start the actual transfer after a brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             coordinator.switchMode(to: .copyAndVerify)
@@ -221,13 +373,13 @@ class DevModeManager: ObservableObject {
     }
     
     @MainActor func addFakeQueueItem(coordinator: AppCoordinator) {
-        print("🎭 Add Fake Queue Item called - Dev Mode: \(isDevModeEnabled)")
+        SharedLogger.debug("Add Fake Queue Item called - Dev Mode: \(isDevModeEnabled)")
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
-        
-        print("📋 Queuing: \(sourceURL.lastPathComponent) → \(destinations.count) destinations")
+
+        SharedLogger.debug("Queuing: \(sourceURL.lastPathComponent) → \(destinations.count) destinations")
         for (destURL, _) in destinations {
-            print("   → \(destURL.lastPathComponent)")
+            SharedLogger.debug("   → \(destURL.lastPathComponent)")
         }
         
         // Post notification that the queue system will handle
@@ -245,8 +397,8 @@ class DevModeManager: ObservableObject {
     @MainActor func simulateQueueProgression(coordinator: AppCoordinator) {
         // Simulate moving queued transfers to active and completed states
         guard coordinator.isOperationInProgress else { return }
-        
-        print("🎭 Simulating queue progression...")
+
+        SharedLogger.debug("Simulating queue progression...")
         
         // In a real implementation, this would be handled by the operation system
         // For now, we just post notifications to simulate the progression
@@ -271,8 +423,8 @@ extension DevModeManager {
         let totalFiles = coordinator.progressViewModel.fileCountTotal
         let filesPerSecond: Double = 2.5 // Realistic speed for large video files
         let totalDurationSeconds = Double(totalFiles) / filesPerSecond
-        
-        print("🎭 Simulating transfer: \(totalFiles) files over \(String(format: "%.1f", totalDurationSeconds))s")
+
+        SharedLogger.debug("Simulating transfer: \(totalFiles) files over \(String(format: "%.1f", totalDurationSeconds))s")
     }
     #endif
     
@@ -289,8 +441,8 @@ extension DevModeManager {
         let targetDurationSeconds: Double = 60.0 // 1 minute
         let filesPerSecond = Double(totalFiles) / targetDurationSeconds
         let interval = 1.0 / filesPerSecond
-        
-        print("🎭 Fake transfer will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
+
+        SharedLogger.debug("Fake transfer will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
         
         let fakeFileNames = [
             "DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00004.ARW", "DSC00005.ARW",
@@ -316,12 +468,12 @@ extension DevModeManager {
                 let error = NSError(domain: "FakeTransferError", code: 1001, userInfo: [
                     NSLocalizedDescriptionKey: "Simulated transfer error for testing"
                 ])
-                await onError(fileName, error)
+                onError(fileName, error)
             } else {
-                await onProgress(fileName, fileSize)
+                onProgress(fileName, fileSize)
             }
-            
-            print("🎭 Fake progress: \(i+1)/\(totalFiles) - \(fileName)")
+
+            SharedLogger.debug("Fake progress: \(i+1)/\(totalFiles) - \(fileName)")
         }
     }
     
@@ -338,8 +490,8 @@ extension DevModeManager {
         let targetDurationSeconds: Double = 30.0 // 30 seconds for verification
         let filesPerSecond = Double(totalFiles) / targetDurationSeconds
         let interval = 1.0 / filesPerSecond
-        
-        print("🎭 Fake verification will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
+
+        SharedLogger.debug("Fake verification will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
         
         let fakeFileNames = [
             "DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00004.ARW", "DSC00005.ARW",
@@ -356,18 +508,21 @@ extension DevModeManager {
             try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             
             let fileName = fakeFileNames.randomElement() ?? "FILE_\(String(format: "%03d", i)).RAF"
-            await onProgress(fileName)
+            onProgress(fileName)
             
             // 99% files match, 1% have issues for testing
-            let status: ResultRow.Status = Double.random(in: 0...1) < 0.99 ? .match : .contentMismatch
+            let statusText = Double.random(in: 0...1) < 0.99 ? "Match" : "Content Mismatch"
+            let fileSize = Int64.random(in: 1000...50_000_000) // Random file size for testing
             let result = ResultRow(
                 path: fileName,
-                target: destURL.appendingPathComponent(fileName).path,
-                status: status
+                status: statusText,
+                size: fileSize,
+                checksum: statusText == "Match" ? "abc123def456" : nil,
+                destination: nil
             )
-            await onResult(result)
-            
-            print("🎭 Fake verify: \(i+1)/\(totalFiles) - \(fileName) (\(status))")
+            onResult(result)
+
+            SharedLogger.debug("Fake verify: \(i+1)/\(totalFiles) - \(fileName) (\(statusText))")
         }
     }
 }

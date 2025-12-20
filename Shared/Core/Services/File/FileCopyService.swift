@@ -1,0 +1,189 @@
+// FileCopyService.swift - Atomic file copy with streaming enumeration
+// Uses shared AsyncSemaphore from AsyncSemaphore.swift
+import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
+
+final class FileCopyService {
+    private actor _EnumeratorSource {
+        private let fm = FileManager.default
+        private let enumerator: FileManager.DirectoryEnumerator?
+        init(base: URL) {
+            self.enumerator = fm.enumerator(
+                at: base,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            )
+        }
+        func nextRegularFile() -> URL? {
+            while let item = enumerator?.nextObject() as? URL {
+                if let isFile = try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile == true {
+                    return item
+                }
+            }
+            return nil
+        }
+    }
+    static func copyAllSafely(
+        from src: URL,
+        toRoot dstRoot: URL,
+        workers: Int,
+        preEnumeratedFiles: [URL]? = nil,
+        pauseCheck: (@Sendable () async throws -> Void)? = nil,
+        onProgress: @escaping (String, Int64) -> Void,
+        onError: @escaping (String, Error) -> Void
+    ) async throws {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: dstRoot.path) {
+            try fm.createDirectory(at: dstRoot, withIntermediateDirectories: true, attributes: nil)
+        }
+
+        // Streaming copy with bounded concurrency and no full in-memory list
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            let source = _EnumeratorSource(base: src)
+            let workerCount = max(1, workers)
+            for _ in 0..<workerCount {
+                group.addTask {
+                    let fm = FileManager.default
+                    while true {
+                        try Task.checkCancellation()
+                        if let pauseCheck = pauseCheck {
+                            try await pauseCheck()
+                        }
+                        guard let fileURL = await source.nextRegularFile() else { break }
+                        do {
+                            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                            let relPath = String(fileURL.path.dropFirst(src.path.count + 1))
+                            let dstURL = dstRoot.appendingPathComponent(relPath)
+                            let parentDir = dstURL.deletingLastPathComponent()
+                            if !fm.fileExists(atPath: parentDir.path) {
+                                try fm.createDirectory(at: parentDir, withIntermediateDirectories: true, attributes: nil)
+                            }
+                            let sourceSize = Int64(resourceValues.fileSize ?? 0)
+                            if fm.fileExists(atPath: dstURL.path) {
+                                let destSize = (try? fm.attributesOfItem(atPath: dstURL.path)[.size] as? NSNumber)?.int64Value ?? -1
+                                if destSize == sourceSize {
+                                    onProgress(relPath, sourceSize)
+                                    continue
+                                }
+                            }
+                            try await copyFileSecurely(from: fileURL, to: dstURL, pauseCheck: pauseCheck)
+                            onProgress(relPath, sourceSize)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            onError(relPath, error)
+                        }
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
+
+    private static func copyFileSecurely(
+        from source: URL,
+        to destination: URL,
+        pauseCheck: (@Sendable () async throws -> Void)?
+    ) async throws {
+        let fm = FileManager.default
+        let srcHandle = try FileHandle(forReadingFrom: source)
+        defer { try? srcHandle.close() }
+        let tempName = ".bitmatch.tmp." + UUID().uuidString
+        let tempURL = destination.deletingLastPathComponent().appendingPathComponent(tempName)
+        fm.createFile(atPath: tempURL.path, contents: nil, attributes: nil)
+        guard let dstHandle = FileHandle(forWritingAtPath: tempURL.path) else {
+            try? fm.removeItem(at: tempURL)
+            throw NSError(domain: "FileCopyService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unable to open temp destination for writing"])
+        }
+        var replaceSucceeded = false
+        defer {
+            try? dstHandle.close()
+            if !replaceSucceeded { try? fm.removeItem(at: tempURL) }
+        }
+        let bufferSize = 1 * 1024 * 1024 // 1MB chunk to keep memory steady
+        let sourceSize = (try? fm.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let logInterval: Int64 = 512 * 1024 * 1024
+        var bytesCopied: Int64 = 0
+        var nextLogMark = logInterval
+        let shouldLog = sourceSize >= logInterval
+        let sizeFormatter = ByteCountFormatter()
+        sizeFormatter.countStyle = .file
+        if shouldLog {
+            Self.logMemoryUsage(context: "start copy \(source.lastPathComponent)")
+        }
+        var reachedEOF = false
+        while !reachedEOF {
+            try Task.checkCancellation()
+            if let pauseCheck = pauseCheck {
+                try await pauseCheck()
+            }
+            var localError: Error?
+            var chunkSize: Int = 0
+            // Autorelease scope keeps chunk Data from piling up on massive transfers
+            autoreleasepool {
+                do {
+                    guard let data = try srcHandle.read(upToCount: bufferSize), !data.isEmpty else {
+                        reachedEOF = true
+                        return
+                    }
+                    chunkSize = data.count
+                    try dstHandle.write(contentsOf: data)
+                } catch {
+                    localError = error
+                    reachedEOF = true
+                }
+            }
+            if let error = localError {
+                throw error
+            }
+            if chunkSize == 0 {
+                break
+            }
+            bytesCopied += Int64(chunkSize)
+            if shouldLog, bytesCopied >= nextLogMark {
+                let copiedString = sizeFormatter.string(fromByteCount: bytesCopied)
+                let totalString = sizeFormatter.string(fromByteCount: sourceSize)
+                Self.logMemoryUsage(context: "\(source.lastPathComponent) – \(copiedString)/\(totalString)")
+                nextLogMark += logInterval
+            }
+        }
+        #if compiler(>=5.7)
+        if #available(iOS 16.0, macOS 13.0, *) { try? dstHandle.synchronize() } else { dstHandle.synchronizeFile() }
+        #else
+        dstHandle.synchronizeFile()
+        #endif
+        let tempSize = (try? fm.attributesOfItem(atPath: tempURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard sourceSize == tempSize else {
+            throw NSError(domain: "FileCopyService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Size mismatch after copy"])
+        }
+        _ = try fm.replaceItemAt(destination, withItemAt: tempURL, backupItemName: nil, options: [.usingNewMetadataOnly])
+        replaceSucceeded = true
+        if shouldLog {
+            Self.logMemoryUsage(context: "completed \(destination.lastPathComponent)")
+        }
+    }
+}
+
+#if canImport(Darwin)
+extension FileCopyService {
+    private static func logMemoryUsage(context: String) {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<Int32>.size)
+        let kerr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard kerr == KERN_SUCCESS else { return }
+        let usedMB = Double(info.resident_size) / 1_048_576.0
+        let formatted = String(format: "%.2f", usedMB)
+        SharedLogger.debug("Memory [\(context)]: \(formatted) MB resident", category: .transfer)
+    }
+}
+#else
+extension FileCopyService {
+    private static func logMemoryUsage(context: String) {}
+}
+#endif

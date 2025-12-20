@@ -3,8 +3,8 @@ import Foundation
 
 struct CameraNamingService {
     
-    // MARK: - Camera Detection Result
-    struct CameraDetectionResult {
+    // MARK: - Camera Naming Result
+    struct CameraNamingResult {
         let suggestedName: String
         let cameraDesignation: String
         let confidence: Float // 0.0 - 1.0
@@ -89,10 +89,10 @@ struct CameraNamingService {
     // MARK: - Public Methods
     
     /// Analyzes video files in a folder and suggests camera naming based on filename patterns
-    static func analyzeFolderForCameraNaming(at folderURL: URL) -> [CameraDetectionResult] {
+    static func analyzeFolderForCameraNaming(at folderURL: URL) -> [CameraNamingResult] {
         guard folderURL.hasDirectoryPath else { return [] }
         
-        var results: [CameraDetectionResult] = []
+        var results: [CameraNamingResult] = []
         
         do {
             let fileURLs = try FileManager.default.contentsOfDirectory(
@@ -115,14 +115,14 @@ struct CameraNamingService {
             }
             
         } catch {
-            print("Error reading folder contents: \(error)")
+            SharedLogger.error("Error reading folder contents: \(error)", category: .transfer)
         }
         
         return results
     }
     
     /// Gets the best camera naming suggestion based on detected patterns
-    static func getBestCameraSuggestion(for folderURL: URL) -> CameraDetectionResult? {
+    static func getBestCameraSuggestion(for folderURL: URL) -> CameraNamingResult? {
         let results = analyzeFolderForCameraNaming(at: folderURL)
         
         // Group by designation and find the most common one
@@ -141,7 +141,7 @@ struct CameraNamingService {
         let folderName = folderURL.lastPathComponent
         let suggestedName = generateSuggestedName(baseName: folderName, cameraDesignation: best.cameraDesignation)
         
-        return CameraDetectionResult(
+        return CameraNamingResult(
             suggestedName: suggestedName,
             cameraDesignation: best.cameraDesignation,
             confidence: best.confidence,
@@ -152,7 +152,7 @@ struct CameraNamingService {
     // MARK: - Private Methods
     
     /// Detects camera designation from a single filename
-    private static func detectCameraFromFilename(_ filename: String) -> CameraDetectionResult? {
+    private static func detectCameraFromFilename(_ filename: String) -> CameraNamingResult? {
         let uppercaseFilename = filename.uppercased()
         
         for (pattern, designation) in cameraPatterns {
@@ -173,7 +173,7 @@ struct CameraNamingService {
                         cameraDesignation: designation
                     )
                     
-                    return CameraDetectionResult(
+                    return CameraNamingResult(
                         suggestedName: suggestedName,
                         cameraDesignation: designation,
                         confidence: confidence,

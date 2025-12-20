@@ -60,15 +60,37 @@ struct TransferCard: Identifiable {
     var destinationPaths: [String] {
         return destinations.map { $0.url.path }
     }
+    
+    var formattedSize: String {
+        return ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
+    }
 }
 
 // MARK: - Result Row
 struct ResultRow: Identifiable {
-    let id = UUID()
+    let id: UUID
     let path: String
     let status: String
     let size: Int64
     let checksum: String?
+    let destination: String?
+    let destinationPath: String?
+    
+    init(id: UUID = UUID(),
+         path: String,
+         status: String,
+         size: Int64,
+         checksum: String?,
+         destination: String?,
+         destinationPath: String? = nil) {
+        self.id = id
+        self.path = path
+        self.status = status
+        self.size = size
+        self.checksum = checksum
+        self.destination = destination
+        self.destinationPath = destinationPath
+    }
     
     var fileName: String {
         URL(fileURLWithPath: path).lastPathComponent

@@ -210,6 +210,7 @@ extension CompactTransferCard.TransferState {
     var displayName: String {
         switch self {
         case .idle: return "Ready"
+        case .preparing: return "Preparing"
         case .copying: return "Copying"
         case .verifying: return "Verifying"
         case .completed: return "Completed"

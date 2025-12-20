@@ -24,16 +24,28 @@ struct CameraStructureDetector {
         // Try each camera type detection pattern
         for detector in cameraDetectors {
             if let detection = detector.detect(at: volume) {
-                guard let volumeInfo = VolumeScanner.getVolumeInfo(for: volume) else {
-                    continue
-                }
+                // Future enhancement: populate volume info if needed for UI
+                // guard let volumeInfo = VolumeScanner.getVolumeInfo(for: volume) else {
+                //     continue
+                // }
                 
                 return CameraCard(
+                    name: detection.cameraType.rawValue,
+                    manufacturer: detection.cameraType.rawValue,
+                    model: nil,
+                    fileCount: 0, // Placeholder; detailed analysis step populates counts
+                    totalSize: 0, // Placeholder; detailed analysis step populates size
+                    detectionConfidence: {
+                        switch detection.confidence {
+                        case .high: return 0.9
+                        case .medium: return 0.7
+                        case .low: return 0.5
+                        }
+                    }(),
+                    metadata: [:],
                     volumeURL: volume,
                     cameraType: detection.cameraType,
-                    mediaPath: detection.mediaPath,
-                    detectedAt: Date(),
-                    volumeInfo: volumeInfo
+                    mediaPath: detection.mediaPath
                 )
             }
         }
@@ -74,8 +86,8 @@ struct CameraStructureDetector {
 
 // MARK: - Detection Result
 
-struct CameraDetectionResult {
-    let cameraType: DetectedCameraType
+struct CameraStructureResult {
+    let cameraType: CameraType
     let mediaPath: URL
     let confidence: DetectionConfidence
 }
@@ -91,7 +103,7 @@ enum DetectionConfidence {
 // MARK: - Camera Detectors
 
 protocol CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult?
+    func detect(at volume: URL) -> CameraStructureResult?
 }
 
 private let cameraDetectors: [CameraDetector] = [
@@ -113,7 +125,7 @@ private let cameraDetectors: [CameraDetector] = [
 // MARK: - Specific Camera Detectors
 
 struct REDCameraDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["RED", "REDMAG", "R3D"]
         
         for pattern in patterns {
@@ -121,7 +133,7 @@ struct REDCameraDetector: CameraDetector {
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 // Look for .R3D files or RED-specific structure
                 if containsREDMedia(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .redCamera,
                         mediaPath: folderURL,
                         confidence: .high
@@ -139,14 +151,14 @@ struct REDCameraDetector: CameraDetector {
 }
 
 struct ARRICameraDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["ARRIRAW", "ARRI", "CLIPS"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsARRIMedia(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .arri,
                         mediaPath: folderURL,
                         confidence: .high
@@ -164,14 +176,14 @@ struct ARRICameraDetector: CameraDetector {
 }
 
 struct BlackmagicDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["BRAW", "Blackmagic RAW"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsBlackmagicMedia(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .blackmagic,
                         mediaPath: folderURL,
                         confidence: .high
@@ -189,7 +201,7 @@ struct BlackmagicDetector: CameraDetector {
 }
 
 struct SonyCameraDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         // Check for Sony-specific folders and files
         let sonyFolders = ["PRIVATE", "XDCAM", "DCIM"]
         
@@ -197,7 +209,7 @@ struct SonyCameraDetector: CameraDetector {
             let folderURL = volume.appendingPathComponent(folder)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsSonyMedia(at: folderURL) || containsSonyStructure(at: volume) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .sony,
                         mediaPath: findBestMediaPath(at: volume, candidates: sonyFolders),
                         confidence: .high
@@ -223,7 +235,7 @@ struct SonyCameraDetector: CameraDetector {
 }
 
 struct CanonCameraDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let dcimURL = volume.appendingPathComponent("DCIM")
         
         guard FileManager.default.fileExists(atPath: dcimURL.path) else {
@@ -231,7 +243,7 @@ struct CanonCameraDetector: CameraDetector {
         }
         
         if containsCanonMedia(at: dcimURL) {
-            return CameraDetectionResult(
+            return CameraStructureResult(
                 cameraType: .canon,
                 mediaPath: dcimURL,
                 confidence: .high
@@ -259,14 +271,14 @@ struct CanonCameraDetector: CameraDetector {
 }
 
 struct PanasonicDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["DCIM", "PRIVATE", "P2"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsPanasonicMedia(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .panasonic,
                         mediaPath: folderURL,
                         confidence: .high
@@ -284,7 +296,7 @@ struct PanasonicDetector: CameraDetector {
 }
 
 struct FujifilmDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let dcimURL = volume.appendingPathComponent("DCIM")
         
         guard FileManager.default.fileExists(atPath: dcimURL.path) else {
@@ -292,7 +304,7 @@ struct FujifilmDetector: CameraDetector {
         }
         
         if containsFujifilmMedia(at: dcimURL) {
-            return CameraDetectionResult(
+            return CameraStructureResult(
                 cameraType: .fujifilm,
                 mediaPath: dcimURL,
                 confidence: .high
@@ -318,7 +330,7 @@ struct FujifilmDetector: CameraDetector {
 }
 
 struct NikonDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let dcimURL = volume.appendingPathComponent("DCIM")
         
         guard FileManager.default.fileExists(atPath: dcimURL.path) else {
@@ -326,7 +338,7 @@ struct NikonDetector: CameraDetector {
         }
         
         if containsNikonMedia(at: dcimURL) {
-            return CameraDetectionResult(
+            return CameraStructureResult(
                 cameraType: .nikon,
                 mediaPath: dcimURL,
                 confidence: .high
@@ -352,7 +364,7 @@ struct NikonDetector: CameraDetector {
 }
 
 struct GoProDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let dcimURL = volume.appendingPathComponent("DCIM")
         
         guard FileManager.default.fileExists(atPath: dcimURL.path) else {
@@ -360,7 +372,7 @@ struct GoProDetector: CameraDetector {
         }
         
         if containsGoProMedia(at: dcimURL) {
-            return CameraDetectionResult(
+            return CameraStructureResult(
                 cameraType: .gopro,
                 mediaPath: dcimURL,
                 confidence: .high
@@ -382,14 +394,14 @@ struct GoProDetector: CameraDetector {
 }
 
 struct DJIDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["DCIM", "DJI"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsDJIMedia(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .dji,
                         mediaPath: folderURL,
                         confidence: .high
@@ -413,14 +425,14 @@ struct DJIDetector: CameraDetector {
 }
 
 struct Insta360Detector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["DCIM", "INSTA360"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsInsta360Media(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .insta360,
                         mediaPath: folderURL,
                         confidence: .high
@@ -438,7 +450,7 @@ struct Insta360Detector: CameraDetector {
 }
 
 struct GenericDCIMDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let dcimURL = volume.appendingPathComponent("DCIM")
         
         guard FileManager.default.fileExists(atPath: dcimURL.path) else {
@@ -446,7 +458,7 @@ struct GenericDCIMDetector: CameraDetector {
         }
         
         if containsMediaFiles(at: dcimURL) {
-            return CameraDetectionResult(
+            return CameraStructureResult(
                 cameraType: .genericDCIM,
                 mediaPath: dcimURL,
                 confidence: .medium
@@ -458,14 +470,14 @@ struct GenericDCIMDetector: CameraDetector {
 }
 
 struct GenericMediaDetector: CameraDetector {
-    func detect(at volume: URL) -> CameraDetectionResult? {
+    func detect(at volume: URL) -> CameraStructureResult? {
         let patterns = ["MEDIA", "VIDEO", "PHOTO", "Pictures", "Movies"]
         
         for pattern in patterns {
             let folderURL = volume.appendingPathComponent(pattern)
             if FileManager.default.fileExists(atPath: folderURL.path) {
                 if containsMediaFiles(at: folderURL) {
-                    return CameraDetectionResult(
+                    return CameraStructureResult(
                         cameraType: .genericMedia,
                         mediaPath: folderURL,
                         confidence: .low
@@ -481,31 +493,38 @@ struct GenericMediaDetector: CameraDetector {
 // MARK: - Helper Functions
 
 private func containsFilesWithExtensions(at path: URL, extensions: [String]) -> Bool {
-    do {
-        let contents = try FileManager.default.contentsOfDirectory(atPath: path.path)
-        let lowercaseExtensions = extensions.map { $0.lowercased() }
-        
+    // Bounded, shallow scan to prevent traversing entire large volumes
+    let lowercaseExtensions = extensions.map { $0.lowercased() }
+    let maxDepth = 3
+    let maxScanned = 50_000
+    var scanned = 0
+
+    func scan(_ url: URL, depth: Int) -> Bool {
+        if depth > maxDepth || scanned >= maxScanned { return false }
+        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return false }
         for item in contents {
-            let itemURL = path.appendingPathComponent(item)
-            let fileExtension = itemURL.pathExtension.lowercased()
-            
-            if lowercaseExtensions.contains(fileExtension) {
-                return true
-            }
-            
-            // Recursively check subdirectories (but limit depth to avoid performance issues)
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: itemURL.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                if containsFilesWithExtensions(at: itemURL, extensions: extensions) {
-                    return true
+            var foundHere = false
+            autoreleasepool {
+                if scanned >= maxScanned { return }
+                scanned += 1
+                let itemURL = url.appendingPathComponent(item)
+                let ext = itemURL.pathExtension.lowercased()
+                if lowercaseExtensions.contains(ext) { foundHere = true; return }
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: itemURL.path, isDirectory: &isDir), isDir.boolValue {
+                    if scan(itemURL, depth: depth + 1) { foundHere = true; return }
                 }
             }
+            if foundHere { return true }
         }
-        
-        return false
-    } catch {
         return false
     }
+
+    let found = scan(path, depth: 0)
+    if scanned >= maxScanned {
+        SharedLogger.debug("CameraStructureDetector: scan reached cap (\(maxScanned)) at \(path.path)", category: .transfer)
+    }
+    return found
 }
 
 private func containsMediaFiles(at path: URL) -> Bool {
@@ -535,7 +554,12 @@ private func findBestMediaPath(at volume: URL, candidates: [String]) -> URL {
 private extension String {
     func matchesRegex(_ pattern: String) -> Bool {
         let range = NSRange(location: 0, length: self.utf16.count)
-        let regex = try! NSRegularExpression(pattern: pattern)
-        return regex.firstMatch(in: self, options: [], range: range) != nil
+        do {
+            let regex = try NSRegularExpression(pattern: pattern)
+            return regex.firstMatch(in: self, options: [], range: range) != nil
+        } catch {
+            // Invalid pattern; treat as non-match
+            return false
+        }
     }
 }

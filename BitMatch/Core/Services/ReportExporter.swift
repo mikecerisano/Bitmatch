@@ -1,7 +1,6 @@
 // Core/Services/ReportExporter.swift - Enhanced
 import Foundation
 import SwiftUI
-import PDFKit
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -95,8 +94,8 @@ struct JSONReportItem: Codable {
     
     init(from row: ResultRow) {
         self.path = row.path
-        self.target = row.target
-        self.status = row.status.rawValue
+        self.target = row.destinationPath ?? row.destination
+        self.status = row.status.isEmpty ? "Unknown" : row.status
         self.fileExtension = URL(fileURLWithPath: row.path).pathExtension.uppercased()
     }
 }
@@ -124,14 +123,15 @@ final class ReportExporter {
                       matchCount: Int,
                       prefs: ReportPrefs,
                       workers: Int,
-                      totalBytesProcessed: Int64) async {
+                      totalBytesProcessed: Int64,
+                      generateFullReport: Bool = true) async {
         
         let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
         let method = prefs.verifyWithChecksum ? "\(prefs.checksumAlgorithm.rawValue) Checksum" : "Byte-to-Byte Comparison"
         
         let destinationPaths = destinationURLs.map { $0.path }
-        let issues = results.filter { $0.status != .match }
+        let issues = results.filter { !isMatchStatus($0.status) }
         
         // Calculate performance metrics
         let duration = finished.timeIntervalSince(started)
@@ -151,24 +151,26 @@ final class ReportExporter {
             workers: workers,
             appVersion: appVersion,
             osVersion: osVersion,
-            client: prefs.client,
+            client: prefs.clientName,
             production: prefs.production,
             company: prefs.company,
             verificationMethod: method,
             totalBytesProcessed: totalBytesProcessed,
             averageSpeed: averageSpeed,
-            clientLogoData: prefs.clientLogoData,
-            companyLogoData: prefs.companyLogoData
+            clientLogoData: nil,
+            companyLogoData: nil
         )
+        
+        let shouldGenerateFullReport = generateFullReport && prefs.makeReport
         
         // Generate PDF on main thread (required for SwiftUI views)
         #if os(macOS)
-        let pdfData = await MainActor.run {
+        let pdfData: Data? = shouldGenerateFullReport ? await MainActor.run {
             generatePDF(summary: summary, results: results)
-        }
+        } : nil
         #else
         // PDF generation not available on iOS
-        let pdfData = Data()
+        let pdfData: Data? = nil
         #endif
         
         // Auto-save to reports folder
@@ -187,21 +189,178 @@ final class ReportExporter {
                        totalBytesProcessed: totalBytesProcessed,
                        workers: workers,
                        filesPerSecond: filesPerSecond,
-                       prefs: prefs)
+                       prefs: prefs,
+                       generateFullReport: shouldGenerateFullReport)
     }
     
     #if os(macOS)
+    @MainActor
     private static func generatePDF(summary: ReportView.Summary, results: [ResultRow]) -> Data {
         let view = ReportView(s: summary, rows: results)
+
+        // Use ImageRenderer if available (macOS 13+)
+        if #available(macOS 13.0, *) {
+            let renderer = ImageRenderer(content: view)
+            let pageWidth: CGFloat = 612
+            let pageHeight: CGFloat = 792
+
+            // Let the view determine its own height
+            renderer.proposedSize = ProposedViewSize(width: pageWidth, height: nil)
+            if renderer.scale == 0 {
+                renderer.scale = NSScreen.main?.backingScaleFactor ?? 2.0
+            }
+
+            // Get the actual rendered size from the CGImage
+            let totalHeight: CGFloat
+            if let cgImage = renderer.cgImage {
+                // CGImage height is in pixels, need to account for scale
+                let scale = renderer.scale > 0 ? renderer.scale : 2.0
+                totalHeight = CGFloat(cgImage.height) / scale
+            } else {
+                totalHeight = pageHeight
+            }
+            let pageCount = max(1, Int(ceil(totalHeight / pageHeight)))
+
+            // Render to PDF using Core Graphics
+            let pdfMetadata = [
+                kCGPDFContextCreator: "BitMatch",
+                kCGPDFContextTitle: "BitMatch Verification Report"
+            ] as CFDictionary
+
+            let mutableData = NSMutableData()
+            guard let consumer = CGDataConsumer(data: mutableData as CFMutableData) else {
+                return Data()
+            }
+
+            var mediaBox = CGRect(origin: .zero, size: CGSize(width: pageWidth, height: pageHeight))
+            guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, pdfMetadata) else {
+                return Data()
+            }
+
+            // Render each page (in reverse order to get correct page sequence)
+            for pageIndex in (0..<pageCount).reversed() {
+                context.beginPDFPage(nil)
+
+                // Save the context state
+                context.saveGState()
+
+                // Translate to show the correct portion of the view
+                let yOffset = CGFloat(pageIndex) * pageHeight
+                context.translateBy(x: 0, y: -yOffset)
+
+                // Render the full SwiftUI view (will be clipped to page)
+                renderer.render { size, renderFunc in
+                    renderFunc(context)
+                }
+
+                // Restore context state for next page
+                context.restoreGState()
+                context.endPDFPage()
+            }
+
+            context.closePDF()
+            return mutableData as Data
+        } else {
+            // Fallback for macOS 12 and earlier - use legacy bitmap approach
+            return generatePDFLegacy(summary: summary, results: results)
+        }
+    }
+
+    @MainActor
+    @available(macOS, deprecated: 13.0, message: "Use generatePDF with ImageRenderer")
+    private static func generatePDFLegacy(summary: ReportView.Summary, results: [ResultRow]) -> Data {
+        let view = ReportView(s: summary, rows: results)
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: 612, height: 792) // US Letter size
-        return hosting.dataWithPDF(inside: hosting.bounds)
+        let pageSize = NSSize(width: 612, height: 792)
+
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.white.cgColor
+        hosting.frame = NSRect(origin: .zero, size: pageSize)
+        hosting.layoutSubtreeIfNeeded()
+
+        let fittingHeight = max(pageSize.height, hosting.fittingSize.height)
+        hosting.frame.size = NSSize(width: pageSize.width, height: fittingHeight)
+        hosting.layoutSubtreeIfNeeded()
+
+        // Create bitmap context and render view
+        let scale: CGFloat = 2.0 // Retina resolution
+        let scaledSize = CGSize(width: pageSize.width * scale, height: fittingHeight * scale)
+
+        guard let bitmapRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(scaledSize.width),
+            pixelsHigh: Int(scaledSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return Data()
+        }
+
+        let context = NSGraphicsContext(bitmapImageRep: bitmapRep)
+        NSGraphicsContext.current = context
+
+        guard let cgContext = context?.cgContext else {
+            NSGraphicsContext.current = nil
+            SharedLogger.error("Failed to get CGContext for PDF rendering", category: .transfer)
+            return Data()
+        }
+        cgContext.scaleBy(x: scale, y: scale)
+
+        hosting.layer?.render(in: cgContext)
+
+        NSGraphicsContext.current = nil
+
+        // Convert bitmap to PDF
+        let image = NSImage(size: NSSize(width: pageSize.width, height: fittingHeight))
+        image.addRepresentation(bitmapRep)
+
+        // Create PDF from image
+        let pdfData = NSMutableData()
+        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData) else {
+            return Data()
+        }
+
+        let pageCount = Int(ceil(fittingHeight / pageSize.height))
+        var mediaBox = CGRect(origin: .zero, size: pageSize)
+
+        guard let pdfContext = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            return Data()
+        }
+
+        for pageIndex in 0..<pageCount {
+            pdfContext.beginPDFPage(nil)
+
+            let yOffset = CGFloat(pageIndex) * pageSize.height
+
+            if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                let croppedImage = cgImage.cropping(to: CGRect(
+                    x: 0,
+                    y: yOffset * scale,
+                    width: pageSize.width * scale,
+                    height: min(pageSize.height * scale, scaledSize.height - yOffset * scale)
+                ))
+
+                if let cropped = croppedImage {
+                    pdfContext.draw(cropped, in: CGRect(origin: .zero, size: pageSize))
+                }
+            }
+
+            pdfContext.endPDFPage()
+        }
+
+        pdfContext.closePDF()
+        return pdfData as Data
     }
     #endif
     
     private static func autoSaveReports(mode: AppMode,
                                         destinationURLs: [URL],
-                                        pdfData: Data,
+                                        pdfData: Data?,
                                         results: [ResultRow],
                                         finished: Date,
                                         checksumAlgorithm: ChecksumAlgorithm?,
@@ -214,7 +373,8 @@ final class ReportExporter {
                                         totalBytesProcessed: Int64,
                                         workers: Int,
                                         filesPerSecond: Double,
-                                        prefs: ReportPrefs) async {
+                                        prefs: ReportPrefs,
+                                        generateFullReport: Bool) async {
         
         // Generate default filename
         let formatter = ISO8601DateFormatter()
@@ -228,17 +388,24 @@ final class ReportExporter {
             // Save to Reports folder inside first destination
             saveDirectory = firstDestination.appendingPathComponent("Reports", isDirectory: true)
         } else {
-            // Fallback to Desktop/Reports
-            let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first!
-            saveDirectory = desktop.appendingPathComponent("Reports", isDirectory: true)
+            // Fallback to Desktop/Reports or Documents/Reports
+            guard let fallbackDir = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+                    ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                SharedLogger.error("No valid directory found for saving reports", category: .transfer)
+                await MainActor.run {
+                    showErrorAlert(message: "Cannot find a valid directory to save reports")
+                }
+                return
+            }
+            saveDirectory = fallbackDir.appendingPathComponent("Reports", isDirectory: true)
         }
-        
+
         // Create reports directory if it doesn't exist
         do {
             try FileManager.default.createDirectory(at: saveDirectory, withIntermediateDirectories: true)
         } catch {
-            NSLog("Failed to create reports directory: \(error.localizedDescription)")
-            DispatchQueue.main.async {
+            SharedLogger.error("Failed to create reports directory: \(error.localizedDescription)", category: .transfer)
+            await MainActor.run {
                 showErrorAlert(message: "Failed to create reports directory: \(error.localizedDescription)")
             }
             return
@@ -247,13 +414,16 @@ final class ReportExporter {
         let pdfURL = saveDirectory.appendingPathComponent(fileName)
         
         do {
-            // Save PDF
-            try pdfData.write(to: pdfURL)
+            if generateFullReport, let pdfData {
+                // Save PDF
+                try pdfData.write(to: pdfURL)
+            }
             
             // Save CSV manifest with enhanced data
             let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv")
             try exportEnhancedCSV(results: results,
                                  to: csvURL,
+                                 started: started,
                                  duration: duration,
                                  filesPerSecond: filesPerSecond)
             
@@ -277,12 +447,12 @@ final class ReportExporter {
             )
             
             // If checksums were used, auto-export checksum file (no dialog)
-            if let algorithm = checksumAlgorithm {
+            if generateFullReport, let algorithm = checksumAlgorithm {
                 #if os(macOS)
                 autoExportChecksums(results: results, algorithm: algorithm, baseURL: pdfURL)
                 #else
                 // Checksum export not available on iOS
-                print("⚠️ Checksum export not available on iOS")
+                SharedLogger.warning("Checksum export not available on iOS", category: .transfer)
                 #endif
             }
             
@@ -302,7 +472,7 @@ final class ReportExporter {
     #if os(macOS)
     private static func showSavePanel(mode: AppMode,
                                      destinationURLs: [URL],
-                                     pdfData: Data,
+                                     pdfData: Data?,
                                      results: [ResultRow],
                                      finished: Date,
                                      checksumAlgorithm: ChecksumAlgorithm?,
@@ -339,13 +509,15 @@ final class ReportExporter {
         // Show panel and save files
         if panel.runModal() == .OK, let pdfURL = panel.url {
             do {
-                // Save PDF
-                try pdfData.write(to: pdfURL)
+                if let pdfData {
+                    try pdfData.write(to: pdfURL)
+                }
                 
                 // Save CSV manifest with enhanced data
                 let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv")
                 try exportEnhancedCSV(results: results,
                                      to: csvURL,
+                                     started: started,
                                      duration: duration,
                                      filesPerSecond: filesPerSecond)
                 
@@ -369,7 +541,7 @@ final class ReportExporter {
                 )
                 
                 // If checksums were used, offer to export checksum file
-                if let algorithm = checksumAlgorithm {
+                if let algorithm = checksumAlgorithm, let _ = pdfData {
                     askToExportChecksums(results: results, algorithm: algorithm, baseURL: pdfURL)
                 }
                 
@@ -389,6 +561,7 @@ final class ReportExporter {
     // MARK: - Enhanced CSV Export
     private static func exportEnhancedCSV(results: [ResultRow],
                                           to url: URL,
+                                          started: Date,
                                           duration: TimeInterval,
                                           filesPerSecond: Double) throws {
         var csvContent = "Status,File Path,Target Path,Details,Timestamp\n"
@@ -397,14 +570,18 @@ final class ReportExporter {
         dateFormatter.formatOptions = [.withInternetDateTime]
         
         for (index, result) in results.enumerated() {
-            let status = escapeCSV(result.status.rawValue)
+            let status = escapeCSV(result.status)
             let path = escapeCSV(result.path)
-            let target = escapeCSV(result.target ?? "—")
-            let details = result.status == .match ? "Verified" : result.status.rawValue
+            let target = escapeCSV(result.destinationPath ?? result.destination ?? "—")
+            let details = isMatchStatus(result.status) ? "Verified" : result.status
             
             // Calculate estimated timestamp based on processing speed
-            let estimatedTime = Date().addingTimeInterval(-duration + (Double(index) / max(1, filesPerSecond)))
-            let timestamp = dateFormatter.string(from: estimatedTime)
+            let secondsPerFile = filesPerSecond > 0 ? 1.0 / filesPerSecond : 0
+            let estimatedOffset = Double(index) * secondsPerFile
+            let estimatedTime = started.addingTimeInterval(estimatedOffset)
+            let completionTime = started.addingTimeInterval(duration)
+            let clampedTime = estimatedTime > completionTime ? completionTime : estimatedTime
+            let timestamp = dateFormatter.string(from: clampedTime)
             
             csvContent += "\(status),\(path),\(target),\(details),\(timestamp)\n"
         }
@@ -412,8 +589,8 @@ final class ReportExporter {
         // Add summary at the end
         csvContent += "\n# Summary\n"
         csvContent += "Total Files,\(results.count)\n"
-        csvContent += "Matched,\(results.filter { $0.status == .match }.count)\n"
-        csvContent += "Issues,\(results.filter { $0.status != .match }.count)\n"
+        csvContent += "Matched,\(results.filter { isMatchStatus($0.status) }.count)\n"
+        csvContent += "Issues,\(results.filter { !isMatchStatus($0.status) }.count)\n"
         csvContent += "Duration,\(String(format: "%.2f", duration)) seconds\n"
         csvContent += "Files/Second,\(String(format: "%.2f", filesPerSecond))\n"
         
@@ -466,8 +643,9 @@ final class ReportExporter {
         
         // Calculate issues by type
         var issuesByType: [String: Int] = [:]
-        for result in results.filter({ $0.status != .match }) {
-            issuesByType[result.status.rawValue, default: 0] += 1
+        for result in results.filter({ !isMatchStatus($0.status) }) {
+            let key = normalizedStatus(result.status)
+            issuesByType[key, default: 0] += 1
         }
         
         // Calculate performance metrics
@@ -641,8 +819,8 @@ final class ReportExporter {
         alert.addButton(withTitle: "OK")
         alert.runModal()
         #else
-        // iOS doesn't have NSAlert - use print for now
-        print("❌ Export Error: \(message)")
+        // iOS doesn't have NSAlert - use SharedLogger for now
+        SharedLogger.error("Export Error: \(message)", category: .transfer)
         #endif
     }
     
@@ -655,9 +833,18 @@ final class ReportExporter {
         alert.addButton(withTitle: "OK")
         alert.runModal()
         #else
-        // iOS doesn't have NSAlert - use print for now
-        print("ℹ️ Export Complete: \(message)")
+        // iOS doesn't have NSAlert - use SharedLogger for now
+        SharedLogger.info("Export Complete: \(message)", category: .transfer)
         #endif
+    }
+    
+    private static func isMatchStatus(_ status: String) -> Bool {
+        let lowercased = status.lowercased()
+        return status.contains("✅") || lowercased.contains("match") || lowercased.contains("verified")
+    }
+    
+    private static func normalizedStatus(_ status: String) -> String {
+        status.isEmpty ? "Unknown" : status
     }
 }
 
@@ -667,15 +854,11 @@ extension ReportExporter {
     
     @MainActor
     static func exportChecksumsAsync(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) async {
-        let matches = results.filter { $0.status == .match }
+        let matches = results.filter { isMatchStatus($0.status) }
         guard !matches.isEmpty else {
             showInfoAlert(message: "No verified files to export checksums for.")
             return
         }
-        
-        // Show progress window
-        let progressWindow = ChecksumProgressWindow(fileCount: matches.count)
-        progressWindow.show()
         
         do {
             var content = "# BitMatch Checksum Manifest\n"
@@ -683,29 +866,30 @@ extension ReportExporter {
             content += "# Generated: \(Date().formatted())\n"
             content += "# Format: CHECKSUM  FILENAME\n\n"
             
-            // Convert paths to URLs and calculate checksums
-            let urls = matches.compactMap { match -> URL? in
-                guard let targetPath = match.target else { return nil }
-                return URL(fileURLWithPath: targetPath)
+            var checksums: [(URL, String)] = []
+            for match in matches {
+                let pathString = match.destinationPath ?? match.destination ?? match.path
+                let fileURL = URL(fileURLWithPath: pathString)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    continue
+                }
+                
+                let checksum = try await SharedChecksumService.shared.generateChecksum(
+                    for: fileURL,
+                    type: algorithm
+                )
+                checksums.append((fileURL, checksum))
             }
             
-            let checksums = try await FileOperationsService.computeChecksums(
-                for: urls,
-                algorithm: algorithm
-            )
-            
-            // Write checksum file
             for (url, checksum) in checksums {
                 content += "\(checksum)  \(url.lastPathComponent)\n"
             }
             
             try content.write(to: url, atomically: true, encoding: .utf8)
             
-            progressWindow.close()
-            showInfoAlert(message: "Checksum manifest exported successfully!")
+            SharedLogger.info("Checksum manifest exported successfully to \(url.path)", category: .transfer)
             
         } catch {
-            progressWindow.close()
             showErrorAlert(message: "Failed to export checksums: \(error.localizedDescription)")
         }
     }
@@ -718,7 +902,7 @@ extension ReportExporter {
     /// Quick export for just the issues (errors/mismatches)
     #if os(macOS)
     static func exportIssuesOnly(results: [ResultRow], to url: URL? = nil) {
-        let issues = results.filter { $0.status != .match }
+        let issues = results.filter { !isMatchStatus($0.status) }
         guard !issues.isEmpty else {
             showInfoAlert(message: "No issues to export - all files matched perfectly!")
             return
@@ -740,14 +924,14 @@ extension ReportExporter {
             
             let grouped = Dictionary(grouping: issues) { $0.status }
             
-            for (status, items) in grouped.sorted(by: { $0.key.sortPriority < $1.key.sortPriority }) {
-                content += "\n\(status.rawValue) (\(items.count) files):\n"
+            for (status, items) in grouped.sorted(by: { $0.key.issueSortPriority < $1.key.issueSortPriority }) {
+                content += "\n\(status) (\(items.count) files):\n"
                 content += String(repeating: "-", count: 30) + "\n"
                 
                 for item in items.prefix(100) {
                     content += "  • \(item.path)\n"
-                    if let target = item.target {
-                        content += "    → \(target)\n"
+                    if let destination = item.destination {
+                        content += "    → \(destination)\n"
                     }
                 }
                 
@@ -767,53 +951,21 @@ extension ReportExporter {
     #endif
 }
 
-#if os(macOS)
-// MARK: - Checksum Progress Window
-class ChecksumProgressWindow: NSWindow {
-    private let progressIndicator: NSProgressIndicator
-    private let statusLabel: NSTextField
-    
-    init(fileCount: Int) {
-        // Create progress indicator
-        progressIndicator = NSProgressIndicator(frame: NSRect(x: 20, y: 40, width: 360, height: 20))
-        progressIndicator.minValue = 0
-        progressIndicator.maxValue = Double(fileCount)
-        progressIndicator.isIndeterminate = false
-        
-        // Create status label
-        statusLabel = NSTextField(frame: NSRect(x: 20, y: 70, width: 360, height: 20))
-        statusLabel.isEditable = false
-        statusLabel.isBordered = false
-        statusLabel.backgroundColor = .clear
-        statusLabel.alignment = .center
-        statusLabel.stringValue = "Calculating checksums..."
-        
-        // Create content view
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
-        contentView.addSubview(progressIndicator)
-        contentView.addSubview(statusLabel)
-        
-        super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 100),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        
-        self.title = "Exporting Checksums"
-        self.contentView = contentView
-        self.center()
-        self.level = .floating
-    }
-    
-    func show() {
-        self.makeKeyAndOrderFront(nil)
-    }
-    
-    @MainActor
-    func updateProgress(current: Int, total: Int) {
-        progressIndicator.doubleValue = Double(current)
-        statusLabel.stringValue = "Processing file \(current) of \(total)..."
+private extension String {
+    var issueSortPriority: Int {
+        let lower = self.lowercased()
+        if lower.contains("error") || lower.contains("failed") || lower.contains("❌") {
+            return 0
+        }
+        if lower.contains("warning") || lower.contains("missing") || lower.contains("⚠") {
+            return 1
+        }
+        if lower.contains("pending") || lower.contains("processing") || lower.contains("⏳") {
+            return 2
+        }
+        if lower.contains("match") || lower.contains("✅") {
+            return 3
+        }
+        return 4
     }
 }
-#endif

@@ -96,7 +96,9 @@ final class PanasonicDetectionService {
                         break
                     }
                 }
-            } catch { }
+            } catch {
+                SharedLogger.debug("Could not read Panasonic DCIM contents: \(error.localizedDescription)", category: .transfer)
+            }
         }
         
         return foundIndicators >= 2 ? "Panasonic" : nil
@@ -131,8 +133,10 @@ final class PanasonicDetectionService {
                     return model
                 }
             }
-            
-        } catch { }
+
+        } catch {
+            SharedLogger.debug("Could not read Panasonic metadata file: \(error.localizedDescription)", category: .transfer)
+        }
         
         return nil
     }

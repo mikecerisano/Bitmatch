@@ -24,6 +24,11 @@ final class VolumeMonitorService: ObservableObject {
     private var volumesDispatchSource: DispatchSourceFileSystemObject?
     #endif
     
+    // Classification thresholds (real-world defaults)
+    // 1TB+ is almost certainly a backup destination; <=512GB skews toward camera media.
+    private let destinationThreshold: Int64 = 1_024 * 1_024 * 1_024 * 1_024 // 1TB
+    private let sourceThreshold: Int64 = 512 * 1_024 * 1_024 * 1_024       // 512GB
+
     struct DetectedVolume: Identifiable, Equatable {
         let id = UUID()
         let url: URL
@@ -68,14 +73,14 @@ final class VolumeMonitorService: ObservableObject {
         startDiskArbitrationMonitoring()
         startFileSystemMonitoring()
         #endif
-        print("📱 Volume monitoring started")
+        vlog("📱 Volume monitoring started")
     }
     
     #if os(macOS)
     private func startDiskArbitrationMonitoring() {
         diskArbitrationSession = DASessionCreate(kCFAllocatorDefault)
         guard let session = diskArbitrationSession else {
-            print("❌ Failed to create DiskArbitration session")
+            SharedLogger.error("Failed to create DiskArbitration session", category: .transfer)
             return
         }
         
@@ -97,14 +102,14 @@ final class VolumeMonitorService: ObservableObject {
         
         DASessionScheduleWithRunLoop(session, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         
-        print("📱 DiskArbitration monitoring started")
+        vlog("📱 DiskArbitration monitoring started")
     }
     
     private func startFileSystemMonitoring() {
         let volumesPath = "/Volumes"
         let fileDescriptor = open(volumesPath, O_EVTONLY)
         guard fileDescriptor >= 0 else {
-            print("❌ Failed to open /Volumes for monitoring")
+            SharedLogger.error("Failed to open /Volumes for monitoring", category: .transfer)
             return
         }
         
@@ -115,7 +120,7 @@ final class VolumeMonitorService: ObservableObject {
         )
         
         volumesDispatchSource?.setEventHandler { [weak self] in
-            print("📁 /Volumes directory changed - checking for volume changes")
+            self?.vlog("📁 /Volumes directory changed - checking for volume changes")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { // Small delay to let mounting/unmounting complete
                 self?.checkForVolumeChanges()
             }
@@ -126,7 +131,7 @@ final class VolumeMonitorService: ObservableObject {
         }
         
         volumesDispatchSource?.resume()
-        print("📱 File system monitoring started")
+        vlog("📱 File system monitoring started")
     }
     #endif
     
@@ -141,7 +146,7 @@ final class VolumeMonitorService: ObservableObject {
         volumesDispatchSource = nil
         #endif
         
-        print("📱 Volume monitoring stopped")
+        vlog("📱 Volume monitoring stopped")
     }
     
     // MARK: - Disk Callbacks
@@ -163,39 +168,43 @@ final class VolumeMonitorService: ObservableObject {
     #if os(macOS)
     private func processDiskAppeared(_ disk: DADisk) {
         guard let description = DADiskCopyDescription(disk) as? [String: Any] else {
-            print("❌ No description for disk")
+            vlog("❌ No description for disk")
             return
         }
         
         // Log all disk information for debugging
-        print("🔍 Disk appeared with description:")
+        vlog("🔍 Disk appeared with description:")
         for (key, value) in description {
-            print("   \(key): \(value)")
+            vlog("   \(key): \(value)")
         }
         
         // Only process mountable volumes
         let isMountable = description[kDADiskDescriptionVolumeMountableKey as String] as? Bool ?? false
         guard isMountable else {
-            print("⏭️ Skipping non-mountable disk")
+            vlog("⏭️ Skipping non-mountable disk")
             return
         }
         
         let volumeName = description[kDADiskDescriptionVolumeNameKey as String] as? String ?? "Unknown"
-        print("🔍 Mountable disk appeared: \(volumeName)")
+        vlog("🔍 Mountable disk appeared: \(volumeName)")
         
         // For mountable volumes, try to mount them first if not already mounted
         if let volumePath = description[kDADiskDescriptionVolumePathKey as String] as? URL {
-            print("📂 Volume already mounted at: \(volumePath)")
+            vlog("📂 Volume already mounted at: \(volumePath)")
             analyzeAndAddVolume(at: volumePath, description: description)
         } else {
-            print("🔄 Volume not mounted, attempting to mount...")
+            vlog("🔄 Volume not mounted, attempting to mount...")
             // Try to mount the disk
             DADiskMount(disk, nil, DADiskMountOptions(kDADiskMountOptionDefault), { disk, dissenter, context in
                 // This callback runs when mount completes
                 if let dissenter = dissenter {
-                    print("❌ Failed to mount disk: \(DADissenterGetStatus(dissenter))")
+                    if let service = context.map({ Unmanaged<VolumeMonitorService>.fromOpaque($0).takeUnretainedValue() }) {
+                        service.vlog("❌ Failed to mount disk: \(DADissenterGetStatus(dissenter))")
+                    }
                 } else {
-                    print("✅ Disk mounted successfully")
+                    if let service = context.map({ Unmanaged<VolumeMonitorService>.fromOpaque($0).takeUnretainedValue() }) {
+                        service.vlog("✅ Disk mounted successfully")
+                    }
                     // Re-check for volume path after mounting
                     if let newDescription = DADiskCopyDescription(disk) as? [String: Any],
                        let volumePath = newDescription[kDADiskDescriptionVolumePathKey as String] as? URL {
@@ -213,24 +222,24 @@ final class VolumeMonitorService: ObservableObject {
     private func analyzeAndAddVolume(at volumePath: URL, description: [String: Any]) {
         // Skip system volumes and hidden volumes
         if isSystemVolume(description) {
-            print("⏭️ Skipping system volume: \(volumePath)")
+            vlog("⏭️ Skipping system volume: \(volumePath)")
             return
         }
         
         // Analyze the volume
-        print("🔬 Analyzing volume at: \(volumePath)")
+        vlog("🔬 Analyzing volume at: \(volumePath)")
         #if os(macOS)
         if let detectedVolume = analyzeVolume(at: volumePath, description: description) {
-            print("✅ Volume detected as \(detectedVolume.type): \(detectedVolume.displayName)")
+            vlog("✅ Volume detected as \(detectedVolume.type): \(detectedVolume.displayName)")
             DispatchQueue.main.async { [weak self] in
                 self?.addDetectedVolume(detectedVolume)
             }
         } else {
-            print("❌ Volume not recognized as camera card or backup drive")
+            vlog("❌ Volume not recognized as camera card or backup drive")
         }
         #else
         // Volume analysis not available on iOS
-        print("⚠️ Volume analysis not available on iOS")
+        vlog("⚠️ Volume analysis not available on iOS")
         #endif
     }
     #endif
@@ -251,7 +260,7 @@ final class VolumeMonitorService: ObservableObject {
     // MARK: - Volume Analysis
     
     private func checkForVolumeChanges() {
-        print("🔍 Checking for volume changes...")
+        vlog("🔍 Checking for volume changes...")
         detectionQueue.async { [weak self] in
             guard let self = self else { return }
             
@@ -259,7 +268,7 @@ final class VolumeMonitorService: ObservableObject {
             guard let currentVolumes = try? fileManager.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
                                                                            includingPropertiesForKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey],
                                                                            options: [.skipsHiddenFiles]) else {
-                print("❌ Could not scan /Volumes directory")
+                SharedLogger.error("Could not scan /Volumes directory", category: .transfer)
                 return
             }
             
@@ -275,7 +284,7 @@ final class VolumeMonitorService: ObservableObject {
                 }
                 
                 for card in removedCameraCards {
-                    print("📤 Camera card removed: \(card.displayName)")
+                    self.vlog("📤 Camera card removed: \(card.displayName)")
                     self.availableCameraCards.removeAll { $0.id == card.id }
                 }
                 
@@ -285,23 +294,24 @@ final class VolumeMonitorService: ObservableObject {
                 }
                 
                 for drive in removedBackupDrives {
-                    print("📤 Backup drive removed: \(drive.displayName)")
+                    self.vlog("📤 Backup drive removed: \(drive.displayName)")
                     self.availableBackupDrives.removeAll { $0.id == drive.id }
                 }
             }
             
+            // Capture known paths to avoid DispatchQueue.main.sync (potential deadlock)
+            let knownCameraCardPaths = Set(self.availableCameraCards.map { $0.url.path })
+            let knownBackupDrivePaths = Set(self.availableBackupDrives.map { $0.url.path })
+
             // Check for new volumes
             for volumeURL in currentVolumes {
                 let volumePath = volumeURL.path
-                
+
                 // Skip if we already have this volume
-                let alreadyDetected = DispatchQueue.main.sync {
-                    self.availableCameraCards.contains { $0.url.path == volumePath } ||
-                    self.availableBackupDrives.contains { $0.url.path == volumePath }
-                }
-                
+                let alreadyDetected = knownCameraCardPaths.contains(volumePath) || knownBackupDrivePaths.contains(volumePath)
+
                 if !alreadyDetected {
-                    print("🔍 New volume detected: \(volumeURL.lastPathComponent)")
+                    self.vlog("🔍 New volume detected: \(volumeURL.lastPathComponent)")
                     #if os(macOS)
                     if let detectedVolume = self.analyzeVolume(at: volumeURL, description: nil) {
                         DispatchQueue.main.async { [weak self] in
@@ -310,30 +320,30 @@ final class VolumeMonitorService: ObservableObject {
                     }
                     #else
                     // On iOS, volume analysis is not available
-                    print("⚠️ Volume analysis not available on iOS")
+                    self.vlog("⚠️ Volume analysis not available on iOS")
                     #endif
                 }
             }
             
-            print("✅ Volume change check complete")
+            self.vlog("✅ Volume change check complete")
         }
     }
     
     private func scanExistingVolumes() {
-        print("🔍 Scanning existing volumes...")
+        vlog("🔍 Scanning existing volumes...")
         detectionQueue.async { [weak self] in
             let fileManager = FileManager.default
             guard let volumes = try? fileManager.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"),
                                                                     includingPropertiesForKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey],
                                                                     options: [.skipsHiddenFiles]) else {
-                print("❌ Could not scan /Volumes directory")
+                SharedLogger.error("Could not scan /Volumes directory", category: .transfer)
                 return
             }
             
-            print("📂 Found \(volumes.count) volumes: \(volumes.map { $0.lastPathComponent })")
+            self?.vlog("📂 Found \(volumes.count) volumes: \(volumes.map { $0.lastPathComponent })")
             
             for volumeURL in volumes {
-                print("🔍 Scanning volume: \(volumeURL.lastPathComponent)")
+                self?.vlog("🔍 Scanning volume: \(volumeURL.lastPathComponent)")
                 #if os(macOS)
                 if let detectedVolume = self?.analyzeVolume(at: volumeURL, description: nil) {
                     DispatchQueue.main.async { [weak self] in
@@ -342,11 +352,11 @@ final class VolumeMonitorService: ObservableObject {
                 }
                 #else
                 // Volume analysis not available on iOS
-                print("⚠️ Volume analysis not available on iOS")
+                self?.vlog("⚠️ Volume analysis not available on iOS")
                 #endif
             }
             
-            print("✅ Volume scan complete")
+            self?.vlog("✅ Volume scan complete")
         }
     }
     
@@ -354,17 +364,17 @@ final class VolumeMonitorService: ObservableObject {
     private func analyzeVolume(at url: URL, description: [String: Any]?) -> DetectedVolume? {
         let fileManager = FileManager.default
         
-        print("🔍 Analyzing volume: \(url.path)")
+        vlog("🔍 Analyzing volume: \(url.path)")
         
         // Skip iOS simulators and development volumes first
         if isDevelopmentOrSimulatorVolume(url, description: description) {
-            print("⏭️ Skipping development/simulator volume: \(url.lastPathComponent)")
+            vlog("⏭️ Skipping development/simulator volume: \(url.lastPathComponent)")
             return nil
         }
         
         // Skip if not accessible - but try to get permission first
         if !fileManager.isReadableFile(atPath: url.path) {
-            print("❌ Volume not readable: \(url.path) - trying to request access...")
+            vlog("❌ Volume not readable: \(url.path) - trying to request access...")
             
             // Try to request access by checking if it starts accessing
             let startedAccessing = url.startAccessingSecurityScopedResource()
@@ -375,14 +385,14 @@ final class VolumeMonitorService: ObservableObject {
             }
             
             if !fileManager.isReadableFile(atPath: url.path) {
-                print("❌ Volume still not readable after requesting access")
+                vlog("❌ Volume still not readable after requesting access")
                 return nil
             } else {
-                print("✅ Got access to volume after security request")
+                vlog("✅ Got access to volume after security request")
             }
         }
         
-        print("✅ Volume is readable")
+        vlog("✅ Volume is readable")
         
         // Get volume information
         guard let resourceValues = try? url.resourceValues(forKeys: [
@@ -391,7 +401,7 @@ final class VolumeMonitorService: ObservableObject {
             .volumeIsRemovableKey,
             .volumeIsLocalKey
         ]) else { 
-            print("❌ Could not get volume resource values")
+            vlog("❌ Could not get volume resource values")
             return nil 
         }
         
@@ -400,33 +410,23 @@ final class VolumeMonitorService: ObservableObject {
         let isRemovable = resourceValues.volumeIsRemovable ?? false
         let isLocal = resourceValues.volumeIsLocal ?? true
         
-        print("📊 Volume info: capacity=\(capacity), removable=\(isRemovable), local=\(isLocal)")
+        vlog("📊 Volume info: capacity=\(capacity), removable=\(isRemovable), local=\(isLocal)")
         
         let devicePath = description?[kDADiskDescriptionDevicePathKey as String] as? String ?? url.path
         let name = url.lastPathComponent
         
-        // Determine volume type and camera info
-        print("📷 Checking for camera...")
-        if let cameraInfo = detectCameraVolume(at: url) {
-            print("✅ Camera detected: \(cameraInfo)")
-            // Camera card detected
-            return DetectedVolume(
-                url: url,
-                name: name,
-                capacity: capacity,
-                available: available,
-                type: .cameraCard,
-                cameraInfo: cameraInfo,
-                devicePath: devicePath
-            )
-        } else {
-            print("❌ No camera detected")
-        }
-        
-        print("💾 Checking if backup drive...")
-        if isBackupDrive(capacity: capacity, isRemovable: isRemovable, isLocal: isLocal, url: url) {
-            print("✅ Backup drive detected")
-            // Large external drive suitable for backup
+        // Determine volume type using size-first classification, then camera
+        vlog("📷 Checking for camera...")
+        let cameraInfo = detectCameraVolume(at: url)
+        if let cameraInfo = cameraInfo { vlog("✅ Camera detected: \(cameraInfo)") } else { vlog("❌ No camera detected") }
+
+        // Size-first classification
+        let capacityGB = capacity / (1024 * 1024 * 1024)
+        vlog("🔎 Classify by size: \(capacityGB)GB (dest ≥ 1024GB, source ≤ 512GB)")
+
+        if capacity >= destinationThreshold {
+            // Always treat 1TB+ as destination, even if camera-like contents are present
+            vlog("📦 Classified as DESTINATION (≥1TB)")
             return DetectedVolume(
                 url: url,
                 name: name,
@@ -436,12 +436,48 @@ final class VolumeMonitorService: ObservableObject {
                 cameraInfo: nil,
                 devicePath: devicePath
             )
+        } else if capacity <= sourceThreshold {
+            if let camera = cameraInfo {
+                vlog("🎥 Classified as SOURCE (≤512GB and camera detected)")
+                return DetectedVolume(
+                    url: url,
+                    name: name,
+                    capacity: capacity,
+                    available: available,
+                    type: .cameraCard,
+                    cameraInfo: camera,
+                    devicePath: devicePath
+                )
+            } else {
+                vlog("❔ Ambiguous small volume without camera — skipping auto-classification")
+                return nil
+            }
         } else {
-            print("❌ Not a backup drive")
+            // 512GB–1TB ambiguous zone: prefer camera if detected; otherwise treat as destination
+            if let camera = cameraInfo {
+                vlog("🎥 Classified as SOURCE (512GB–1TB with camera)")
+                return DetectedVolume(
+                    url: url,
+                    name: name,
+                    capacity: capacity,
+                    available: available,
+                    type: .cameraCard,
+                    cameraInfo: camera,
+                    devicePath: devicePath
+                )
+            } else {
+                vlog("📦 Classified as DESTINATION (512GB–1TB, no camera)")
+                return DetectedVolume(
+                    url: url,
+                    name: name,
+                    capacity: capacity,
+                    available: available,
+                    type: .backupDrive,
+                    cameraInfo: nil,
+                    devicePath: devicePath
+                )
+            }
         }
-        
-        print("❌ Volume not recognized")
-        return nil
     }
     #endif
     
@@ -452,38 +488,42 @@ final class VolumeMonitorService: ObservableObject {
     
     private func isBackupDrive(capacity: Int64, isRemovable: Bool, isLocal: Bool, url: URL) -> Bool {
         // Criteria for backup drive:
-        // 1. Over 500GB capacity
+        // 1. Over 1TB capacity
         // 2. Not the system drive
         // 3. Writable
         // 4. Local (not network)
         
-        let minBackupCapacity: Int64 = 500 * 1024 * 1024 * 1024 // 500GB
+        let minBackupCapacity: Int64 = 1_024 * 1024 * 1024 * 1024 // 1TB
         let capacityGB = capacity / (1024 * 1024 * 1024)
         
-        print("💾 Backup drive check:")
-        print("   Capacity: \(capacityGB)GB (min: 500GB) - \(capacity >= minBackupCapacity ? "✅" : "❌")")
-        print("   Local: \(isLocal) - \(isLocal ? "✅" : "❌")")
-        print("   System volume: \(isSystemVolume(url)) - \(!isSystemVolume(url) ? "✅" : "❌")")
-        print("   Writable: \(FileManager.default.isWritableFile(atPath: url.path)) - \(FileManager.default.isWritableFile(atPath: url.path) ? "✅" : "❌")")
+        vlog("💾 Backup drive check:")
+        let capacityMark = capacity >= minBackupCapacity ? "✅" : "❌"
+        let localMark = isLocal ? "✅" : "❌"
+        let systemMark = !isSystemVolume(url) ? "✅" : "❌"
+        let writableMark = FileManager.default.isWritableFile(atPath: url.path) ? "✅" : "❌"
+        vlog("   Capacity: \(capacityGB)GB (min: 1024GB) - \(capacityMark)")
+        vlog("   Local: \(isLocal) - \(localMark)")
+        vlog("   System volume: \(isSystemVolume(url)) - \(systemMark)")
+        vlog("   Writable: \(FileManager.default.isWritableFile(atPath: url.path)) - \(writableMark)")
         
         guard capacity >= minBackupCapacity else { 
-            print("❌ Too small for backup (\(capacityGB)GB < 500GB)")
+            vlog("❌ Too small for backup (\(capacityGB)GB < 1024GB)")
             return false 
         }
         guard isLocal else { 
-            print("❌ Not local")
+            vlog("❌ Not local")
             return false 
         }
         guard !isSystemVolume(url) else { 
-            print("❌ System volume")
+            vlog("❌ System volume")
             return false 
         }
         guard FileManager.default.isWritableFile(atPath: url.path) else { 
-            print("❌ Not writable")
+            vlog("❌ Not writable")
             return false 
         }
         
-        print("✅ Qualifies as backup drive")
+        vlog("✅ Qualifies as backup drive")
         return true
     }
     
@@ -493,7 +533,7 @@ final class VolumeMonitorService: ObservableObject {
         if let volumeName = description[kDADiskDescriptionVolumeNameKey as String] as? String {
             let systemVolumes = ["Macintosh HD", "System", "Data", "Preboot", "Recovery", "VM", "Update", "Hardware", "xART", "iSCPreboot"]
             if systemVolumes.contains(volumeName) {
-                print("🚫 System volume detected by description name: \(volumeName)")
+                vlog("🚫 System volume detected by description name: \(volumeName)")
                 return true
             }
         }
@@ -515,7 +555,7 @@ final class VolumeMonitorService: ObservableObject {
             ]
             
             if systemPaths.contains(path) || path.hasPrefix("/System/") {
-                print("🚫 System volume detected by description path: \(path)")
+                vlog("🚫 System volume detected by description path: \(path)")
                 return true
             }
         }
@@ -547,19 +587,19 @@ final class VolumeMonitorService: ObservableObject {
         
         // Check volume names
         if systemVolumes.contains(volumeName) {
-            print("🚫 System volume detected by name: \(volumeName)")
+            vlog("🚫 System volume detected by name: \(volumeName)")
             return true
         }
         
         // Check system paths
         if systemPaths.contains(path) {
-            print("🚫 System volume detected by path: \(path)")
+            vlog("🚫 System volume detected by path: \(path)")
             return true
         }
         
         // Check if it's the user's home directory or system directories
         if path.hasPrefix("/System/") || path.hasPrefix("/usr/") || path.hasPrefix("/Library/") || path.hasPrefix("/bin/") || path.hasPrefix("/sbin/") {
-            print("🚫 System directory detected: \(path)")
+            vlog("🚫 System directory detected: \(path)")
             return true
         }
         
@@ -572,7 +612,7 @@ final class VolumeMonitorService: ObservableObject {
         
         // Check for iOS Simulator volumes
         if volumeName.hasPrefix("iOS_") || volumeName.contains("Simulator") {
-            print("🚫 Detected iOS simulator volume: \(volumeName)")
+            vlog("🚫 Detected iOS simulator volume: \(volumeName)")
             return true
         }
         
@@ -580,7 +620,7 @@ final class VolumeMonitorService: ObservableObject {
         let devPrefixes = ["tvOS_", "watchOS_", "visionOS_", "macOS_"]
         for prefix in devPrefixes {
             if volumeName.hasPrefix(prefix) {
-                print("🚫 Detected development OS volume: \(volumeName)")
+                vlog("🚫 Detected development OS volume: \(volumeName)")
                 return true
             }
         }
@@ -590,7 +630,7 @@ final class VolumeMonitorService: ObservableObject {
         let devPaths = ["/library/developer", "/applications/xcode", "coresimulator", "simulator"]
         for devPath in devPaths {
             if path.contains(devPath) {
-                print("🚫 Detected development path: \(path)")
+                vlog("🚫 Detected development path: \(path)")
                 return true
             }
         }
@@ -598,7 +638,7 @@ final class VolumeMonitorService: ObservableObject {
         // Check device protocol from DiskArbitration description
         if let deviceProtocol = description?[kDADiskDescriptionDeviceProtocolKey as String] as? String {
             if deviceProtocol.lowercased().contains("virtual") || deviceProtocol.lowercased().contains("simulator") {
-                print("🚫 Detected virtual/simulator device protocol: \(deviceProtocol)")
+                vlog("🚫 Detected virtual/simulator device protocol: \(deviceProtocol)")
                 return true
             }
         }
@@ -606,7 +646,7 @@ final class VolumeMonitorService: ObservableObject {
         // Check if device path indicates virtual/development volume
         if let devicePath = description?[kDADiskDescriptionDevicePathKey as String] as? String {
             if devicePath.lowercased().contains("virtual") || devicePath.lowercased().contains("simulator") {
-                print("🚫 Detected virtual/simulator device path: \(devicePath)")
+                vlog("🚫 Detected virtual/simulator device path: \(devicePath)")
                 return true
             }
         }
@@ -615,7 +655,7 @@ final class VolumeMonitorService: ObservableObject {
         if let deviceInternal = description?[kDADiskDescriptionDeviceInternalKey as String] as? Bool,
            let volumePath = description?[kDADiskDescriptionVolumePathKey as String] as? URL,
            deviceInternal && volumePath.path == "/" {
-            print("🚫 Detected internal system drive at root: \(volumePath.path)")
+            vlog("🚫 Detected internal system drive at root: \(volumePath.path)")
             return true
         }
         
@@ -630,12 +670,12 @@ final class VolumeMonitorService: ObservableObject {
         case .cameraCard:
             if !availableCameraCards.contains(where: { $0.devicePath == volume.devicePath }) {
                 availableCameraCards.append(volume)
-                print("📷 Camera card detected: \(volume.displayName) (\(volume.capacityFormatted))")
+                vlog("📷 Camera card detected: \(volume.displayName) (\(volume.capacityFormatted))")
             }
         case .backupDrive:
             if !availableBackupDrives.contains(where: { $0.devicePath == volume.devicePath }) {
                 availableBackupDrives.append(volume)
-                print("💾 Backup drive detected: \(volume.displayName) (\(volume.capacityFormatted))")
+                vlog("💾 Backup drive detected: \(volume.displayName) (\(volume.capacityFormatted))")
             }
         }
     }
@@ -643,7 +683,7 @@ final class VolumeMonitorService: ObservableObject {
     private func removeDetectedVolume(devicePath: String) {
         availableCameraCards.removeAll { $0.devicePath == devicePath }
         availableBackupDrives.removeAll { $0.devicePath == devicePath }
-        print("📤 Volume removed: \(devicePath)")
+        vlog("📤 Volume removed: \(devicePath)")
     }
     
     // MARK: - Public Methods
@@ -653,7 +693,7 @@ final class VolumeMonitorService: ObservableObject {
     }
     
     func forceAnalyzeVolume(at url: URL) {
-        print("🔧 Force analyzing volume: \(url)")
+        vlog("🔧 Force analyzing volume: \(url)")
         detectionQueue.async { [weak self] in
             #if os(macOS)
             if let detectedVolume = self?.analyzeVolume(at: url, description: nil) {
@@ -663,7 +703,7 @@ final class VolumeMonitorService: ObservableObject {
             }
             #else
             // Volume analysis not available on iOS
-            print("⚠️ Force volume analysis not available on iOS")
+            self?.vlog("⚠️ Force volume analysis not available on iOS")
             #endif
         }
     }
@@ -674,5 +714,13 @@ final class VolumeMonitorService: ObservableObject {
     
     func removeBackupDrive(_ volume: DetectedVolume) {
         availableBackupDrives.removeAll { $0.id == volume.id }
+    }
+}
+
+private extension VolumeMonitorService {
+    func vlog(_ message: @autoclosure () -> String) {
+        if DevModeManager.shared.verboseLogs {
+            SharedLogger.debug(message(), category: .transfer)
+        }
     }
 }

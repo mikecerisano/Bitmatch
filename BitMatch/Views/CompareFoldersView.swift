@@ -5,7 +5,7 @@ import AppKit
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: AppCoordinator
     @Binding var showReportSettings: Bool
-    @State private var verificationModeExpanded = false
+    @Binding var verificationModeExpanded: Bool
     
     // Convenience accessors
     private var fileSelection: FileSelectionViewModel { coordinator.fileSelectionViewModel }

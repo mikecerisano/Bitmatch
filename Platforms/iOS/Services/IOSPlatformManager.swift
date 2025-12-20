@@ -23,8 +23,12 @@ class IOSPlatformManager: PlatformManager {
         _cameraDetection
     }
     
-    private let _fileOperations: any FileOperationsService
-    private let _cameraDetection: any CameraDetectionService
+    nonisolated var supportsDragAndDrop: Bool {
+        return false // iOS/iPadOS has limited drag and drop support
+    }
+    
+    private nonisolated let _fileOperations: any FileOperationsService
+    private nonisolated let _cameraDetection: any CameraDetectionService
     
     private init() {
         self._fileOperations = SharedFileOperationsService(
@@ -81,5 +85,23 @@ class IOSPlatformManager: PlatformManager {
     func checkStoragePermissions() async -> Bool {
         // Check iOS storage permissions
         return true
+    }
+    
+    // MARK: - Background Tasks
+    
+    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int {
+        var identifier: UIBackgroundTaskIdentifier = .invalid
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
+            expirationHandler?()
+            UIApplication.shared.endBackgroundTask(identifier)
+        }
+        return identifier.rawValue
+    }
+    
+    func endBackgroundTask(_ id: Int) {
+        let identifier = UIBackgroundTaskIdentifier(rawValue: id)
+        if identifier != .invalid {
+            UIApplication.shared.endBackgroundTask(identifier)
+        }
     }
 }

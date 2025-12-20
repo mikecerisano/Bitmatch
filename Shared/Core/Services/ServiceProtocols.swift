@@ -8,10 +8,13 @@ protocol FileSystemService {
     func selectLeftFolder() async -> URL?
     func selectRightFolder() async -> URL?
     func validateFileAccess(url: URL) async -> Bool
+    func startAccessing(url: URL) -> Bool
+    func stopAccessing(url: URL)
     func getFileList(from folderURL: URL) async throws -> [URL]
     func copyFile(from sourceURL: URL, to destinationURL: URL) async throws
     nonisolated func getFileSize(for url: URL) throws -> Int64
     nonisolated func createDirectory(at url: URL) throws
+    nonisolated func freeSpace(at url: URL) -> Int64
 }
 
 // MARK: - Checksum Service Protocol
@@ -32,7 +35,9 @@ protocol FileOperationsService {
         destinationURLs: [URL], 
         verificationMode: VerificationMode,
         settings: CameraLabelSettings,
-        progressCallback: @escaping ProgressCallback
+        estimatedTotalBytes: Int64?,
+        progressCallback: @escaping ProgressCallback,
+        onFileResult: ((FileOperationResult) -> Void)?
     ) async throws -> FileOperation
     
     func cancelOperation()
@@ -54,29 +59,18 @@ protocol PlatformManager {
     nonisolated var checksum: ChecksumService { get }
     nonisolated var fileOperations: FileOperationsService { get }
     nonisolated var cameraDetection: CameraDetectionService { get }
+    nonisolated var supportsDragAndDrop: Bool { get }
     
     func presentAlert(title: String, message: String) async
     func presentError(_ error: Error) async
     func openURL(_ url: URL) async -> Bool
+    
+    // Background Task Management
+    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int
+    func endBackgroundTask(_ id: Int)
 }
 
 // MARK: - Shared Result Types
-struct VerificationResult {
-    let sourceChecksum: String
-    let destinationChecksum: String
-    let matches: Bool
-    let checksumType: ChecksumType
-    let processingTime: TimeInterval
-    let fileSize: Int64
-    
-    var isValid: Bool { matches }
-    
-    var speedMBps: Double {
-        guard processingTime > 0 else { return 0 }
-        let sizeInMB = Double(fileSize) / (1024 * 1024)
-        return sizeInMB / processingTime
-    }
-}
 
 struct FileOperation {
     let id = UUID()
@@ -87,6 +81,7 @@ struct FileOperation {
     let results: [FileOperationResult]
     let verificationMode: VerificationMode
     let settings: CameraLabelSettings
+    let estimatedTotalBytes: Int64? // For improved ETA calculation
     
     var duration: TimeInterval? {
         guard let endTime = endTime else { return nil }
@@ -111,46 +106,6 @@ struct FileOperationResult {
             return "✅ Copied"
         } else {
             return "❌ Failed"
-        }
-    }
-}
-
-struct CameraDetectionResult {
-    let cameraCard: CameraCard?
-    let confidence: Double
-    let metadata: [String: Any]
-    let detectionMethod: String
-    let processingTime: TimeInterval
-    
-    var isValid: Bool { confidence > 0.7 }
-}
-
-// MARK: - Error Types
-enum BitMatchError: LocalizedError {
-    case fileAccessDenied(URL)
-    case fileNotFound(URL)
-    case checksumMismatch(expected: String, actual: String)
-    case operationCancelled
-    case invalidURL(String)
-    case platformNotSupported
-    case networkError(Error)
-    
-    var errorDescription: String? {
-        switch self {
-        case .fileAccessDenied(let url):
-            return "Access denied for file: \(url.lastPathComponent)"
-        case .fileNotFound(let url):
-            return "File not found: \(url.lastPathComponent)"
-        case .checksumMismatch(let expected, let actual):
-            return "Checksum mismatch. Expected: \(expected), Got: \(actual)"
-        case .operationCancelled:
-            return "Operation was cancelled by user"
-        case .invalidURL(let path):
-            return "Invalid file path: \(path)"
-        case .platformNotSupported:
-            return "This feature is not supported on this platform"
-        case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
         }
     }
 }

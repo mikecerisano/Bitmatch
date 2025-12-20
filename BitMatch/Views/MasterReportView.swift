@@ -97,79 +97,46 @@ struct MasterReportView: View {
     // MARK: - Report Generation
     
     private func generateMasterReportPDF(transfers: [TransferCard], to url: URL) async {
-        // This would contain the PDF generation logic
-        // For now, create a placeholder implementation
-        let pdfData = "Master Report PDF Generation Placeholder".data(using: .utf8) ?? Data()
-        try? pdfData.write(to: url)
+        do {
+            let reportService = SharedReportGenerationService()
+            let configuration = SharedReportGenerationService.ReportConfiguration(
+                production: coordinator.settingsViewModel.prefs.production,
+                client: coordinator.settingsViewModel.prefs.clientName,
+                company: coordinator.settingsViewModel.prefs.company,
+                technician: coordinator.settingsViewModel.prefs.notes,
+                productionNotes: productionNotes,
+                includeThumbnails: false,
+                logoPath: nil,
+                primaryColor: "#007AFF",
+                secondaryColor: "#8E8E93",
+                fontFamily: "Helvetica",
+                fontSize: 10,
+                margins: .standard
+            )
+            
+            let result = try await reportService.generateMasterReport(
+                transfers: transfers,
+                configuration: configuration
+            )
+            
+            // Save PDF
+            try result.pdfData.write(to: url)
+            
+            // Save JSON
+            let jsonURL = url.deletingPathExtension().appendingPathExtension("json")
+            try result.jsonData.write(to: jsonURL)
+            
+        } catch {
+            AppLogger.error("Failed to generate report: \(error)", category: .general)
+            await MainActor.run {
+                showErrorAlert(error: error)
+            }
+        }
     }
     
     private func saveMasterReportJSON(transfers: [TransferCard], to url: URL) {
-        struct MasterReportJSON: Codable {
-            let generatedAt: Date
-            let production: String
-            let client: String
-            let company: String
-            let productionNotes: String
-            let totalSize: Int64
-            let totalFiles: Int
-            let totalRolls: Int
-            let cameras: [CameraGroup]
-            
-            struct CameraGroup: Codable {
-                let cameraName: String
-                let transfers: [TransferInfo]
-            }
-            
-            struct TransferInfo: Codable {
-                let sourcePath: String
-                let destinationPaths: [String]
-                let totalSize: Int64
-                let fileCount: Int
-                let timestamp: Date
-                let verified: Bool
-            }
-        }
-        
-        // Group transfers by camera
-        let grouped = Dictionary(grouping: transfers) { $0.cameraName }
-        let cameraGroups = grouped.map { camera, transfers in
-            MasterReportJSON.CameraGroup(
-                cameraName: camera,
-                transfers: transfers.map { transfer in
-                    MasterReportJSON.TransferInfo(
-                        sourcePath: transfer.sourcePath,
-                        destinationPaths: transfer.destinationPaths,
-                        totalSize: transfer.totalSize,
-                        fileCount: transfer.fileCount,
-                        timestamp: transfer.timestamp,
-                        verified: transfer.verified
-                    )
-                }
-            )
-        }
-        
-        let report = MasterReportJSON(
-            generatedAt: Date(),
-            production: coordinator.settingsViewModel.prefs.production,
-            client: coordinator.settingsViewModel.prefs.client,
-            company: coordinator.settingsViewModel.prefs.company,
-            productionNotes: productionNotes,
-            totalSize: transfers.reduce(0) { $0 + $1.totalSize },
-            totalFiles: transfers.reduce(0) { $0 + $1.fileCount },
-            totalRolls: transfers.reduce(0) { $0 + $1.rolls },
-            cameras: cameraGroups
-        )
-        
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        
-        do {
-            let data = try encoder.encode(report)
-            try data.write(to: url)
-        } catch {
-            print("Failed to save JSON report: \(error)")
-        }
+        // This method is now handled by SharedReportGenerationService
+        // Left empty for compatibility, but generateMasterReportPDF now handles both PDF and JSON
     }
     
     // MARK: - Alert Helpers

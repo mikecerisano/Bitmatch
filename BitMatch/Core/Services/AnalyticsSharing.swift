@@ -106,7 +106,7 @@ class AnalyticsSharing: ObservableObject {
     }
     
     private func uploadAnonymizedData(_ records: [AnonymizedRecord]) async {
-        guard let url = URL(string: "\\(baseURL)/contribute") else { return }
+        guard let url = URL(string: "\(baseURL)/contribute") else { return }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -125,20 +125,20 @@ class AnalyticsSharing: ObservableObject {
                         hasSharedData = true
                         markRecordsAsShared(records)
                     }
-                    print("📤 Successfully shared \\(records.count) anonymized transfer records")
+                    SharedLogger.info("Successfully shared \(records.count) anonymized transfer records", category: .transfer)
                 } else {
-                    print("❌ Failed to share analytics: HTTP \\(httpResponse.statusCode)")
+                    SharedLogger.warning("Failed to share analytics: HTTP \(httpResponse.statusCode)", category: .transfer)
                 }
             }
         } catch {
-            print("❌ Error sharing analytics: \\(error)")
+            SharedLogger.error("Error sharing analytics: \(error)", category: .error)
         }
     }
     
     // MARK: - Baseline Data Fetching
     
     func fetchBaselineEstimates() async -> BaselineDataResponse.BaselineEstimates? {
-        guard let url = URL(string: "\\(baseURL)/baselines") else { return nil }
+        guard let url = URL(string: "\(baseURL)/baselines") else { return nil }
         
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
@@ -146,12 +146,12 @@ class AnalyticsSharing: ObservableObject {
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                 let responseData = try JSONDecoder().decode(BaselineDataResponse.self, from: data)
                 if responseData.success {
-                    print("📥 Fetched baseline estimates from \\(responseData.data?.sampleSize ?? 0) transfers")
+                    SharedLogger.info("Fetched baseline estimates from \(responseData.data?.sampleSize ?? 0) transfers", category: .transfer)
                     return responseData.data
                 }
             }
         } catch {
-            print("❌ Error fetching baseline estimates: \\(error)")
+            SharedLogger.error("Error fetching baseline estimates: \(error)", category: .error)
         }
         
         return nil
@@ -172,7 +172,7 @@ class AnalyticsSharing: ObservableObject {
         let memoryGB = Int(processInfo.physicalMemory / (1024 * 1024 * 1024))
         
         return AnonymizedRecord.PlatformInfo(
-            osVersion: "macOS \\(processInfo.operatingSystemVersion.majorVersion).\\(processInfo.operatingSystemVersion.minorVersion)",
+            osVersion: "macOS \(processInfo.operatingSystemVersion.majorVersion).\(processInfo.operatingSystemVersion.minorVersion)",
             hardwareModel: hardware,
             processorInfo: getProcessorInfo(),
             memoryGB: memoryGB
@@ -213,13 +213,13 @@ class AnalyticsSharing: ObservableObject {
     // MARK: - Public Statistics (for transparency)
     
     func getCommunityStats() async -> CommunityStats? {
-        guard let url = URL(string: "\\(baseURL)/stats") else { return nil }
-        
+        guard let url = URL(string: "\(baseURL)/stats") else { return nil }
+
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             return try JSONDecoder().decode(CommunityStats.self, from: data)
         } catch {
-            print("Error fetching community stats: \\(error)")
+            SharedLogger.error("Error fetching community stats: \(error)", category: .error)
             return nil
         }
     }
@@ -316,9 +316,9 @@ extension TransferAnalytics {
     
     private func formatDuration(_ minutes: Double) -> String {
         if minutes < 1.0 {
-            return "~\\(Int(minutes * 60))s"
+            return "~\(Int(minutes * 60))s"
         } else if minutes < 60.0 {
-            return "~\\(Int(minutes))m"
+            return "~\(Int(minutes))m"
         } else {
             let hours = Int(minutes / 60)
             let mins = Int(minutes.truncatingRemainder(dividingBy: 60))

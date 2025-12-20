@@ -7,7 +7,7 @@ final class CameraDetectionOrchestrator {
     private init() {}
     
     // MARK: - Detection Services
-    private let videoDetection = VideoMetadataDetectionService.shared
+    private let unifiedMetadataDetection = UnifiedMetadataDetectionService.shared
     private let cleanNaming = CleanCameraNameService.shared
     private let fujiDetection = FujiDetectionService.shared
     private let sonyDetection = SonyDetectionService.shared
@@ -18,14 +18,13 @@ final class CameraDetectionOrchestrator {
     private let fileExtensionDetection = FileExtensionDetectionService.shared
     private let folderStructureDetection = FolderStructureDetectionService.shared
     private let xmlMetadataDetection = XMLMetadataDetectionService.shared
-    private let mediaMetadataDetection = MediaMetadataDetectionService.shared
     
     // MARK: - Public Interface
     
     /// Detect camera with full hierarchy of methods
     func detectCamera(at url: URL) -> String? {
         // Try detection methods in order of reliability
-        if let videoInfo = videoDetection.detectCameraFromVideo(at: url) { return videoInfo }
+        if let metadataInfo = unifiedMetadataDetection.detectCameraFromMetadata(at: url) { return metadataInfo }
         if let fujiInfo = fujiDetection.detectFujiCamera(at: url) { return fujiInfo }
         if let sonyInfo = sonyDetection.detectSonyCamera(at: url) { return sonyInfo }
         if let canonInfo = canonDetection.detectCanonCamera(at: url) { return canonInfo }
@@ -35,7 +34,6 @@ final class CameraDetectionOrchestrator {
         if let nameInfo = fileNamingDetection.detectCameraFromNaming(at: url) { return nameInfo }
         if let extInfo = fileExtensionDetection.detectCameraFromExtensions(at: url) { return extInfo }
         if let xmlInfo = xmlMetadataDetection.detectCameraFromXML(at: url) { return xmlInfo }
-        if let mediaInfo = mediaMetadataDetection.detectCameraFromMedia(at: url) { return mediaInfo }
         
         return nil
     }

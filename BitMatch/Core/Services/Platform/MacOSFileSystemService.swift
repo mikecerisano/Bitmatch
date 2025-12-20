@@ -40,107 +40,93 @@ final class MacOSFileSystemService: FileSystemService {
         }
     }
     
-    func getVolumeInfo(for url: URL) -> PlatformVolumeInfo? {
-        do {
-            let values = try url.resourceValues(forKeys: [
-                .volumeNameKey,
-                .volumeTotalCapacityKey,
-                .volumeAvailableCapacityKey,
-                .volumeIsRemovableKey,
-                .volumeIdentifierKey
-            ])
+    func selectLeftFolder() async -> URL? {
+        return await MainActor.run {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Select Left Folder"
+            panel.message = "Choose the first folder to compare"
             
-            return PlatformVolumeInfo(
-                name: values.volumeName ?? "Unknown",
-                totalSpace: Int64(values.volumeTotalCapacity ?? 0),
-                availableSpace: Int64(values.volumeAvailableCapacity ?? 0),
-                isRemovable: values.volumeIsRemovable ?? false,
-                devicePath: (values.volumeIdentifier as? UUID)?.uuidString
-            )
-        } catch {
+            if panel.runModal() == .OK {
+                return panel.url
+            }
             return nil
         }
     }
     
-    func getAvailableSpace(at url: URL) -> Int64? {
+    func selectRightFolder() async -> URL? {
+        return await MainActor.run {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Select Right Folder"
+            panel.message = "Choose the second folder to compare"
+            
+            if panel.runModal() == .OK {
+                return panel.url
+            }
+            return nil
+        }
+    }
+    
+    func validateFileAccess(url: URL) async -> Bool {
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func startAccessing(url: URL) -> Bool {
+        return true
+    }
+
+    func stopAccessing(url: URL) {}
+    
+    func getFileList(from folderURL: URL) async throws -> [URL] {
+        let fileManager = FileManager.default
+        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
+        let directoryEnumerator = fileManager.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: resourceKeys,
+            options: [.skipsHiddenFiles],
+            errorHandler: nil
+        )
+        
+        var fileURLs: [URL] = []
+        guard let directoryEnumerator = directoryEnumerator else { return fileURLs }
+        let anyEnum: NSEnumerator = directoryEnumerator
+        while let fileURL = anyEnum.nextObject() as? URL {
+            let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
+            if resourceValues.isRegularFile == true {
+                fileURLs.append(fileURL)
+            }
+        }
+        return fileURLs
+    }
+    
+    func copyFile(from sourceURL: URL, to destinationURL: URL) async throws {
+        let fileManager = FileManager.default
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
+    
+    nonisolated func getFileSize(for url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes[.size] as? Int64 ?? 0
+    }
+    
+    nonisolated func createDirectory(at url: URL) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+    
+    nonisolated func freeSpace(at url: URL) -> Int64 {
         do {
             let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
             return Int64(values.volumeAvailableCapacity ?? 0)
         } catch {
-            return nil
-        }
-    }
-    
-    var volumeUpdates: AsyncStream<PlatformVolumeEvent> {
-        // Use existing VolumeMonitorService
-        AsyncStream { continuation in
-            let monitor = VolumeMonitorService.shared
-            
-            // Convert existing monitoring to new format
-            let cancellable = monitor.$availableCameraCards.sink { volumes in
-                // Convert to PlatformVolumeEvents as needed
-                // This is a simplified implementation
-            }
-            
-            continuation.onTermination = { _ in
-                cancellable.cancel()
-            }
+            SharedLogger.error("Error checking free space: \(error)", category: .transfer)
+            return 0
         }
     }
 }
 
-final class MacOSSystemIntegrationService: SystemIntegrationService {
-    static let shared = MacOSSystemIntegrationService()
-    private init() {}
-    
-    func showAlert(title: String, message: String, style: AlertStyle) async -> AlertResponse {
-        return await MainActor.run {
-            let alert = NSAlert()
-            alert.messageText = title
-            alert.informativeText = message
-            
-            switch style {
-            case .info:
-                alert.alertStyle = .informational
-            case .warning:
-                alert.alertStyle = .warning
-            case .error:
-                alert.alertStyle = .critical
-            }
-            
-            alert.addButton(withTitle: "OK")
-            
-            let response = alert.runModal()
-            return response == .alertFirstButtonReturn ? .ok : .cancel
-        }
-    }
-    
-    func revealInFileManager(_ url: URL) {
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-    
-    func openPreferences() {
-        // This would trigger the existing preferences window
-        NotificationCenter.default.post(name: .showPreferences, object: nil)
-    }
-    
-    func sendNotification(title: String, message: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = message
-        content.sound = .default
-        
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil // Show immediately
-        )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Failed to send notification: \(error)")
-            }
-        }
-    }
-}
 #endif

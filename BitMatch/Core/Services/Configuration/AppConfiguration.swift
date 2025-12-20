@@ -35,6 +35,14 @@ class AppConfiguration: ObservableObject {
     @Published var enableAnalytics: Bool = false {
         didSet { UserDefaults.standard.set(enableAnalytics, forKey: Keys.enableAnalytics) }
     }
+
+    // MARK: - iOS Background Behavior
+    @Published var preventAutoLockDuringTransfer: Bool = true {
+        didSet { UserDefaults.standard.set(preventAutoLockDuringTransfer, forKey: Keys.preventAutoLockDuringTransfer) }
+    }
+    @Published var dimScreenWhileAwake: Bool = true {
+        didSet { UserDefaults.standard.set(dimScreenWhileAwake, forKey: Keys.dimScreenWhileAwake) }
+    }
     
     enum ChecksumAlgorithm: String, CaseIterable {
         case md5 = "MD5"
@@ -58,6 +66,8 @@ class AppConfiguration: ObservableObject {
         static let autoCloseOnComplete = "AutoCloseOnComplete"
         static let bufferSize = "BufferSize"
         static let enableAnalytics = "EnableAnalytics"
+        static let preventAutoLockDuringTransfer = "PreventAutoLockDuringTransfer"
+        static let dimScreenWhileAwake = "DimScreenWhileAwake"
     }
     
     private init() {
@@ -83,6 +93,18 @@ class AppConfiguration: ObservableObject {
             ? UserDefaults.standard.integer(forKey: Keys.bufferSize) : 1_048_576
         
         enableAnalytics = UserDefaults.standard.bool(forKey: Keys.enableAnalytics)
+
+        // Background behavior (defaults true/true for first run)
+        if UserDefaults.standard.object(forKey: Keys.preventAutoLockDuringTransfer) == nil {
+            preventAutoLockDuringTransfer = true
+        } else {
+            preventAutoLockDuringTransfer = UserDefaults.standard.bool(forKey: Keys.preventAutoLockDuringTransfer)
+        }
+        if UserDefaults.standard.object(forKey: Keys.dimScreenWhileAwake) == nil {
+            dimScreenWhileAwake = true
+        } else {
+            dimScreenWhileAwake = UserDefaults.standard.bool(forKey: Keys.dimScreenWhileAwake)
+        }
     }
     
     func resetToDefaults() {
@@ -93,6 +115,8 @@ class AppConfiguration: ObservableObject {
         autoCloseOnComplete = false
         bufferSize = 1_048_576
         enableAnalytics = false
+        preventAutoLockDuringTransfer = true
+        dimScreenWhileAwake = true
         
         AppLogger.info("App configuration reset to defaults", category: .general)
     }

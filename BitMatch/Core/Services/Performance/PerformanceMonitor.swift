@@ -21,6 +21,7 @@ class PerformanceMonitor {
         AppLogger.debug("Started operation: \(name)", category: .general)
     }
     
+    @discardableResult
     func endOperation(_ name: String) -> TimeInterval? {
         guard let startTime = operations.removeValue(forKey: name) else {
             AppLogger.warning("Attempted to end non-existent operation: \(name)", category: .general)

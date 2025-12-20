@@ -5,8 +5,8 @@ import AppKit
 struct CopyAndVerifyView: View {
     @ObservedObject var coordinator: AppCoordinator
     @Binding var showReportSettings: Bool
-    @State private var cameraLabelExpanded = false
-    @State private var verificationModeExpanded = false
+    @Binding var cameraLabelExpanded: Bool
+    @Binding var verificationModeExpanded: Bool
     
     // Convenience accessors
     private var fileSelection: FileSelectionViewModel { coordinator.fileSelectionViewModel }
@@ -23,7 +23,8 @@ struct CopyAndVerifyView: View {
     }
     
     private var speed: String? {
-        progress.formattedSpeed
+        // Prefer average data rate
+        progress.formattedAverageDataRate ?? progress.formattedSpeed
     }
     
     private var timeRemaining: String? {
@@ -42,6 +43,28 @@ struct CopyAndVerifyView: View {
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: coordinator.isOperationInProgress)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.completionState)
+        .alert("Invalid Destination", isPresented: Binding(
+            get: { coordinator.operationViewModel.showError },
+            set: { coordinator.operationViewModel.showError = $0 }
+        )) {
+            Button("OK") {
+                coordinator.operationViewModel.errorMessage = nil
+            }
+        } message: {
+            Text(coordinator.operationViewModel.errorMessage ?? "An error occurred")
+        }
+        .onAppear {
+            updateModeEstimates()
+        }
+        .onChange(of: fileSelection.sourceURL) { _, _ in
+            updateModeEstimates()
+        }
+        .onChange(of: fileSelection.destinationURLs) { _, _ in
+            updateModeEstimates()
+        }
+        .onChange(of: fileSelection.sourceFolderInfo?.totalSize) { _, _ in
+            updateModeEstimates()
+        }
     }
     
     // MARK: - View Components
@@ -115,13 +138,19 @@ struct CopyAndVerifyView: View {
             
             Spacer()
             
-            // Overall progress
+            // Overall progress (overall, not per-file)
             if let speed = speed {
                 HStack(spacing: 4) {
                     Text(speed)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
                     
+                    if let filesLeft = progress.formattedFilesRemaining {
+                        Text("• \(filesLeft)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+
                     if let timeRemaining = timeRemaining {
                         Text("• \(timeRemaining)")
                             .font(.system(size: 10))
@@ -361,9 +390,26 @@ struct CopyAndVerifyView: View {
             Toggle("Create PDF & CSV Report", isOn: $coordinator.settingsViewModel.prefs.makeReport)
                 .toggleStyle(.switch)
                 .tint(.green)
-            
+
             Spacer()
-            
+
+            // Time estimate (when available)
+            if let estimate = coordinator.timeEstimate {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(estimate.formatted)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text(estimate.speedSummary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                .padding(.trailing, 16)
+            } else if coordinator.isCalculatingEstimate {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .padding(.trailing, 16)
+            }
+
             // Action button
             Button {
                 coordinator.switchMode(to: .copyAndVerify)
@@ -385,33 +431,37 @@ struct CopyAndVerifyView: View {
     }
     
     // MARK: - Time Estimation
+    @State private var modeEstimates: [VerificationMode: String] = [:]
+
     private func getTimeEstimate(for mode: VerificationMode) -> String? {
-        // Only show estimates if we have source data
-        guard let sourceInfo = fileSelection.sourceFolderInfo,
-              !fileSelection.destinationURLs.isEmpty else {
-            return nil
+        return modeEstimates[mode]
+    }
+
+    private func updateModeEstimates() {
+        guard let sourceURL = fileSelection.sourceURL,
+              !fileSelection.destinationURLs.isEmpty,
+              let totalBytes = fileSelection.sourceFolderInfo?.totalSize,
+              totalBytes > 0 else {
+            modeEstimates = [:]
+            return
         }
-        
-        let fileCount = sourceInfo.fileCount
-        let totalSizeGB = Double(sourceInfo.totalSize) / (1024 * 1024 * 1024)
-        
-        // Get source speed (assuming it's been detected)
-        let sourceSpeed = fileSelection.detectDriveSpeed(for: fileSelection.sourceURL!)
-        
-        // Get fastest destination speed for bottleneck calculation
-        let destinationSpeeds = fileSelection.destinationURLs.map {
-            fileSelection.detectDriveSpeed(for: $0)
+
+        Task {
+            var estimates: [VerificationMode: String] = [:]
+            for mode in VerificationMode.allCases {
+                if let estimate = await DriveBenchmarkService.shared.estimateTransferTime(
+                    sourceURL: sourceURL,
+                    destinationURLs: fileSelection.destinationURLs,
+                    totalBytes: totalBytes,
+                    verificationMode: mode
+                ) {
+                    estimates[mode] = estimate.formatted
+                }
+            }
+            await MainActor.run {
+                modeEstimates = estimates
+            }
         }
-        let fastestDestSpeed = destinationSpeeds.max(by: { $0.estimatedSpeed < $1.estimatedSpeed }) ?? .unknown
-        
-        // Use analytics service for improved estimates
-        return TransferAnalytics.shared.getImprovedEstimate(
-            fileCount: fileCount,
-            totalSizeGB: totalSizeGB,
-            verificationMode: mode,
-            sourceSpeed: sourceSpeed,
-            destinationSpeed: fastestDestSpeed
-        )
     }
     
     private func openFolderPanel() -> URL? {

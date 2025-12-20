@@ -23,9 +23,15 @@ final class SonyDetectionService {
     // MARK: - MEDIAPRO.XML Detection
     
     private func checkSonyMediaProXML(at url: URL) -> String? {
-        let mediaProPath = url.appendingPathComponent("PRIVATE/M4ROOT/MEDIAPRO.XML")
+        // Check both consumer (M4ROOT) and pro (XDROOT) locations
+        let candidatePaths = [
+            "PRIVATE/M4ROOT/MEDIAPRO.XML",
+            "XDROOT/MEDIAPRO.XML"
+        ]
         
-        guard FileManager.default.fileExists(atPath: mediaProPath.path) else { return nil }
+        guard let mediaProPath = candidatePaths
+                .map({ url.appendingPathComponent($0) })
+                .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
         
         do {
             let xmlString = try String(contentsOf: mediaProPath, encoding: .utf8)
@@ -41,11 +47,14 @@ final class SonyDetectionService {
             }
             
             if let systemKindRange = xmlString.range(of: #"systemKind="([^"]+)""#, options: .regularExpression) {
-                let systemKind = String(xmlString[systemKindRange])
-                    .replacingOccurrences(of: #"systemKind=""#, with: "")
-                    .replacingOccurrences(of: "\"", with: "")
+                // Extract attribute value
+                var systemKind = String(xmlString[systemKindRange])
+                systemKind = systemKind.replacingOccurrences(of: #"systemKind=""#, with: "")
+                                       .replacingOccurrences(of: "\"", with: "")
+                                       .trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 if let cameraModel = mapSonySystemKind(systemKind) {
+                    SharedLogger.info("Resolved model: \(cameraModel) from systemKind=\(systemKind) at \(mediaProPath.path)", category: .transfer)
                     return "Sony \(cameraModel)"
                 }
             }
@@ -63,10 +72,16 @@ final class SonyDetectionService {
         let fm = FileManager.default
         
         let sonyIndicators = [
+            // Consumer/Prosumer
             "PRIVATE/M4ROOT",
             "PRIVATE/AVCHD",
             "DCIM",
-            "MP_ROOT/101PNV01"
+            "MP_ROOT/101PNV01",
+            // Professional XAVC (FX6/FX9/FS7)
+            "XDROOT",
+            "XDROOT/Clip",
+            "XDROOT/General",
+            "XDROOT/Sub"
         ]
         
         var foundIndicators = 0
@@ -75,6 +90,11 @@ final class SonyDetectionService {
             if fm.fileExists(atPath: indicatorPath.path) {
                 foundIndicators += 1
             }
+        }
+        
+        // If XDROOT is present at all, treat as Sony XAVC
+        if fm.fileExists(atPath: url.appendingPathComponent("XDROOT").path) {
+            return "Sony"
         }
         
         return foundIndicators >= 2 ? "Sony" : nil
@@ -112,14 +132,23 @@ final class SonyDetectionService {
             "ILCE-7RM4": "A7R IV",
             "ILCE-7M4": "A7 IV",
             "ILCE-7C": "A7C",
+            // Cinema line
             "ILME-FX6": "FX6",
             "ILME-FX3": "FX3",
             "ILME-FX30": "FX30",
+            "ILME-FX9": "FX9",
+            // XDCAM PXW series common on pro media
+            "PXW-FS7": "FS7",
+            "PXW-FS7M2": "FS7 II",
+            "PXW-FS5": "FS5",
             "ILCE-6700": "A6700",
             "ILCE-6600": "A6600",
             "ILCE-6400": "A6400"
         ]
-        
-        return kindMapping[systemKind]
+        // Allow partial match (e.g., "ILME-FX6V ver.5.010" contains "ILME-FX6")
+        for (key, val) in kindMapping {
+            if systemKind.localizedCaseInsensitiveContains(key) { return val }
+        }
+        return nil
     }
 }

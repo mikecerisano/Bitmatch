@@ -32,6 +32,13 @@ struct ReportView: View {
 
     let s: Summary
     let rows: [ResultRow]
+
+    private static let mediaExtensions: Set<String> = [
+        "MOV", "MP4", "M4V", "MXF", "R3D", "BRAW", "MPG", "MPEG", "AVI", "WMV",
+        "ARW", "CR2", "CR3", "NEF", "RAF", "RW2", "DNG", "RAW", "SR2", "ORF",
+        "JPG", "JPEG", "PNG", "TIFF", "TIF", "BMP", "HEIC", "HEIF", "GIF",
+        "WAV", "AIFF", "AIF", "MP3", "AAC", "FLAC", "M4A"
+    ]
     
     private var duration: String {
         let interval = s.finished.timeIntervalSince(s.started)
@@ -46,11 +53,72 @@ struct ReportView: View {
         return String(format: "%.1f MB/s", s.averageSpeed)
     }
     
+    private var totalDurationSeconds: TimeInterval {
+        max(0, s.finished.timeIntervalSince(s.started))
+    }
+    
+    private var filesPerSecond: Double {
+        guard totalDurationSeconds > 0 else { return 0 }
+        return Double(relevantRows.count) / totalDurationSeconds
+    }
+    
+    private var averageFileSize: String {
+        guard !relevantRows.isEmpty else { return "—" }
+        let totalBytes = relevantRows.reduce(into: Int64(0)) { $0 += $1.size }
+        let average = totalBytes / Int64(relevantRows.count)
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: average)
+    }
+    
+    private var largestFile: ResultRow? {
+        relevantRows.max(by: { $0.size < $1.size })
+    }
+    
+    private var smallestFile: ResultRow? {
+        relevantRows.min(by: { $0.size < $1.size })
+    }
+    
+    private var extensionBreakdown: [(ext: String, count: Int)] {
+        let grouped = Dictionary(grouping: relevantRows) { row -> String in
+            let ext = URL(fileURLWithPath: row.path).pathExtension.uppercased()
+            return ext.isEmpty ? "—" : ext
+        }
+        let ranked: [(ext: String, count: Int)] = grouped
+            .map { (ext: $0.key, count: $0.value.count) }
+            .sorted { lhs, rhs in
+                if lhs.count == rhs.count {
+                    return lhs.ext < rhs.ext
+                }
+                return lhs.count > rhs.count
+            }
+        return Array(ranked.prefix(5))
+    }
+    
+    private var manifestPreview: [ResultRow] {
+        // Show all files in PDF reports (no limit)
+        relevantRows
+    }
+    
+    private var verifiedFileCount: Int {
+        relevantRows.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
+    }
+    
+    private var issueCount: Int {
+        relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
+    }
+    
     private var totalSizeFormatted: String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: s.totalBytesProcessed)
+    }
+    
+    private var relevantRows: [ResultRow] {
+        let filtered = rows.filter(isMediaFile)
+        return filtered.isEmpty ? rows : filtered
     }
 
     var body: some View {
@@ -65,6 +133,15 @@ struct ReportView: View {
             
             Divider().padding(.vertical, 12)
             
+            // Performance Metrics
+            metricsSection
+            
+            Divider().padding(.vertical, 12)
+            
+            environmentSection
+            
+            Divider().padding(.vertical, 12)
+            
             // Technical Details
             technicalSection
             
@@ -73,8 +150,18 @@ struct ReportView: View {
             // File Statistics
             statisticsSection
             
+            if !extensionBreakdown.isEmpty {
+                Divider().padding(.vertical, 12)
+                extensionSection
+            }
+            
+            if !manifestPreview.isEmpty {
+                Divider().padding(.vertical, 12)
+                manifestSection
+            }
+            
             // Issues Detail (if any)
-            if s.issues > 0 {
+            if issueCount > 0 {
                 Divider().padding(.vertical, 12)
                 issuesSection
             }
@@ -82,7 +169,7 @@ struct ReportView: View {
             // Success Badge or Issues Summary
             Spacer(minLength: 20)
             
-            if s.issues == 0 {
+            if issueCount == 0 {
                 successBadge
             } else {
                 issuesSummaryTable
@@ -94,7 +181,9 @@ struct ReportView: View {
             Divider()
             footerSection
         }
-        .padding(36)
+        .padding(.top, 20)
+        .padding(.horizontal, 32)
+        .padding(.bottom, 28)
         .frame(width: 612)
         .frame(minHeight: 792) // US Letter height
         .background(Color.white)
@@ -214,6 +303,50 @@ struct ReportView: View {
     }
     
     @ViewBuilder
+    private var metricsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Performance Metrics")
+                .font(.system(size: 14, weight: .semibold))
+            
+            HStack(spacing: 40) {
+                StatBox(title: "Average File Size", value: averageFileSize, color: .blue)
+                StatBox(title: "Files / Second",
+                        value: filesPerSecond > 0 ? String(format: "%.1f", filesPerSecond) : "—",
+                        color: .purple)
+                StatBox(title: "Largest File",
+                        value: formattedFileSize(largestFile),
+                        color: .indigo)
+                StatBox(title: "Smallest File",
+                        value: formattedFileSize(smallestFile),
+                        color: .teal)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var environmentSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Environment & Operator")
+                .font(.system(size: 14, weight: .semibold))
+            
+            Grid(horizontalSpacing: 24, verticalSpacing: 6) {
+                GridRow {
+                    environmentLabel("Client", value: s.client)
+                    environmentLabel("Company", value: s.company)
+                }
+                GridRow {
+                    environmentLabel("App Version", value: s.appVersion)
+                    environmentLabel("OS Version", value: s.osVersion)
+                }
+                GridRow {
+                    environmentLabel("Verification", value: s.verificationMethod)
+                    environmentLabel("Workers", value: "\(s.workers) parallel")
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
     private var technicalSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Paths")
@@ -248,51 +381,174 @@ struct ReportView: View {
     @ViewBuilder
     private var statisticsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("File Statistics")
+            Text("Media File Statistics")
                 .font(.system(size: 14, weight: .semibold))
             
             HStack(spacing: 40) {
-                StatBox(title: "Total Files", value: "\(s.totalFiles)", color: .blue)
-                StatBox(title: "Matched", value: "\(s.matched)", color: .green)
-                StatBox(title: "Issues", value: "\(s.issues)", color: s.issues > 0 ? .orange : .gray)
+                StatBox(title: "Media Files", value: "\(relevantRows.count)", color: .blue)
+                StatBox(title: "Matched", value: "\(verifiedFileCount)", color: .green)
+                StatBox(title: "Issues", value: "\(issueCount)", color: issueCount > 0 ? .orange : .gray)
                 StatBox(title: "Success Rate",
-                       value: String(format: "%.1f%%", s.totalFiles > 0 ? (Double(s.matched) / Double(s.totalFiles) * 100) : 100),
-                       color: s.issues == 0 ? .green : .orange)
+                       value: String(format: "%.1f%%", relevantRows.count > 0 ? (Double(verifiedFileCount) / Double(relevantRows.count) * 100) : 100),
+                       color: issueCount == 0 ? .green : .orange)
             }
         }
     }
     
     @ViewBuilder
-    private var issuesSection: some View {
+    private var extensionSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Issues Detail (\(s.issues))")
+            Text("Top File Types")
                 .font(.system(size: 14, weight: .semibold))
             
-            let problems = rows.filter { $0.status != .match }.prefix(100)
+            HStack(spacing: 12) {
+                ForEach(extensionBreakdown, id: \.ext) { item in
+                    StatChip(label: item.ext, value: "\(item.count)")
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var manifestSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Media Files Transferred")
+                .font(.system(size: 14, weight: .semibold))
+            
+            if manifestPreview.isEmpty {
+                Text("No media files detected in this run.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    manifestHeaderRow
+                    Divider()
+                    ForEach(manifestPreview, id: \.id) { row in
+                        manifestDataRow(for: row)
+                        if row.id != manifestPreview.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.03))
+                        )
+                )
+            }
+            
+            if relevantRows.count > manifestPreview.count {
+                Text("… \(relevantRows.count - manifestPreview.count) more media files in CSV manifest")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var manifestHeaderRow: some View {
+        HStack(spacing: 12) {
+            Text("Status")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 44, alignment: .leading)
+            Text("File")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 150, alignment: .leading)
+            Text("Source")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 140, alignment: .leading)
+            Text("Destination")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 140, alignment: .leading)
+            Text("Size")
+                .font(.system(size: 9, weight: .semibold))
+                .frame(width: 65, alignment: .trailing)
+        }
+        .foregroundColor(.secondary)
+        .padding(.vertical, 6)
+    }
+    
+    private func manifestDataRow(for row: ResultRow) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: statusSymbol(for: row.status))
+                .foregroundColor(statusColor(for: row.status))
+                .font(.system(size: 10))
+                .frame(width: 44, alignment: .leading)
+            Text(row.fileName)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 150, alignment: .leading)
+            Text(shortDirectoryPath(for: row.path))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 140, alignment: .leading)
+            Text(destinationDisplay(for: row))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: 140, alignment: .leading)
+            Text(row.formattedSize)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 65, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+    
+    @ViewBuilder
+    private var issuesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Issues Detail (\(issueCount))")
+                .font(.system(size: 14, weight: .semibold))
+            
+            let problems = relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.prefix(100)
             
             // Group issues by type
             let grouped = Dictionary(grouping: problems) { $0.status }
             
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(ResultRow.Status.allCases.filter { status in
-                    grouped[status] != nil
-                }, id: \.self) { status in
+                ForEach(Array(grouped.keys.sorted()), id: \.self) { status in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Image(systemName: status.symbol)
-                                .foregroundColor(status.color)
+                            Image(systemName: statusSymbol(for: status))
+                                .foregroundColor(statusColor(for: status))
                                 .font(.system(size: 10))
-                            Text("\(status.rawValue) (\(grouped[status]?.count ?? 0))")
+                            Text("\(status) (\(grouped[status]?.count ?? 0))")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 4) {
                             ForEach(grouped[status]?.prefix(10) ?? [], id: \.id) { row in
-                                Text("• \(row.path)")
-                                    .font(.system(size: 9, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.fileName)
+                                        .font(.system(size: 10, weight: .medium))
+                                    Text("Source: \(shortDirectoryPath(for: row.path))")
+                                        .font(.system(size: 8, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    let destination = destinationDisplay(for: row)
+                                    if destination != "—" {
+                                        Text("Destination: \(destination)")
+                                            .font(.system(size: 8, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    if let checksum = row.checksum, !checksum.isEmpty {
+                                        Text("Checksum: \(checksum.prefix(16))…")
+                                            .font(.system(size: 8, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
                             }
                             
                             if (grouped[status]?.count ?? 0) > 10 {
@@ -342,36 +598,8 @@ struct ReportView: View {
     @ViewBuilder
     private var issuesSummaryTable: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Issues Summary")
-                .font(.system(size: 12, weight: .semibold))
-            
-            // Summary table of issues by type
-            let grouped = Dictionary(grouping: rows.filter { $0.status != .match }) { $0.status }
-            
-            VStack(spacing: 2) {
-                ForEach(ResultRow.Status.allCases.filter { grouped[$0] != nil }, id: \.self) { status in
-                    HStack {
-                        HStack(spacing: 4) {
-                            Image(systemName: status.symbol)
-                                .font(.system(size: 10))
-                            Text(status.rawValue)
-                                .font(.system(size: 10))
-                        }
-                        .foregroundColor(status.color)
-                        
-                        Spacer()
-                        
-                        Text("\(grouped[status]?.count ?? 0) files")
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(status.color.opacity(0.1))
-                    )
-                }
-            }
+            summaryTableHeader
+            summaryTableContent
         }
         .padding(12)
         .background(
@@ -406,6 +634,78 @@ struct ReportView: View {
         }
         .padding(.top, 8)
     }
+    
+    // MARK: - Summary Table Components
+    
+    @ViewBuilder
+    private var summaryTableHeader: some View {
+        Text("Issues Summary (\(issueCount))")
+            .font(.system(size: 12, weight: .semibold))
+    }
+    
+    @ViewBuilder
+    private var summaryTableContent: some View {
+        let grouped = Dictionary(grouping: relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }) { $0.status }
+        
+        VStack(spacing: 2) {
+            ForEach(Array(grouped.keys.sorted()), id: \.self) { status in
+                summaryTableRow(for: status, count: grouped[status]?.count ?? 0)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func summaryTableRow(for status: String, count: Int) -> some View {
+        HStack {
+            HStack(spacing: 4) {
+                Image(systemName: statusSymbol(for: status))
+                    .font(.system(size: 10))
+                Text(status)
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(statusColor(for: status))
+            
+            Spacer()
+            
+            Text("\(count) files")
+                .font(.system(size: 10, weight: .medium))
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(statusColor(for: status).opacity(0.1))
+        )
+    }
+
+    // MARK: - Status Helper Methods
+    private func statusSymbol(for status: String) -> String {
+        if status.contains("✅") || status.contains("Match") {
+            return "checkmark.circle"
+        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+            return "xmark.circle"
+        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+            return "exclamationmark.triangle"
+        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+            return "arrow.clockwise"
+        } else {
+            return "questionmark.circle"
+        }
+    }
+    
+    private func statusColor(for status: String) -> Color {
+        if status.contains("✅") || status.contains("Match") {
+            return .green
+        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+            return .red
+        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+            return .yellow
+        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+            return .blue
+        } else {
+            return .gray
+        }
+    }
 }
 
 struct StatBox: View {
@@ -423,6 +723,86 @@ struct StatBox: View {
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundColor(color)
         }
+    }
+}
+
+private struct StatChip: View {
+    let label: String
+    let value: String
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .padding(.vertical, 2)
+                .padding(.horizontal, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.blue.opacity(0.12))
+                )
+            Text(value)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+        )
+    }
+}
+
+private func formattedFileSize(_ row: ResultRow?) -> String {
+    guard let row else { return "—" }
+    return ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file)
+}
+
+@ViewBuilder
+private func environmentLabel(_ title: String, value: String) -> some View {
+    HStack(spacing: 6) {
+        Text("\(title):")
+            .font(.system(size: 10))
+            .foregroundColor(.secondary)
+            .frame(width: 80, alignment: .trailing)
+        Text(value.isEmpty ? "—" : value)
+            .font(.system(size: 10, weight: .medium))
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+}
+
+private extension ReportView {
+    func isMediaFile(_ row: ResultRow) -> Bool {
+        let ext = URL(fileURLWithPath: row.path).pathExtension.uppercased()
+        guard !ext.isEmpty else { return false }
+        return Self.mediaExtensions.contains(ext)
+    }
+    
+    func shortDirectoryPath(for path: String, components: Int = 3) -> String {
+        var url = URL(fileURLWithPath: path)
+        if !url.pathExtension.isEmpty {
+            url.deleteLastPathComponent()
+        }
+        var segments = url.pathComponents.filter { $0 != "/" }
+        if segments.isEmpty {
+            return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
+        }
+        if segments.count > components {
+            segments = Array(segments.suffix(components))
+        }
+        return segments.joined(separator: "/")
+    }
+    
+    func destinationDisplay(for row: ResultRow) -> String {
+        if let destinationPath = row.destinationPath, !destinationPath.isEmpty {
+            return shortDirectoryPath(for: destinationPath)
+        }
+        if let destination = row.destination, !destination.isEmpty {
+            return destination
+        }
+        if let fallback = s.destinations.first {
+            return shortDirectoryPath(for: fallback)
+        }
+        return "—"
     }
 }
 

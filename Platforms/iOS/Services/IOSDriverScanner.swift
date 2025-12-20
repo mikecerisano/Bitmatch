@@ -10,19 +10,19 @@ class IOSDriverScanner: NSObject {
     
     /// Present drive/folder selection UI and scan for BitMatch reports
     static func selectDriveAndScan() async -> [TransferCard] {
-        print("📱 Starting iOS drive selection for Master Report scanning...")
-        
+        SharedLogger.info("Starting iOS drive selection for Master Report scanning...")
+
         // Present folder picker for drive selection
         guard let selectedURL = await presentDriveSelector() else {
-            print("📱 Drive selection cancelled")
+            SharedLogger.info("Drive selection cancelled")
             return []
         }
-        
-        print("📱 Selected drive: \(selectedURL.path)")
+
+        SharedLogger.info("Selected drive: \(selectedURL.path)")
         
         // Ensure we have access to the selected location
         guard selectedURL.startAccessingSecurityScopedResource() else {
-            print("📱 Failed to access security scoped resource")
+            SharedLogger.error("Failed to access security scoped resource")
             return []
         }
         
@@ -85,11 +85,11 @@ class IOSDriverScanner: NSObject {
                     ))
                 }
             } catch {
-                print("📱 Error reading volume info for \(volumeURL): \(error)")
+                SharedLogger.error("Error reading volume info for \(volumeURL): \(error)")
             }
         }
-        
-        print("📱 Found \(volumes.count) available volumes")
+
+        SharedLogger.info("Found \(volumes.count) available volumes")
         return volumes
     }
     
@@ -97,7 +97,7 @@ class IOSDriverScanner: NSObject {
     
     /// Scan a drive/folder for BitMatch reports (same logic as macOS but iOS-optimized)
     static func scanForBitMatchReports(at rootURL: URL) async -> [TransferCard] {
-        print("📱 Starting BitMatch report scan at: \(rootURL.path)")
+        SharedLogger.info("Starting BitMatch report scan at: \(rootURL.path)")
         var transfers: [TransferCard] = []
         let fileManager = FileManager.default
         
@@ -112,7 +112,7 @@ class IOSDriverScanner: NSObject {
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
-            print("📱 Failed to create enumerator for: \(rootURL.path)")
+            SharedLogger.error("Failed to create enumerator for: \(rootURL.path)")
             return []
         }
         
@@ -125,7 +125,7 @@ class IOSDriverScanner: NSObject {
             
             // iOS performance protection - limit scanning
             if filesScanned > maxFilesToScan {
-                print("📱 Reached scanning limit of \(maxFilesToScan) files")
+                SharedLogger.warning("Reached scanning limit of \(maxFilesToScan) files")
                 break
             }
             
@@ -149,27 +149,27 @@ class IOSDriverScanner: NSObject {
                             if let transfer = try? parseReportToTransferCard(data: data, reportURL: fileURL) {
                                 transfers.append(transfer)
                                 reportsFound += 1
-                                print("📱 Found transfer: \(transfer.cameraName) at \(fileURL.path)")
+                                SharedLogger.info("Found transfer: \(transfer.cameraName) at \(fileURL.path)")
                             }
                         } else {
-                            print("📱 Skipping large file: \(filename) (\(fileSize) bytes)")
+                            SharedLogger.debug("Skipping large file: \(filename) (\(fileSize) bytes)")
                         }
                     }
                 } catch {
-                    print("📱 Error processing report at \(fileURL.path): \(error)")
+                    SharedLogger.error("Error processing report at \(fileURL.path): \(error)")
                 }
             }
-            
+
             // Progress update for iOS
             if filesScanned % 500 == 0 {
-                print("📱 Scanned \(filesScanned) files, found \(reportsFound) reports")
+                SharedLogger.debug("Scanned \(filesScanned) files, found \(reportsFound) reports")
                 
                 // Yield to main thread for UI responsiveness
                 await Task.yield()
             }
         }
-        
-        print("📱 Scan completed: \(filesScanned) files scanned, \(reportsFound) reports found")
+
+        SharedLogger.info("Scan completed: \(filesScanned) files scanned, \(reportsFound) reports found")
         return transfers.sorted { $0.timestamp > $1.timestamp }
     }
     
@@ -204,7 +204,9 @@ class IOSDriverScanner: NSObject {
     
     private static func parseReportToTransferCard(data: Data, reportURL: URL) throws -> TransferCard? {
         // Try parsing as EnhancedJSONReport first (current format)
-        if let enhancedReport = try? JSONDecoder().decode(EnhancedJSONReport.self, from: data) {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let enhancedReport: EnhancedJSONReport = try? decoder.decode(EnhancedJSONReport.self, from: data) {
             return convertEnhancedReportToTransferCard(enhancedReport, reportURL: reportURL)
         }
         
@@ -212,8 +214,8 @@ class IOSDriverScanner: NSObject {
         if let legacyReport = try? parseLegacyReport(data: data) {
             return convertLegacyReportToTransferCard(legacyReport, reportURL: reportURL)
         }
-        
-        print("📱 Unable to parse report format at \(reportURL.path)")
+
+        SharedLogger.warning("Unable to parse report format at \(reportURL.path)")
         return nil
     }
     
@@ -376,6 +378,39 @@ struct VolumeInfo {
 
 struct LegacyReportFormat {
     // Define legacy report structure if needed
+}
+
+// Minimal representation of the enhanced JSON report used by BitMatch
+// This mirrors the fields needed for TransferCard conversion
+struct EnhancedJSONReport: Decodable {
+    let timestamp: Date
+    let source: SourceInfo
+    let destinations: [DestinationInfo]
+    let statistics: Statistics
+    let performance: Performance
+
+    struct SourceInfo: Decodable {
+        let path: String
+        let name: String?
+        let totalSize: Int64
+        let fileCount: Int
+        let cameraDetected: String?
+    }
+
+    struct DestinationInfo: Decodable {
+        let path: String
+    }
+
+    struct Statistics: Decodable {
+        let totalFiles: Int?
+        let totalBytes: Int64?
+        let matches: Int
+        let issues: Int
+    }
+
+    struct Performance: Decodable {
+        let totalDuration: Double
+    }
 }
 
 // MARK: - Document Picker Delegate for Drive Selection

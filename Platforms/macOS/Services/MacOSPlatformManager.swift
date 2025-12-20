@@ -1,5 +1,6 @@
 // MacOSPlatformManager.swift - macOS platform coordination
 import Foundation
+#if os(macOS)
 import AppKit
 
 @MainActor
@@ -23,8 +24,12 @@ class MacOSPlatformManager: PlatformManager {
         _cameraDetection
     }
     
-    private let _fileOperations: any FileOperationsService
-    private let _cameraDetection: any CameraDetectionService
+    nonisolated var supportsDragAndDrop: Bool {
+        return true // macOS supports drag and drop
+    }
+    
+    nonisolated(unsafe) private let _fileOperations: any FileOperationsService
+    nonisolated(unsafe) private let _cameraDetection: any CameraDetectionService
     
     private init() {
         self._fileOperations = SharedFileOperationsService(
@@ -71,4 +76,17 @@ class MacOSPlatformManager: PlatformManager {
         // Check macOS storage permissions
         return true
     }
+    
+    // MARK: - Background Tasks
+    
+    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int {
+        // macOS doesn't use UIKit background tasks in the same way; returning a dummy ID.
+        // Use ProcessInfo.processInfo.beginActivity(options:reason:) if preventing sleep is needed.
+        return 0
+    }
+    
+    func endBackgroundTask(_ id: Int) {
+        // No-op
+    }
 }
+#endif

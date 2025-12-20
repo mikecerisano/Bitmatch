@@ -6,11 +6,11 @@ struct BitMatchMainView: View {
     @StateObject private var coordinator = AppCoordinator()
     
     var body: some View {
-        if PlatformManager.shared.currentPlatform == .iOS {
-            iPadLayout
-        } else {
-            macOSLayout
-        }
+#if os(iOS)
+        iPadLayout
+#else
+        macOSLayout
+#endif
     }
     
     @ViewBuilder
@@ -75,7 +75,7 @@ struct BitMatchMainView: View {
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: mode.icon)
+                Image(systemName: mode.systemImage)
                     .font(.system(size: 18))
                     .frame(width: 24)
                 

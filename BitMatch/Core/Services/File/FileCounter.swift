@@ -67,7 +67,7 @@ final class FileCounter {
                     throw error
                 }
                 
-                print("⚠️ Attempt \\(attempt + 1) failed, retrying in \\(delay)s: \\(error.localizedDescription)")
+                SharedLogger.warning("Attempt \(attempt + 1) failed, retrying in \(delay)s: \(error.localizedDescription)", category: .transfer)
                 
                 // Wait before retry
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))

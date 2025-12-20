@@ -57,8 +57,7 @@ struct AnalyticsOptInView: View {
             )
             
             // Community impact (if available)
-            if communityStats != nil {
-                let stats = communityStats!
+            if let stats = communityStats {
                 VStack(spacing: 6) {
                     Text("Community Impact")
                         .font(.system(size: 12, weight: .semibold))
@@ -66,19 +65,19 @@ struct AnalyticsOptInView: View {
                     
                     HStack(spacing: 16) {
                         statPill(
-                            value: "\\(stats.totalTransfers)",
+                            value: "\(stats.totalTransfers)",
                             label: "transfers",
                             color: .green
                         )
                         
                         statPill(
-                            value: "\\(String(format: \"%.1f\", stats.totalDataProcessedTB))TB",
+                            value: "\(String(format: "%.1f", stats.totalDataProcessedTB))TB",
                             label: "processed", 
                             color: .blue
                         )
                         
                         statPill(
-                            value: "\\(Int(stats.averageAccuracyImprovement * 100))%",
+                            value: "\(Int(stats.averageAccuracyImprovement * 100))%",
                             label: "more accurate",
                             color: .orange
                         )

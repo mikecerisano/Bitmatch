@@ -14,16 +14,13 @@ class GlobalErrorHandler: ObservableObject {
     
     func handle(_ error: Error, context: String = "") {
         let appError = AppError.from(error, context: context)
-        
-        // Log error (in production, this would go to crash reporting)
-        print("🚨 Global Error [\(context)]: \(appError.localizedDescription)")
-        
+
+        // Log error via shared logger
+        SharedLogger.error("Global Error [\(context)]: \(appError.localizedDescription ?? "Unknown")", category: .error)
+
         // Show user-friendly error
         currentError = appError
         showErrorAlert = true
-        
-        // Optional: Send to analytics in production
-        // AnalyticsService.shared.trackError(appError)
     }
     
     func clearError() {

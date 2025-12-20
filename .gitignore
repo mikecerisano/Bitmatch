@@ -1,0 +1,24 @@
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+*.xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.xcresult
+
+# Logs and local artifacts
+mac-build.log
+*.log
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods
+Pods/

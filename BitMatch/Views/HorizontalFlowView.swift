@@ -52,107 +52,147 @@ struct HorizontalFlowView: View {
     @ViewBuilder
     private var compactSourceSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SOURCE")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.white.opacity(0.5))
-                .tracking(1.2)
+            sourceSectionHeader
+            sourceSectionContent
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isSourceTargeted) { providers, location in
+            handleSourceDrop(providers: providers)
+        }
+    }
+    
+    @ViewBuilder
+    private var sourceSectionHeader: some View {
+        Text("SOURCE")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(.white.opacity(0.5))
+            .tracking(1.2)
+    }
+    
+    @ViewBuilder
+    private var sourceSectionContent: some View {
+        if let sourceURL = fileSelection.sourceURL {
+            selectedSourceView(sourceURL: sourceURL)
+        } else {
+            emptySourceView
+        }
+    }
+    
+    @ViewBuilder
+    private func selectedSourceView(sourceURL: URL) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sourceInfoRow(sourceURL: sourceURL)
+            cameraDetectionBadge
+        }
+        .padding(12)
+        .background(selectedSourceBackground)
+    }
+    
+    @ViewBuilder
+    private func sourceInfoRow(sourceURL: URL) -> some View {
+        HStack(spacing: 8) {
+            sourceFolderIcon
+            sourceDetails(sourceURL: sourceURL)
+            Spacer()
+            removeSourceButton
+        }
+    }
+    
+    @ViewBuilder
+    private var sourceFolderIcon: some View {
+        Image(systemName: "folder.fill")
+            .font(.system(size: 16))
+            .foregroundColor(.green)
+    }
+    
+    @ViewBuilder
+    private func sourceDetails(sourceURL: URL) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(sourceURL.lastPathComponent)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+            if let cam = fileSelection.sourceCameraLabel, !cam.isEmpty {
+                Text(cam)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.green.opacity(0.9))
+            }
             
-            if let sourceURL = fileSelection.sourceURL {
-                // Source selected
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.green)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(sourceURL.lastPathComponent)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                            
-                            if let info = fileSelection.sourceFolderInfo {
-                                Text("\(info.formattedFileCount) • \(info.formattedSize)")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.white.opacity(0.6))
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        if !isOperationActive {
-                            Button {
-                                fileSelection.sourceURL = nil
-                                refreshID = UUID()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.red.opacity(0.7))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    
-                    // Camera detection badge if present
-                    if let cameraType = fileSelection.sourceFolderInfo?.cameraType {
-                        HStack(spacing: 4) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 8))
-                            Text(cameraType)
-                                .font(.system(size: 9, weight: .medium))
-                        }
-                        .foregroundColor(.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule()
-                                .fill(Color.blue.opacity(0.15))
-                        )
-                    }
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.05))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.green.opacity(0.3), lineWidth: 1)
-                        )
-                )
-            } else {
-                // Empty state
-                VStack(spacing: 6) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white.opacity(0.3))
-                    
-                    Text("Drop folder")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.5))
-                    
-                    Button("Choose...") {
-                        selectSourceFolder()
-                    }
-                    .buttonStyle(CustomButtonStyle())
-                    .scaleEffect(0.9)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.03))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(
-                                    isSourceTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.1),
-                                    lineWidth: isSourceTargeted ? 2 : 1
-                                )
-                        )
-                )
-                .onDrop(of: [.fileURL], isTargeted: $isSourceTargeted) { providers, location in
-                    handleSourceDrop(providers: providers)
-                }
+            if let info = fileSelection.sourceFolderInfo {
+                let videoText = fileSelection.sourceVideoFileCount > 0 ? "\(fileSelection.sourceVideoFileCount) videos" : "\(info.formattedFileCount) files"
+                Text("\(videoText) • \(info.formattedSize)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.6))
             }
         }
+    }
+    
+    @ViewBuilder
+    private var removeSourceButton: some View {
+        if !isOperationActive {
+            Button {
+                fileSelection.sourceURL = nil
+                refreshID = UUID()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.red.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    @ViewBuilder
+    private var cameraDetectionBadge: some View {
+        // Camera type detection not available in current FolderInfo model
+        // This feature would need to be implemented through a different mechanism
+        EmptyView()
+    }
+    
+    @ViewBuilder
+    private var cameraDetectionBackground: some View {
+        Capsule()
+            .fill(Color.blue.opacity(0.15))
+    }
+    
+    @ViewBuilder
+    private var selectedSourceBackground: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.white.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.green.opacity(0.3), lineWidth: 1)
+            )
+    }
+    
+    @ViewBuilder
+    private var emptySourceView: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 20))
+                .foregroundColor(.white.opacity(0.3))
+            
+            Text("Drop folder")
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.5))
+            
+            Button("Choose...") {
+                selectSourceFolder()
+            }
+            .buttonStyle(CustomButtonStyle())
+            .scaleEffect(0.9)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            isSourceTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.1),
+                            lineWidth: isSourceTargeted ? 2 : 1
+                        )
+                )
+        )
     }
     
     // MARK: - Compact Destinations Section  
@@ -297,6 +337,13 @@ struct HorizontalFlowView: View {
                         .font(.system(size: 7, weight: .medium))
                         .foregroundColor(priorityInfo.color)
                 }
+            }
+
+            // Available free space
+            if let free = fileSelection.formattedAvailableSpace(for: url) {
+                Text("Free: \(free)")
+                    .font(.system(size: 8))
+                    .foregroundColor(.white.opacity(0.6))
             }
         }
         .padding(8)

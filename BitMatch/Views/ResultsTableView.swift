@@ -4,41 +4,31 @@ struct ResultsTableView: View {
     @ObservedObject var coordinator: AppCoordinator
     @Binding var showOnlyIssues: Bool
     @State private var scrollToBottom = false
-    @State private var cachedFilteredResults: [ResultRow] = []
-    @State private var lastFilterState: (Bool, Int) = (false, 0)
+    // Removed caching @State to avoid mutating state during view updates
     
     // Convenience accessors
     private var progress: ProgressViewModel { coordinator.progressViewModel }
     private var results: [ResultRow] { coordinator.results }
     
     private var issueCount: Int {
-        results.filter { $0.status != .match }.count
+        results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
     }
     
-    // FIX: Cache filtered results to avoid recomputing
+    // Compute filtered results (pure; no state mutation during render)
     private var filteredResults: [ResultRow] {
-        let needsUpdate = lastFilterState != (showOnlyIssues, results.count)
-        
-        if needsUpdate {
-            let allResults = showOnlyIssues
-                ? results.filter { $0.status != .match }
-                : results
-            
-            // Limit visible results for performance
-            let maxVisible = 1000
-            if allResults.count > maxVisible {
-                // Show most recent results plus all issues
-                let issues = allResults.filter { $0.status != .match }
-                let recentMatches = allResults.filter { $0.status == .match }.suffix(maxVisible - issues.count)
-                cachedFilteredResults = issues + recentMatches
-            } else {
-                cachedFilteredResults = allResults
-            }
-            
-            lastFilterState = (showOnlyIssues, results.count)
+        let allResults = showOnlyIssues
+            ? results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }
+            : results
+        // Limit visible results for performance
+        let maxVisible = 1000
+        if allResults.count > maxVisible {
+            // Show most recent results plus all issues
+            let issues = allResults.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }
+            let recentMatches = allResults.filter { $0.status.contains("✅") || $0.status.contains("Match") }.suffix(maxVisible - issues.count)
+            return issues + Array(recentMatches)
+        } else {
+            return allResults
         }
-        
-        return cachedFilteredResults
     }
     
     var body: some View {
@@ -72,6 +62,15 @@ struct ResultsTableView: View {
                 matchCountView
                 if issueCount > 0 {
                     issueCountView
+                }
+                if coordinator.progressViewModel.reusedFileCopies > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10))
+                        Text("Reused \(coordinator.progressViewModel.reusedFileCopies)")
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                    .foregroundColor(.white.opacity(0.6))
                 }
             }
             
@@ -251,7 +250,8 @@ struct ResultsTableView: View {
                     .onChange(of: filteredResults.count) { oldCount, newCount in
                         // Auto-scroll to bottom when new results are added
                         if newCount > oldCount && coordinator.isOperationInProgress {
-                            withAnimation(.easeOut(duration: 0.2)) {
+                            // Defer to next runloop to avoid state changes during update
+                            DispatchQueue.main.async {
                                 proxy.scrollTo("bottom", anchor: .bottom)
                             }
                         }
@@ -268,30 +268,51 @@ struct ResultsTableView: View {
     
     @ViewBuilder
     private func resultRow(for row: ResultRow) -> some View {
-        HStack {
-            Image(systemName: row.status.symbol)
+        HStack(spacing: 8) {
+            // Status icon
+            Image(systemName: statusSymbol(for: row.status))
                 .font(.system(size: 12))
-                .foregroundColor(row.status.color)
-                .frame(width: 20)
-            
-            Text(row.path)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(statusColor(for: row.status))
+                .frame(width: 16)
+
+            // File name
+            Text(URL(fileURLWithPath: row.path).lastPathComponent)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            
-            Spacer()
-            
-            Text(row.status.rawValue)
+                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+
+            // File size
+            Text(ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(width: 80, alignment: .trailing)
+
+            // Destination drive
+            HStack(spacing: 4) {
+                Image(systemName: "externaldrive.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(.blue.opacity(0.7))
+                Text(row.destination ?? "-")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.7))
+                    .lineLimit(1)
+            }
+            .frame(width: 120, alignment: .trailing)
+
+            // Status text
+            Text(row.status)
                 .font(.system(size: 10))
-                .foregroundColor(row.status.color.opacity(0.8))
+                .foregroundColor(statusColor(for: row.status).opacity(0.85))
+                .frame(width: 120, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(
-            row.status == .match ?
+            (row.status.contains("✅") || row.status.contains("Match")) ?
             Color.clear :
-            row.status.color.opacity(0.1)
+            statusColor(for: row.status).opacity(0.1)
         )
     }
     
@@ -312,6 +333,35 @@ struct ResultsTableView: View {
             let hours = Int(seconds / 3600)
             let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
             return "\(hours)h \(minutes)m"
+        }
+    }
+    
+    // MARK: - Status Helper Methods
+    private func statusSymbol(for status: String) -> String {
+        if status.contains("✅") || status.contains("Match") {
+            return "checkmark.circle"
+        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+            return "xmark.circle"
+        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+            return "exclamationmark.triangle"
+        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+            return "arrow.clockwise"
+        } else {
+            return "questionmark.circle"
+        }
+    }
+    
+    private func statusColor(for status: String) -> Color {
+        if status.contains("✅") || status.contains("Match") {
+            return .green
+        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+            return .red
+        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+            return .yellow
+        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+            return .blue
+        } else {
+            return .gray
         }
     }
 }

@@ -37,9 +37,7 @@ enum AppMode: String, CaseIterable {
     case copyAndVerify, compareFolders, masterReport
     
     #if os(iOS)
-    static var supportedModes: [AppMode] {
-        return [.copyAndVerify, .compareFolders] // iPad doesn't support masterReport yet
-    }
+    static var supportedModes: [AppMode] { [.copyAndVerify, .compareFolders, .masterReport] }
     #endif
 }
 
@@ -120,16 +118,25 @@ The new architecture has been validated:
 # iOS platform adapter compiles successfully
 ✅ IOSFileSystemService.swift
 ✅ IOSPlatformManager.swift
-✅ IOSContentView.swift
+✅ iPad ModularContentView.swift
+
+# Performance additions (shared)
+✅ SharedChecksumCache (persistent, 1h TTL)
+✅ Off‑main folder analysis with conservative parallelism
 ```
 
-## 🎯 Next Steps
+## ✅ Status Update
 
-1. **Create macOS platform adapter** (similar to iOS)
-2. **Update Xcode project** to include shared folders
-3. **Migrate existing iPad app** to use new architecture
-4. **Migrate existing Mac app** to use new architecture
-5. **Add comprehensive tests** for shared business logic
+The demo architecture has been implemented in the main codebase:
+
+- macOS and iOS platform adapters exist under `Platforms/`
+- Xcode targets include shared models and services
+- iPad and macOS apps run on the shared architecture (mac uses SharedAppCoordinator by default)
+- Master Report generation is unified via SharedReportGenerationService on both platforms
+
+### Next Steps
+- Add comprehensive tests for shared business logic
+- Continue expanding camera detection coverage and report features
 
 ## 🚀 Future Development Workflow
 

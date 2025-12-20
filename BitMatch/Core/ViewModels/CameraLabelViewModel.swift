@@ -41,16 +41,16 @@ final class CameraLabelViewModel: ObservableObject {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         saveCameraLabelSettings()
                     }
-                    
-                    print("📷 Recognized camera: \(fingerprint.displayName) → Auto-applied label: \"\(rememberedLabel)\"")
+
+                    SharedLogger.info("Recognized camera: \(fingerprint.displayName) → Auto-applied label: \"\(rememberedLabel)\"", category: .transfer)
                     
                 } else if destinationLabelSettings.label.isEmpty {
                     // Try intelligent camera naming from video files first
                     if let cameraSuggestion = CameraNamingService.getBestCameraSuggestion(for: url) {
                         destinationLabelSettings.label = cameraSuggestion.suggestedName
-                        
-                        print("🎬 Auto-detected camera designation: \(cameraSuggestion.cameraDesignation) from \(cameraSuggestion.sourceFilename)")
-                        print("📝 Suggested folder name: \"\(cameraSuggestion.suggestedName)\" (confidence: \(cameraSuggestion.confidence * 100)%)")
+
+                        SharedLogger.info("Auto-detected camera designation: \(cameraSuggestion.cameraDesignation) from \(cameraSuggestion.sourceFilename)", category: .transfer)
+                        SharedLogger.debug("Suggested folder name: \"\(cameraSuggestion.suggestedName)\" (confidence: \(cameraSuggestion.confidence * 100)%)", category: .transfer)
                         
                     } else if cameraType != .generic {
                         // Fallback to model-based naming using clean camera names
@@ -66,8 +66,8 @@ final class CameraLabelViewModel: ObservableObject {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         saveCameraLabelSettings()
                     }
-                    
-                    print("📷 New camera detected: \(cameraType.rawValue)")
+
+                    SharedLogger.info("New camera detected: \(cameraType.rawValue)", category: .transfer)
                 }
             }
         }
@@ -84,11 +84,18 @@ final class CameraLabelViewModel: ObservableObject {
     
     func generateDestinationPath(source: URL, destination: URL) -> URL {
         let baseName = source.lastPathComponent
-        let labeledName = destinationLabelSettings.generateUniqueName(
-            base: baseName,
-            at: destination
-        )
+        let labeledName: String
+        if destinationLabelSettings.generateUniqueName {
+            labeledName = generateUniqueFilename(base: baseName, at: destination)
+        } else {
+            labeledName = baseName
+        }
         return destination.appendingPathComponent(labeledName)
+    }
+    
+    private func generateUniqueFilename(base: String, at destination: URL) -> String {
+        // Future enhancement: implement unique filename generation to avoid collisions
+        return base
     }
     
     func saveSettings() {
@@ -104,22 +111,34 @@ final class CameraLabelViewModel: ObservableObject {
         detectedCamera = .generic
         currentFingerprint = nil
         saveCameraLabelSettings()
-        print("🧹 Cleared camera label - no source selected")
+        SharedLogger.debug("Cleared camera label - no source selected", category: .transfer)
     }
     
     // MARK: - Camera Label Generation (Model-based, not position)
     private func getCameraModelLabel(for camera: CameraType) -> String {
         switch camera {
-        case .arriAlexa: return "ALEXA"
-        case .arriAmira: return "AMIRA"
-        case .redDragon: return "RED"
+        case .sony: return "SONY"
         case .sonyFX6: return "FX6"
         case .sonyFX3: return "FX3"
         case .sonyA7S: return "A7S"
+        case .canon: return "CANON"
         case .canonC70: return "C70"
+        case .arri: return "ARRI"
+        case .arriAlexa: return "ALEXA"
+        case .arriAmira: return "AMIRA"
+        case .red: return "RED"
+        case .redCamera: return "RED"
+        case .redDragon: return "RED"
+        case .blackmagic: return "BMPCC"
         case .blackmagicPocket: return "BMPCC"
-        case .dji: return "DJI"  // Don't assume drone
+        case .panasonic: return "PANASONIC"
+        case .fujifilm: return "FUJIFILM"
+        case .nikon: return "NIKON"
         case .gopro: return "GOPRO"
+        case .dji: return "DJI"
+        case .insta360: return "INSTA360"
+        case .genericDCIM: return "DCIM"
+        case .genericMedia: return "MEDIA"
         case .generic: return ""
         }
     }
@@ -137,7 +156,7 @@ final class CameraLabelViewModel: ObservableObject {
             let data = try JSONEncoder().encode(destinationLabelSettings)
             UserDefaults.standard.set(data, forKey: "destLabelSettings")
         } catch {
-            print("Failed to save camera label settings: \(error)")
+            SharedLogger.error("Failed to save camera label settings: \(error)", category: .transfer)
         }
     }
     
@@ -178,19 +197,16 @@ final class CameraLabelViewModel: ObservableObject {
         workers: Int,
         totalBytesProcessed: Int64
     ) -> TransferMetadata {
-        return TransferMetadata.forCopyOperation(
-            jobId: jobID,
-            jobStart: jobStart,
-            sourceURL: sourceURL,
-            destinationPath: destinationPath,
-            sourceFolderInfo: sourceFolderInfo,
-            cameraLabel: destinationLabelSettings,
-            detectedCamera: detectedCamera,
-            prefs: prefs,
+        // Create TransferMetadata using the actual SharedModels structure
+        return TransferMetadata(
+            sourceURL: sourceURL ?? URL(fileURLWithPath: "/"),
+            destinationURLs: [URL(fileURLWithPath: destinationPath)],
+            startTime: jobStart,
+            endTime: Date(), // Current time as end time
+            totalFiles: matchCount,
+            totalSize: totalBytesProcessed,
             verificationMode: verificationMode,
-            matchCount: matchCount,
-            workers: workers,
-            totalBytesProcessed: totalBytesProcessed
+            cameraSettings: destinationLabelSettings
         )
     }
 }

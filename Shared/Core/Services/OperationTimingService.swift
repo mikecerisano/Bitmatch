@@ -1,6 +1,8 @@
 // OperationTimingService.swift - Comprehensive operation duration tracking
 import Foundation
 
+// Uses SharedLogger (shared file) for logging across platforms
+
 @MainActor
 class OperationTimingService: ObservableObject {
     
@@ -42,11 +44,11 @@ class OperationTimingService: ObservableObject {
             operationType: .transfer
         )
         
-        print("⏱️ Operation timing started - \(totalFiles) files, \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))")
+        SharedLogger.info("Timing started: files=\(totalFiles), size=\(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))", category: .transfer)
     }
     
     func updateStage(_ stage: ProgressStage) {
-        guard let currentTiming = currentTiming else { return }
+        guard currentTiming != nil else { return }
         
         let now = Date()
         
@@ -55,14 +57,14 @@ class OperationTimingService: ObservableObject {
            let previousStageStart = stageStartTimes[previousStage] {
             let stageDuration = now.timeIntervalSince(previousStageStart)
             self.currentTiming?.stageTimings[previousStage] = stageDuration
-            print("⏱️ Stage '\(previousStage.displayName)' completed in \(formatDuration(stageDuration))")
+            SharedLogger.debug("Stage completed: \(previousStage.displayName) in \(formatDuration(stageDuration))", category: .transfer)
         }
         
         // Start timing for new stage
         stageStartTimes[stage] = now
         self.currentTiming?.currentStage = stage
         
-        print("⏱️ Started stage: \(stage.displayName)")
+        SharedLogger.debug("Stage started: \(stage.displayName)", category: .transfer)
     }
     
     func updateProgress(filesProcessed: Int, bytesProcessed: Int64, currentFile: String?) {
@@ -156,9 +158,9 @@ class OperationTimingService: ObservableObject {
         }
         
         // Log completion
-        print("⏱️ Operation completed in \(formatDuration(totalDuration))")
-        print("⏱️ Average speed: \(formatSpeed(finalTiming.averageSpeed ?? 0))")
-        print("⏱️ Peak speed: \(formatSpeed(finalTiming.peakSpeed ?? 0))")
+        SharedLogger.info("Timing complete: duration=\(formatDuration(totalDuration))", category: .transfer)
+        SharedLogger.debug("Average speed: \(formatSpeed(finalTiming.averageSpeed ?? 0))", category: .transfer)
+        SharedLogger.debug("Peak speed: \(formatSpeed(finalTiming.peakSpeed ?? 0))", category: .transfer)
         logStageBreakdown(finalTiming.stageTimings)
         
         // Clear current operation
@@ -169,7 +171,7 @@ class OperationTimingService: ObservableObject {
     }
     
     func cancelOperation() {
-        guard let currentTiming = currentTiming else { return }
+        guard currentTiming != nil else { return }
         completeOperation(success: false, message: "Operation cancelled by user")
     }
     
@@ -200,9 +202,9 @@ class OperationTimingService: ObservableObject {
     }
     
     private func logStageBreakdown(_ stageTimings: [ProgressStage: TimeInterval]) {
-        print("⏱️ Stage breakdown:")
+        SharedLogger.debug("Stage breakdown:", category: .transfer)
         for (stage, duration) in stageTimings.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            print("   \(stage.displayName): \(formatDuration(duration))")
+            SharedLogger.debug("   \(stage.displayName): \(formatDuration(duration))", category: .transfer)
         }
     }
     

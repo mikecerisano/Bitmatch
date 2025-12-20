@@ -47,6 +47,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		275B23AE2E6DCFEE00D1302A /* Exceptions for "Platforms" folder in "BitMatch" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				macOS/Services/MacOSPlatformManager.swift,
+			);
+			target = 271377EC2E52C7C80048DEC7 /* BitMatch */;
+		};
 		27E11EA32E615C1B00BA16F6 /* Exceptions for "BitMatch" folder in "BitMatch-iPad" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -97,6 +104,9 @@
 		};
 		27F00A022E6200A000BA16F6 /* Platforms */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				275B23AE2E6DCFEE00D1302A /* Exceptions for "Platforms" folder in "BitMatch" target */,
+			);
 			path = Platforms;
 			sourceTree = "<group>";
 		};
@@ -740,6 +750,9 @@
 				DEVELOPMENT_TEAM = AUJW7AGG26;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.bitmatch.app.transferprocessing;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -771,6 +784,9 @@
 				DEVELOPMENT_TEAM = AUJW7AGG26;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.bitmatch.app.transferprocessing;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

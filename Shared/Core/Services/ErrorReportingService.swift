@@ -21,7 +21,7 @@ class ErrorReportingService: ObservableObject {
         operationStartTime = Date()
         currentErrors.removeAll()
         errorSummary = nil
-        print("🚨 Started error tracking for operation: \(operationId)")
+        SharedLogger.debug("Started error tracking for operation: \(operationId)", category: .transfer)
     }
     
     func reportError(_ error: Error, context: ErrorContext) {
@@ -41,8 +41,8 @@ class ErrorReportingService: ObservableObject {
         
         // Update error summary
         updateErrorSummary()
-        
-        print("🚨 Error reported: \(errorReport.category.displayName) - \(errorReport.title)")
+
+        SharedLogger.error("Error reported: \(errorReport.category.displayName) - \(errorReport.title)", category: .transfer)
     }
     
     func reportWarning(_ message: String, context: ErrorContext) {
@@ -63,9 +63,9 @@ class ErrorReportingService: ObservableObject {
         
         currentErrors.append(warning)
         errorHistory.insert(warning, at: 0)
-        
+
         updateErrorSummary()
-        print("⚠️ Warning reported: \(message)")
+        SharedLogger.warning("Warning reported: \(message)", category: .transfer)
     }
     
     func completeErrorTracking() {
@@ -86,9 +86,9 @@ class ErrorReportingService: ObservableObject {
             firstErrorTime: currentErrors.first?.timestamp,
             lastErrorTime: currentErrors.last?.timestamp
         )
-        
-        print("🚨 Error tracking completed - \(currentErrors.count) issues found")
-        
+
+        SharedLogger.info("Error tracking completed - \(currentErrors.count) issues found", category: .transfer)
+
         // Reset current operation
         currentOperationId = nil
         operationStartTime = nil
@@ -250,7 +250,6 @@ class ErrorReportingService: ObservableObject {
     
     private func analyzeNSError(_ error: NSError) -> ErrorAnalysis {
         let domain = error.domain
-        let code = error.code
         
         switch domain {
         case NSCocoaErrorDomain:
@@ -349,7 +348,7 @@ class ErrorReportingService: ObservableObject {
     
     private func analyzePOSIXError(_ error: NSError) -> ErrorAnalysis {
         switch error.code {
-        case EACCES:
+        case Int(EACCES):
             return ErrorAnalysis(
                 category: .fileSystem,
                 severity: .medium,
@@ -359,7 +358,7 @@ class ErrorReportingService: ObservableObject {
                 recoveryActions: ["Check file permissions", "Run with proper privileges"],
                 isRecoverable: true
             )
-        case ENOSPC:
+        case Int(ENOSPC):
             return ErrorAnalysis(
                 category: .storage,
                 severity: .critical,
@@ -425,13 +424,13 @@ class ErrorReportingService: ObservableObject {
     
     private func logError(_ errorReport: ErrorReport) {
         let timestamp = errorReport.timestamp.formatted(date: .omitted, time: .standard)
-        print("🚨 [\(timestamp)] \(errorReport.severity.displayName.uppercased()): \(errorReport.title)")
-        print("   \(errorReport.message)")
+        SharedLogger.error("[\(timestamp)] \(errorReport.severity.displayName.uppercased()): \(errorReport.title)", category: .transfer)
+        SharedLogger.error("   \(errorReport.message)", category: .transfer)
         if let file = errorReport.affectedFile {
-            print("   File: \(file)")
+            SharedLogger.error("   File: \(file)", category: .transfer)
         }
         if let technical = errorReport.technicalDetails {
-            print("   Technical: \(technical)")
+            SharedLogger.error("   Technical: \(technical)", category: .transfer)
         }
     }
     

@@ -67,6 +67,26 @@ struct CameraLabelSettings: Codable {
     var groupByCamera: Bool = false
     var generateUniqueName: Bool = true
     
+    func formattedFolderName(for baseName: String) -> String {
+        let trimmedBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        switch (trimmedLabel.isEmpty, trimmedBase.isEmpty) {
+        case (true, _):
+            return trimmedBase
+        case (false, true):
+            return trimmedLabel
+        case (false, false):
+            let sep = separator.rawValue
+            switch position {
+            case .prefix:
+                return sep.isEmpty ? trimmedLabel + trimmedBase : "\(trimmedLabel)\(sep)\(trimmedBase)"
+            case .suffix:
+                return sep.isEmpty ? trimmedBase + trimmedLabel : "\(trimmedBase)\(sep)\(trimmedLabel)"
+            }
+        }
+    }
+    
     enum LabelPosition: String, CaseIterable, Codable {
         case prefix = "Prefix"
         case suffix = "Suffix"

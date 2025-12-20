@@ -42,10 +42,10 @@ final class MHLOperationService {
         // Create production info if available
         let productionInfo: MHLGenerator.MHLFile.ProductionInfo? = {
             let prefs = settingsViewModel.prefs
-            if !prefs.production.isEmpty || !prefs.client.isEmpty || !prefs.company.isEmpty {
+            if !prefs.production.isEmpty || !prefs.clientName.isEmpty || !prefs.company.isEmpty {
                 return MHLGenerator.MHLFile.ProductionInfo(
                     title: prefs.production,
-                    client: prefs.client,
+                    client: prefs.clientName,
                     company: prefs.company
                 )
             }
@@ -66,7 +66,7 @@ final class MHLOperationService {
         // Validate for Netflix if needed
         let (valid, issues) = try MHLGenerator.validateForNetflix(mhlURL: mhlURL)
         if !valid && !issues.isEmpty {
-            print("MHL validation issues: \(issues.joined(separator: ", "))")
+            SharedLogger.warning("MHL validation issues: \(issues.joined(separator: ", "))", category: .transfer)
         }
         
         onProgress("MHL file generated: \(mhlURL.lastPathComponent)")
@@ -86,10 +86,18 @@ final class MHLOperationService {
         collector: MHLCollectorActor
     ) async throws {
         let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        let checksum = try await FileOperationsService.computeChecksumWithCache(
+        
+        // Use the real checksum service for industry-standard verification
+        let checksumService = SharedChecksumService.shared
+        let checksum = try await checksumService.generateChecksum(
             for: url,
-            algorithm: algorithm
+            type: algorithm,
+            progressCallback: { progress, status in
+                // Progress is handled at higher level for now
+                SharedLogger.debug("Checksum progress for \(url.lastPathComponent): \(Int(progress * 100))%", category: .transfer)
+            }
         )
+        
         await collector.addEntry(url: url, hash: checksum, size: Int64(fileSize))
     }
 }

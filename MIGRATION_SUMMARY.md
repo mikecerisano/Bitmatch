@@ -1,5 +1,7 @@
 # BitMatch iPad Migration Summary
 
+Status: Completed. Both macOS and iPad run on the shared architecture. The macOS target uses `SharedAppCoordinator` by default via a thin adapter. This document now serves as a historical record of the migration.
+
 ## ✅ Successfully Fixed
 
 ### 1. **Compilation Errors Resolved**
@@ -51,7 +53,7 @@
 
 ## 🎯 Current State
 
-### **Compilation Status**: ✅ SUCCESS
+### **Compilation Status**: ✅ SUCCESS (Both Targets)
 All new architecture files compile successfully:
 ```bash
 # Individual compilation ✅
@@ -72,23 +74,15 @@ All new architecture files compile successfully:
 - **Easy feature addition** - add once, works everywhere
 - **Unified bug fixes** - fix once, fixed everywhere
 - **Platform-specific UI** with shared business logic
+ - **Shared checksum cache** and performance improvements shared across platforms
 
 ## 🚀 Next Steps
 
 ### 1. **Update Xcode Project** 
-Add shared architecture files to iPad target:
-```
-BitMatch-iPad target should include:
-- /Shared/Core/Models/
-- /Shared/Core/Services/  
-- /Platforms/iOS/Services/
-```
+Shared architecture files are included in both targets. macOS uses `SharedAppCoordinator` by default.
 
 ### 2. **Remove Obsolete Files**
-After confirming build works:
-- Remove old `Models.swift`
-- Remove old `AppCoordinator.swift` 
-- Remove old service files
+Legacy duplicates have been removed. A minimal macOS platform shim remains under the mac target path and is used by the adapter.
 
 ### 3. **Test New Features**
 The architecture is ready to support:
@@ -112,3 +106,11 @@ The architecture is ready to support:
 The iPad app now uses the modern shared architecture and compiles successfully. All compilation errors have been resolved, and the foundation is set for rapid cross-platform development.
 
 **Key Achievement**: Transformed from fragmented, duplicated codebase to unified, maintainable architecture! 🚀
+### 4. **Target Hygiene Checklist**
+
+- [ ] `Shared/Core/Models` and `Shared/Core/Services` are included in both targets
+- [ ] `Platforms/iOS/Services` only in the iPad target
+- [ ] `Platforms/macOS/Services` only in the macOS target
+- [ ] The legacy macOS shim `BitMatch/Core/Services/Platform/MacOSPlatformManagerShim.swift` is included only in the Mac target (or removed if you add `Platforms/macOS` to that target)
+- [ ] Legacy, superseded files are excluded from both targets (or moved to a `Legacy/` group)
+- [ ] Build both schemes after any shared change

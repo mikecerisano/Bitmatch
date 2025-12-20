@@ -42,8 +42,9 @@ final class OperationStateManager {
             let data = try encoder.encode(operation)
             try data.write(to: stateFile)
         } catch {
-            print("Failed to save operation state: \(error)")
+            SharedLogger.error("Failed to save operation state: \(error)")
         }
+        // Note: Shared OperationStateService mirroring removed to avoid actor crossing
     }
     
     // MARK: - Load State
@@ -58,10 +59,10 @@ final class OperationStateManager {
             let data = try Data(contentsOf: stateFile)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            
+
             return try decoder.decode(PersistedOperation.self, from: data)
         } catch {
-            print("Failed to load operation state: \(error)")
+            SharedLogger.error("Failed to load operation state: \(error)")
             return nil
         }
     }
@@ -86,7 +87,7 @@ final class OperationStateManager {
                 }
             }
         } catch {
-            print("Failed to check for interrupted operations: \(error)")
+            SharedLogger.error("Failed to check for interrupted operations: \(error)")
         }
         
         return interrupted
@@ -119,7 +120,7 @@ final class OperationStateManager {
                 }
             }
         } catch {
-            print("Failed to clear old states: \(error)")
+            SharedLogger.error("Failed to clear old states: \(error)")
         }
     }
     
@@ -168,18 +169,9 @@ extension OperationStateManager {
     }
     
     static func getResumeInfo() -> ResumeInfo? {
-        let interrupted = checkForInterruptedOperations()
-        
-        guard let mostRecent = interrupted.max(by: { $0.startTime < $1.startTime }) else {
-            return nil
-        }
-        
+        let candidates = checkForInterruptedOperations()
+        guard let mostRecent = candidates.max(by: { $0.startTime < $1.startTime }) else { return nil }
         let progress = Double(mostRecent.processedCount) / Double(max(1, mostRecent.totalCount))
-        
-        return ResumeInfo(
-            operation: mostRecent,
-            shouldResume: progress > 0.1 && progress < 0.95,  // Only resume if meaningful progress
-            estimatedProgress: progress
-        )
+        return ResumeInfo(operation: mostRecent, shouldResume: progress > 0.1 && progress < 0.95, estimatedProgress: progress)
     }
 }

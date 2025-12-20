@@ -49,11 +49,11 @@ final class OperationManager {
     ) {
         // Memory-aware result addition with error prioritization
         if results.count + newResults.count > maxResultsInMemory {
-            let errors = results.filter { $0.status != .match }
+            let errors = results.filter { !$0.status.contains("✅") && !$0.status.contains("Match") }
             let keepCount = maxResultsInMemory / 2
             let matchesToKeep = max(0, keepCount - errors.count)
-            let matches = results.filter { $0.status == .match }.suffix(matchesToKeep)
-            results = errors + matches
+            let matches = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.suffix(matchesToKeep)
+            results = Array(errors + matches)
         }
         results.append(contentsOf: newResults)
     }
@@ -82,7 +82,7 @@ final class OperationManager {
                 }
             }
         } catch {
-            print("Cleanup error at \(url.path): \(error)")
+            SharedLogger.error("Cleanup error at \(url.path): \(error)", category: .transfer)
         }
     }
     

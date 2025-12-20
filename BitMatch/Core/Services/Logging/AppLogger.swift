@@ -1,6 +1,7 @@
 // Core/Services/Logging/AppLogger.swift
 import Foundation
-import os.log
+// Forward AppLogger calls to shared logger to consolidate logging
+
 
 /// Centralized logging system for the app
 enum AppLogger {
@@ -17,15 +18,6 @@ enum AppLogger {
     enum Level {
         case debug, info, warning, error
         
-        var osLogType: OSLogType {
-            switch self {
-            case .debug: return .debug
-            case .info: return .info
-            case .warning: return .default
-            case .error: return .error
-            }
-        }
-        
         var prefix: String {
             switch self {
             case .debug: return "🔍"
@@ -36,10 +28,16 @@ enum AppLogger {
         }
     }
     
-    private static let subsystem = "com.bitmatch.app"
-    
-    private static func logger(for category: Category) -> Logger {
-        Logger(subsystem: subsystem, category: category.rawValue)
+    // Map AppLogger.Category to SharedLogger.Category where relevant
+    private static func sharedCategory(_ category: Category) -> SharedLogger.Category {
+        switch category {
+        case .general: return .general
+        case .fileOps: return .transfer
+        case .transfer: return .transfer
+        case .ui: return .ui
+        case .devMode: return .general
+        case .error: return .error
+        }
     }
     
     // MARK: - Public Logging Methods
@@ -90,22 +88,22 @@ enum AppLogger {
     // MARK: - Private implementation
     
     private static func log(level: Level, message: String, category: Category, file: String = #file, line: Int = #line) {
-        let logger = logger(for: category)
         let fileName = URL(fileURLWithPath: file).lastPathComponent
         
         let logMessage = level == .debug ? 
             "\(level.prefix) [\(fileName):\(line)] \(message)" : 
             "\(level.prefix) \(message)"
         
+        let cat = sharedCategory(category)
         switch level {
         case .debug:
-            logger.debug("\(logMessage)")
+            SharedLogger.debug(logMessage, category: cat)
         case .info:
-            logger.info("\(logMessage)")
+            SharedLogger.info(logMessage, category: cat)
         case .warning:
-            logger.warning("\(logMessage)")
+            SharedLogger.warning(logMessage, category: cat)
         case .error:
-            logger.error("\(logMessage)")
+            SharedLogger.error(logMessage, category: .error)
         }
     }
 }
@@ -116,9 +114,9 @@ extension AppLogger {
     /// Log file operation results
     static func fileOperation(_ operation: String, path: String, success: Bool) {
         if success {
-            info("File operation succeeded: \(operation) at \(path)", category: .fileOps)
+            info("File operation succeeded: \(operation) at \(path)", category: .transfer)
         } else {
-            error("File operation failed: \(operation) at \(path)", category: .fileOps)
+            error("File operation failed: \(operation) at \(path)", category: .transfer)
         }
     }
     

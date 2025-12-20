@@ -42,6 +42,8 @@ final class FileSelectionViewModel: ObservableObject {
     @Published var leftFolderInfo: FolderInfo?
     @Published var rightFolderInfo: FolderInfo?
     @Published var sourceFolderInfo: FolderInfo?
+    @Published var sourceCameraLabel: String?
+    @Published var sourceVideoFileCount: Int = 0
     
     // Loading States
     @Published var isFetchingLeftInfo = false
@@ -96,7 +98,7 @@ final class FileSelectionViewModel: ObservableObject {
         if let sourceURL = sourceURL {
             let sourceStillExists = cards.contains { $0.url.path == sourceURL.path }
             if !sourceStillExists && FileManager.default.fileExists(atPath: sourceURL.path) == false {
-                print("📤 Selected source volume was removed: \(sourceURL.lastPathComponent)")
+                SharedLogger.info("Selected source volume was removed: \(sourceURL.lastPathComponent)", category: .transfer)
                 self.sourceURL = nil
             }
         }
@@ -104,7 +106,7 @@ final class FileSelectionViewModel: ObservableObject {
         // Auto-populate first detected camera card as source if none selected
         if sourceURL == nil, let firstCard = cards.first {
             sourceURL = firstCard.url
-            print("📷 Auto-selected camera card: \(firstCard.displayName)")
+            SharedLogger.info("Auto-selected camera card: \(firstCard.displayName)", category: .transfer)
         }
     }
     
@@ -116,7 +118,7 @@ final class FileSelectionViewModel: ObservableObject {
         }
         
         for removed in removedDestinations {
-            print("📤 Auto-removing unavailable destination: \(removed.lastPathComponent)")
+            SharedLogger.info("Auto-removing unavailable destination: \(removed.lastPathComponent)", category: .transfer)
             removeDestination(removed)
         }
         
@@ -124,7 +126,7 @@ final class FileSelectionViewModel: ObservableObject {
         for drive in drives {
             if !destinationURLs.contains(drive.url) {
                 addDestination(drive.url)
-                print("💾 Auto-added backup drive: \(drive.displayName)")
+                SharedLogger.info("Auto-added backup drive: \(drive.displayName)", category: .transfer)
             }
         }
     }
@@ -167,28 +169,28 @@ final class FileSelectionViewModel: ObservableObject {
     
     // Manual test function for debugging
     func testVolumeDetection() {
-        print("🧪 Testing volume detection manually...")
+        SharedLogger.debug("Testing volume detection manually...", category: .transfer)
         let testVolumes = [
             URL(fileURLWithPath: "/Volumes/Untitled"),
             URL(fileURLWithPath: "/Volumes/T9"),
             URL(fileURLWithPath: "/Volumes/T9/FUJI XT30")
         ]
-        
+
         for url in testVolumes {
             if FileManager.default.fileExists(atPath: url.path) {
-                print("🧪 Testing volume: \(url.path)")
-                
+                SharedLogger.debug("Testing volume: \(url.path)", category: .transfer)
+
                 // Test camera detection specifically
                 let cameraType = CameraDetectionOrchestrator.shared.detectCamera(at: url)
-                print("🎥 Camera detection result: \(cameraType ?? "None")")
-                
+                SharedLogger.debug("Camera detection result: \(cameraType ?? "None")", category: .transfer)
+
                 // Test specific Fuji detection
                 if let fujiResult = FujiDetectionService.shared.detectFujiCamera(at: url) {
-                    print("📷 Fuji detection: \(fujiResult)")
+                    SharedLogger.debug("Fuji detection: \(fujiResult)", category: .transfer)
                 } else {
-                    print("📷 No Fuji files found")
+                    SharedLogger.debug("No Fuji files found", category: .transfer)
                 }
-                
+
                 volumeMonitor.forceAnalyzeVolume(at: url)
             }
         }
@@ -211,13 +213,14 @@ final class FileSelectionViewModel: ObservableObject {
         
         openPanel.begin { [weak self] response in
             guard response == .OK, let selectedURL = openPanel.urls.first else { return }
-            
-            print("🔐 Granted access to: \(selectedURL.path)")
+
+            SharedLogger.info("Granted access to: \(selectedURL.path)", category: .transfer)
             
             // Store security-scoped bookmark for the selected directory
             do {
                 #if os(macOS)
-                let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope, .securityScopeAllowOnlyReadAccess]
+                // Request read-write access to /Volumes so we can write to external drives
+                let bookmarkOptions: URL.BookmarkCreationOptions = [.withSecurityScope]
                 #else
                 let bookmarkOptions: URL.BookmarkCreationOptions = []
                 #endif
@@ -231,24 +234,24 @@ final class FileSelectionViewModel: ObservableObject {
                 let key = "volumesDirectoryBookmark"
                 UserDefaults.standard.set(bookmarkData, forKey: key)
                 UserDefaults.standard.set(selectedURL.path, forKey: "volumesDirectoryPath")
-                
-                print("🔖 Saved volumes directory bookmark for: \(selectedURL.path)")
-                
+
+                SharedLogger.info("Saved volumes directory bookmark for: \(selectedURL.path)", category: .transfer)
+
                 // Start accessing the security-scoped resource immediately
                 if selectedURL.startAccessingSecurityScopedResource() {
-                    print("🔓 Started accessing volumes directory: \(selectedURL.path)")
+                    SharedLogger.info("Started accessing volumes directory: \(selectedURL.path)", category: .transfer)
                     
                     // Trigger a fresh volume scan
                     self?.volumeMonitor.refreshVolumes()
                 }
-                
+
             } catch {
-                print("❌ Failed to create bookmark for \(selectedURL.path): \(error)")
+                SharedLogger.error("Failed to create bookmark for \(selectedURL.path): \(error)", category: .transfer)
             }
         }
         #else
         // iOS doesn't have NSOpenPanel - volume access is handled differently
-        print("⚠️ Volume access request not available on iOS")
+        SharedLogger.warning("Volume access request not available on iOS", category: .transfer)
         #endif
     }
     
@@ -273,25 +276,23 @@ final class FileSelectionViewModel: ObservableObject {
                 )
                 
                 if !isStale && FileManager.default.fileExists(atPath: url.path) {
-                    print("📚 Restored volumes directory bookmark: \(url.path)")
-                    
+                    SharedLogger.info("Restored volumes directory bookmark: \(url.path)", category: .transfer)
+
                     // Start accessing the security-scoped resource
                     if url.startAccessingSecurityScopedResource() {
-                        print("🔓 Started accessing volumes directory: \(url.path)")
-                        
-                        // Trigger volume scan - this should now work for all volumes
+                        SharedLogger.info("Started accessing volumes directory: \(url.path)", category: .transfer)
+                        // Trigger volume scan; specific write checks happen when starting a copy
                         volumeMonitor.refreshVolumes()
-                        
                         // Don't stop accessing - we want persistent access
                         return // We have volumes access, no need to check individual bookmarks
                     }
                 } else {
-                    print("🗑️ Removing stale volumes directory bookmark")
+                    SharedLogger.debug("Removing stale volumes directory bookmark", category: .transfer)
                     defaults.removeObject(forKey: "volumesDirectoryBookmark")
                     defaults.removeObject(forKey: "volumesDirectoryPath")
                 }
             } catch {
-                print("❌ Failed to resolve volumes directory bookmark: \(error)")
+                SharedLogger.error("Failed to resolve volumes directory bookmark: \(error)", category: .transfer)
                 defaults.removeObject(forKey: "volumesDirectoryBookmark")
                 defaults.removeObject(forKey: "volumesDirectoryPath")
             }
@@ -317,21 +318,21 @@ final class FileSelectionViewModel: ObservableObject {
                     )
                     
                     if !isStale && FileManager.default.fileExists(atPath: url.path) {
-                        print("📚 Restored individual bookmark for: \(url.lastPathComponent)")
-                        
+                        SharedLogger.info("Restored individual bookmark for: \(url.lastPathComponent)", category: .transfer)
+
                         // Start accessing the security-scoped resource
                         if url.startAccessingSecurityScopedResource() {
-                            print("🔓 Started accessing: \(url.path)")
+                            SharedLogger.info("Started accessing: \(url.path)", category: .transfer)
                             
                             // Analyze the volume
                             volumeMonitor.forceAnalyzeVolume(at: url)
                         }
                     } else {
-                        print("🗑️ Removing stale bookmark for: \(key)")
+                        SharedLogger.debug("Removing stale bookmark for: \(key)", category: .transfer)
                         defaults.removeObject(forKey: key)
                     }
                 } catch {
-                    print("❌ Failed to resolve bookmark \(key): \(error)")
+                    SharedLogger.error("Failed to resolve bookmark \(key): \(error)", category: .transfer)
                     defaults.removeObject(forKey: key)
                 }
             }
@@ -419,10 +420,44 @@ final class FileSelectionViewModel: ObservableObject {
             url = sourceURL
         }
         
-        guard let urlToFetch = url else { return }
+        guard url != nil else { return }
         
         Task {
-            let info = await FolderInfoService.getFolderInfo(for: urlToFetch)
+            var info: FolderInfo? = nil
+            if let urlToFetch = url {
+                // Lightweight folder scan to compute counts and size
+                let fm = FileManager.default
+                var fileCount = 0
+                var totalSize: Int64 = 0
+                var videoCount = 0
+                let videoExts: Set<String> = ["mov","mp4","mxf","r3d","braw","ari","avi","m4v","hevc","heic","prores","dnxhd"]
+                if let enumerator = fm.enumerator(
+                    at: urlToFetch,
+                    includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                ) {
+                    while let next = (enumerator as NSEnumerator).nextObject() as? URL {
+                        do {
+                            let rv = try next.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+                            if rv.isRegularFile == true {
+                                fileCount += 1
+                                totalSize += Int64(rv.fileSize ?? 0)
+                                let ext = next.pathExtension.lowercased()
+                                if videoExts.contains(ext) { videoCount += 1 }
+                            }
+                        } catch { /* ignore individual file errors */ }
+                    }
+                }
+                let lastModified = (try? urlToFetch.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+                info = FolderInfo(
+                    url: urlToFetch,
+                    fileCount: fileCount,
+                    totalSize: totalSize,
+                    lastModified: lastModified,
+                    isInternalDrive: !urlToFetch.path.starts(with: "/Volumes/")
+                )
+                if target == .source { self.sourceVideoFileCount = videoCount }
+            }
             
             switch target {
             case .left:
@@ -434,11 +469,40 @@ final class FileSelectionViewModel: ObservableObject {
             case .source:
                 sourceFolderInfo = info
                 isFetchingSourceInfo = false
-                if let url = sourceURL {
-                    sourceIsWriteProtected = FolderInfoService.checkWriteProtection(url: url)
+                if let src = sourceURL {
+                    // Basic write protection check: if we cannot create a temp file in parent dir, mark as write-protected
+                    let parent = src.deletingLastPathComponent()
+                    let probeURL = parent.appendingPathComponent(".bitmatch_write_probe_\(UUID().uuidString)")
+                    var writeProtected = false
+                    do {
+                        try "probe".data(using: .utf8)?.write(to: probeURL)
+                        try? FileManager.default.removeItem(at: probeURL)
+                    } catch {
+                        writeProtected = true
+                    }
+                    sourceIsWriteProtected = writeProtected
+                    // Kick off camera detection hint
+                    let hint = CameraDetectionOrchestrator.shared.detectCamera(at: src)
+                    if let hint = hint {
+                        let clean = CleanCameraNameService.shared.getCleanCameraName(from: hint)
+                        self.sourceCameraLabel = clean
+                    } else {
+                        self.sourceCameraLabel = nil
+                    }
                 }
             }
         }
+    }
+
+    // MARK: - Volume Space Helpers
+    func formattedAvailableSpace(for url: URL) -> String? {
+        do {
+            let rv = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+            if let available = rv.volumeAvailableCapacity {
+                return ByteCountFormatter.string(fromByteCount: Int64(available), countStyle: .file)
+            }
+        } catch { }
+        return nil
     }
     
     // MARK: - Recent Folders Management

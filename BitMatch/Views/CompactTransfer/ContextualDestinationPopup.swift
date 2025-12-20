@@ -284,6 +284,7 @@ struct ContextualDestinationPopup: View {
         switch transferState {
         case .queued: return "Ready to start"
         case .idle: return "Waiting to begin"
+        case .preparing: return "Preparing…"
         case .copying: return "Copying files..."
         case .verifying: return "Verifying..."
         case .completed: return "Transfer complete"

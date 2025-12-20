@@ -1,11 +1,11 @@
 // SharedChecksumService.swift - Platform-agnostic checksum verification
 import Foundation
 import CryptoKit
-import CommonCrypto
 
 /// Shared checksum service that works on both macOS and iOS
 class SharedChecksumService: ChecksumService {
     static let shared = SharedChecksumService()
+    static var pauseCheck: (@Sendable () async throws -> Void)?
     
     private init() {}
     
@@ -16,23 +16,32 @@ class SharedChecksumService: ChecksumService {
         type: ChecksumAlgorithm,
         progressCallback: ProgressCallback? = nil
     ) async throws -> String {
-        
-        // Platform-agnostic security scoped resource access
-        guard fileURL.startAccessingSecurityScopedResource() else {
-            throw BitMatchError.fileAccessDenied(fileURL)
+        // Use shared cache when possible to avoid recomputation
+        if let cached = await SharedChecksumCache.shared.get(for: fileURL, algorithm: type.rawValue) {
+            progressCallback?(1.0, "Using cached checksum")
+            return cached
         }
-        defer { fileURL.stopAccessingSecurityScopedResource() }
+        // iOS: Attempt to start a security scope if one exists.
+        // Do not fail if it returns false; sandbox files don't need it.
+        #if os(iOS)
+        let didStartScope = fileURL.startAccessingSecurityScopedResource()
+        defer { if didStartScope { fileURL.stopAccessingSecurityScopedResource() } }
+        #endif
         
         let fileSize = try getFileSize(for: fileURL)
         
-        switch type {
-        case .md5:
-            return try await generateMD5(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
-        case .sha256:
-            return try await generateSHA256(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
-        case .sha1:
-            return try await generateSHA1(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
-        }
+        let checksum: String = try await {
+            switch type {
+            case .md5:
+                return try await generateMD5(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
+            case .sha256:
+                return try await generateSHA256(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
+            case .sha1:
+                return try await generateSHA1(for: fileURL, fileSize: fileSize, progressCallback: progressCallback)
+            }
+        }()
+        await SharedChecksumCache.shared.set(checksum, for: fileURL, algorithm: type.rawValue)
+        return checksum
     }
     
     func verifyFileIntegrity(
@@ -75,15 +84,15 @@ class SharedChecksumService: ChecksumService {
         destinationURL: URL,
         progressCallback: ProgressCallback? = nil
     ) async throws -> Bool {
-        
-        guard sourceURL.startAccessingSecurityScopedResource(),
-              destinationURL.startAccessingSecurityScopedResource() else {
-            throw BitMatchError.fileAccessDenied(sourceURL)
-        }
+        // iOS: Attempt to start security scopes if available; proceed if not.
+        #if os(iOS)
+        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
+        let didStartDest = destinationURL.startAccessingSecurityScopedResource()
         defer {
-            sourceURL.stopAccessingSecurityScopedResource()
-            destinationURL.stopAccessingSecurityScopedResource()
+            if didStartSource { sourceURL.stopAccessingSecurityScopedResource() }
+            if didStartDest { destinationURL.stopAccessingSecurityScopedResource() }
         }
+        #endif
         
         let sourceSize = try getFileSize(for: sourceURL)
         let destinationSize = try getFileSize(for: destinationURL)
@@ -97,16 +106,21 @@ class SharedChecksumService: ChecksumService {
               let destinationHandle = try? FileHandle(forReadingFrom: destinationURL) else {
             throw BitMatchError.fileNotFound(sourceURL)
         }
-        
+
         defer {
-            sourceHandle.closeFile()
-            destinationHandle.closeFile()
+            try? sourceHandle.close()
+            try? destinationHandle.close()
         }
         
         let chunkSize = 64 * 1024 // 64KB chunks
         var bytesProcessed: Int64 = 0
         
         while bytesProcessed < sourceSize {
+            await Task.yield()
+            try Task.checkCancellation()
+            if let pauseCheck = Self.pauseCheck {
+                try await pauseCheck()
+            }
             let sourceData = sourceHandle.readData(ofLength: chunkSize)
             let destinationData = destinationHandle.readData(ofLength: chunkSize)
             
@@ -119,9 +133,6 @@ class SharedChecksumService: ChecksumService {
             // Update progress
             let progress = Double(bytesProcessed) / Double(sourceSize)
             progressCallback?(progress, "Comparing bytes...")
-            
-            // Allow UI updates
-            try await Task.sleep(nanoseconds: 1_000_000) // 1ms
         }
         
         return true
@@ -139,70 +150,68 @@ class SharedChecksumService: ChecksumService {
         fileSize: Int64,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        
+        // Use CryptoKit's Insecure.MD5 to avoid CommonCrypto deprecation warnings.
         guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
             throw BitMatchError.fileNotFound(fileURL)
         }
-        defer { fileHandle.closeFile() }
+        defer { try? fileHandle.close() }
         
-        var context = CC_MD5_CTX()
-        CC_MD5_Init(&context)
-        
-        let chunkSize = 64 * 1024 // 64KB chunks
+        var hasher = Insecure.MD5()
+        let chunkSize = 64 * 1024
         var bytesProcessed: Int64 = 0
         
         while bytesProcessed < fileSize {
+            await Task.yield()
+            try Task.checkCancellation()
+            if let pauseCheck = Self.pauseCheck {
+                try await pauseCheck()
+            }
             let data = fileHandle.readData(ofLength: chunkSize)
             if data.isEmpty { break }
-            
-            data.withUnsafeBytes { bytes in
-                CC_MD5_Update(&context, bytes.bindMemory(to: UInt8.self).baseAddress, CC_LONG(data.count))
+            autoreleasepool {
+                hasher.update(data: data)
             }
-            
             bytesProcessed += Int64(data.count)
-            
-            // Update progress
             let progress = Double(bytesProcessed) / Double(fileSize)
-            progressCallback?(progress, "Computing MD5...")
-            
-            // Allow UI updates
-            try await Task.sleep(nanoseconds: 1_000_000) // 1ms
+            progressCallback?(progress, "Computing MD5 (legacy)...")
         }
         
-        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
-        CC_MD5_Final(&digest, &context)
-        
+        let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
-    
+
     private func generateSHA256(
         for fileURL: URL,
         fileSize: Int64,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        
+
         guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
             throw BitMatchError.fileNotFound(fileURL)
         }
-        defer { fileHandle.closeFile() }
+        defer { try? fileHandle.close() }
         
         var hasher = SHA256()
         let chunkSize = 64 * 1024 // 64KB chunks
         var bytesProcessed: Int64 = 0
         
         while bytesProcessed < fileSize {
+            await Task.yield()
+            try Task.checkCancellation()
+            if let pauseCheck = Self.pauseCheck {
+                try await pauseCheck()
+            }
             let data = fileHandle.readData(ofLength: chunkSize)
             if data.isEmpty { break }
             
-            hasher.update(data: data)
+            autoreleasepool {
+                hasher.update(data: data)
+            }
             bytesProcessed += Int64(data.count)
             
             // Update progress
             let progress = Double(bytesProcessed) / Double(fileSize)
             progressCallback?(progress, "Computing SHA-256...")
-            
-            // Allow UI updates
-            try await Task.sleep(nanoseconds: 1_000_000) // 1ms
         }
         
         let digest = hasher.finalize()
@@ -214,39 +223,37 @@ class SharedChecksumService: ChecksumService {
         fileSize: Int64,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        
+
         guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
             throw BitMatchError.fileNotFound(fileURL)
         }
-        defer { fileHandle.closeFile() }
-        
-        var context = CC_SHA1_CTX()
-        CC_SHA1_Init(&context)
-        
+        defer { try? fileHandle.close() }
+
+        var hasher = Insecure.SHA1()
         let chunkSize = 64 * 1024 // 64KB chunks
         var bytesProcessed: Int64 = 0
-        
+
         while bytesProcessed < fileSize {
+            await Task.yield()
+            try Task.checkCancellation()
+            if let pauseCheck = Self.pauseCheck {
+                try await pauseCheck()
+            }
             let data = fileHandle.readData(ofLength: chunkSize)
             if data.isEmpty { break }
-            
-            data.withUnsafeBytes { bytes in
-                CC_SHA1_Update(&context, bytes.bindMemory(to: UInt8.self).baseAddress, CC_LONG(data.count))
+
+            autoreleasepool {
+                hasher.update(data: data)
             }
-            
+
             bytesProcessed += Int64(data.count)
-            
+
             // Update progress
             let progress = Double(bytesProcessed) / Double(fileSize)
             progressCallback?(progress, "Computing SHA-1...")
-            
-            // Allow UI updates
-            try await Task.sleep(nanoseconds: 1_000_000) // 1ms
         }
-        
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
-        CC_SHA1_Final(&digest, &context)
-        
+
+        let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 }

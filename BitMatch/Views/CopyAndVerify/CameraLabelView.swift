@@ -30,16 +30,28 @@ struct CameraLabelView: View {
     
     private func getCameraLabel(for camera: CameraType) -> String {
         switch camera {
-        case .arriAlexa: return "ALEXA"
-        case .arriAmira: return "AMIRA"
-        case .redDragon: return "RED"
+        case .sony: return "SONY"
         case .sonyFX6: return "FX6"
         case .sonyFX3: return "FX3"
         case .sonyA7S: return "A7S"
+        case .canon: return "CANON"
         case .canonC70: return "C70"
+        case .arri: return "ARRI"
+        case .arriAlexa: return "ALEXA"
+        case .arriAmira: return "AMIRA"
+        case .red: return "RED"
+        case .redCamera: return "RED"
+        case .redDragon: return "RED"
+        case .blackmagic: return "BMPCC"
         case .blackmagicPocket: return "BMPCC"
-        case .dji: return "DRONE"
+        case .panasonic: return "PANASONIC"
+        case .fujifilm: return "FUJIFILM"
+        case .nikon: return "NIKON"
         case .gopro: return "GOPRO"
+        case .dji: return "DRONE"
+        case .insta360: return "INSTA360"
+        case .genericDCIM: return "DCIM"
+        case .genericMedia: return "MEDIA"
         case .generic: return ""
         }
     }
@@ -225,7 +237,7 @@ struct CameraLabelView: View {
             return settings.label.isEmpty ? "Label_" : "\(settings.label)_"
         } else {
             // Source selected, show full formatted name
-            return settings.formatFolderName(previewBase)
+            return formatFolderName(settings: settings, baseName: previewBase)
         }
     }
     
@@ -249,5 +261,11 @@ struct CameraLabelView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+    
+    // MARK: - Helper Methods
+    private func formatFolderName(settings: CameraLabelSettings, baseName: String) -> String {
+        let formatted = settings.formattedFolderName(for: baseName)
+        return formatted.isEmpty ? baseName : formatted
     }
 }
