@@ -4,7 +4,7 @@ A video file transfer and verification app for macOS and iPad. Copy camera cards
 
 ![BitMatch macOS app](screenshot.png)
 
-## The Story
+## Why I Made This
 
 I was on a small film set and needed to offload camera cards. It was a friends grad film and Silverstack, ShotPut Pro, Hedge... they're all either expensive, subscription-based, or way overkill for what I needed. I just wanted to copy files to two drives and know they weren't corrupted. That's it. 
 
