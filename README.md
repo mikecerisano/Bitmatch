@@ -2,7 +2,7 @@
 
 A video file transfer and verification app for macOS and iPad. Copy camera cards to multiple backup drives, verify everything arrived intact, generate reports. The stuff you need on set.
 
-![BitMatch macOS app](screenshot.jpg)
+![BitMatch macOS app](screenshot.png)
 
 ## The Story
 
