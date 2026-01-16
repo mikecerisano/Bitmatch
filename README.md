@@ -4,21 +4,20 @@ A video file transfer and verification app for macOS and iPad. Copy camera cards
 
 ## The Story
 
-I was on a small film set and needed to offload camera cards. Looked at the options - Silverstack, ShotPut Pro, Hedge - and they're all either expensive, subscription-based, or way overkill for what I needed. I just wanted to copy files to two drives and know they weren't corrupted. That's it.
+I was on a small film set and needed to offload camera cards. It was a friends grad film and Silverstack, ShotPut Pro, Hedge... they're all either expensive, subscription-based, or way overkill for what I needed. I just wanted to copy files to two drives and know they weren't corrupted. That's it. 
 
-So I started building my own. Six months later, here we are. ~32,000 lines of Swift, runs on macOS and iPad/iPhone. The mobile version is actually useful - when you're run-and-gun shooting and don't have a laptop, you can still offload to a portable SSD from your phone.
+So I started building my own. It worked... it was simple. Then I kept working on it. Six months later, here we are. ~32,000 lines of Swift, runs on macOS and iPad/iPhone. The mobile version is actually useful. When you're run-and-gun shooting and don't have a laptop, you can still offload to a portable SSD from your phone.
 
 ## Who This Is For
 
 - YouTube creators
 - People shooting shorts
-- Small productions
+- Small productions like web commericals/instagram ads whatever
 - Anyone who doesn't want to pay $300/year for software that copies files
 
 This is **not** for:
 - Huge budget productions (use the enterprise tools, you can afford them)
-- Union shoots (they probably have requirements about specific software)
-- Anyone who needs hand-holding (this is DIY territory)
+- Union shoots (full DIT cart)
 
 ## Why Open Source?
 
@@ -39,7 +38,7 @@ It's MIT licensed, so legally you can do whatever. But here's the spirit of it:
 **Please don't:**
 - Just slap it on the App Store unchanged and charge money for it
 
-That last one - look, I can't legally stop you, but it's stupid and rude. If you're going to redistribute this commercially, actually *do something* with it. Add features. Make it better. Don't just be a lazy middleman.
+That last one... look, I can't legally stop you, but it's stupid and rude. If you're going to redistribute this commercially, actually *do something* with it. Add features. Make it better. Don't just be a lazy middleman.
 
 ## What It Does
 
@@ -50,10 +49,10 @@ Copy files from a source (camera card, SSD, whatever) to multiple destinations s
 - **Quick**: Just checks file sizes match (fast, good enough for most situations)
 - **Standard**: SHA-256 checksums (the default, what you probably want)
 - **Thorough**: Multiple checksum algorithms
-- **Paranoid**: Byte-by-byte comparison + multiple checksums + MHL files (for when you really, really need to be sure)
+- **Paranoid**: Byte-by-byte comparison + multiple checksums + MHL files (for when you really, really need to be sure or you wanna pretend youre gonna be on netflix)
 
 ### Camera Detection
-Automatically recognizes cards from Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM structures. Names your backup folders based on the camera.
+Automatically recognizes cards from Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM structures. Names your backup folders based on the camera. Can autosort folders based on A/B/C camera sources. Some cameras work with this. I use Sonys. Sorry I didn't test them all. 
 
 ### Compare Folders
 Already copied something manually? Compare two folders to see if they match.
@@ -66,7 +65,7 @@ Generate PDF reports of what you transferred. Useful for producers who want docu
 - **macOS**: Full desktop app with drag-and-drop
 - **iPad/iPhone**: Touch interface, works with external drives via Files app
 
-The iPad version is the same core code - not a dumbed-down port. It just has a touch-friendly UI.
+The iPad version is the same core code, not a dumbed-down port. It just has a touch-friendly UI.
 
 ## Building It
 
@@ -81,7 +80,7 @@ The iPad version is the same core code - not a dumbed-down port. It just has a t
 4. Build and run
 
 ### iOS Notes
-The iPad app uses iOS security-scoped URLs. You have to pick folders through the document picker - you can't just hardcode paths. This is an iOS thing, not a limitation of the app.
+The iPad app uses iOS security-scoped URLs. You have to pick folders through the document picker you can't just hardcode paths. This is an iOS thing, not a limitation of the app. Annoying it won't just autoselect the drives and SD card like the mac app does but it is what it is.
 
 ## Technical Stuff
 
@@ -134,8 +133,8 @@ Or just run `bash test.sh` from the repo root.
 
 Built by me over six months of "I'll just add one more feature" syndrome.
 
-If you use this and it saves your footage, cool. If you improve it and share those improvements back, even cooler.
+If you use this and it makes your live easier cool. If you improve it and share those improvements back, even cooler.
 
 ---
 
-MIT License - see [LICENSE](LICENSE) for the legal text.
+MIT License (b a good person) - see [LICENSE](LICENSE) for the legal text.
