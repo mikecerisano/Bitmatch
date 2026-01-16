@@ -8,6 +8,20 @@ I was on a small film set and needed to offload camera cards. It was a friends g
 
 So I started building my own. It worked... it was simple. Then I kept working on it. Six months later, here we are. ~32,000 lines of Swift, runs on macOS and iPad/iPhone. The mobile version is actually useful. When you're run-and-gun shooting and don't have a laptop, you can still offload to a portable SSD from your phone.
 
+## How It Works
+
+```
+📷 Camera Card
+       │
+       ▼
+   BitMatch
+    │    │
+    ▼    ▼
+  💾 A   💾 B
+```
+
+Plug in your card and your drives. BitMatch auto-detects which is which (drives ≥1TB are destinations, ≤512GB are sources). Hit copy. It writes to both backups simultaneously, verifies with checksums, and generates a report.
+
 ## Who This Is For
 
 - YouTube creators
@@ -19,6 +33,13 @@ This is **not** for:
 - Huge budget productions (use the enterprise tools, you can afford them)
 - Union shoots (full DIT cart)
 
+## Why This Is Safe
+
+- 🚫 No cloud, no servers, no uploads
+- 🔒 All verification happens locally on your machine
+- ✅ Source and destination are never modified after copy
+- 🔢 Checksums are industry-standard (SHA-256), not proprietary
+
 ## Why Open Source?
 
 Honestly? Selling this seemed insane. Nobody's going to trust a "vibe coded" app from some random person with their irreplaceable footage. And I get it.
@@ -27,7 +48,11 @@ But if you download it, test it on some throwaway files, see that it works, and 
 
 ## License (MIT, but read this)
 
-It's MIT licensed, so legally you can do whatever. And maybe I'll compile it and put it on the app store for the cost of like a coffee later if I put some more time into it. But here's the spirit of it:
+It's MIT licensed, so legally you can do whatever you want with it.
+
+I may also compile this and put it on the App Store at some point for the cost of a coffee, if I spend more time polishing the UI and distribution. The source will still be here either way.
+
+But here's the spirit of it:
 
 **Please do:**
 - Download it, use it, love it
