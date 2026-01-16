@@ -1,22 +1,9 @@
 import Foundation
 
 enum FileTreeEnumerator {
-    static func enumerateRegularFiles(base: URL) -> [URL] {
-        var files: [URL] = []
-        let fm = FileManager.default
-        if let enumerator = fm.enumerator(
-            at: base,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            while let item = enumerator.nextObject() as? URL {
-                if let isFile = try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile == true {
-                    files.append(item)
-                }
-            }
-        }
-        return files
-    }
+    // Note: enumerateRegularFiles was removed - it loaded all files into memory
+    // and was never used. Use streaming enumeration via FileCopyService._EnumeratorSource
+    // or the countRegularFiles function below for counting only.
 
     static func countRegularFiles(base: URL) -> Int {
         var count = 0

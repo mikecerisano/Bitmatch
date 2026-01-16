@@ -31,7 +31,7 @@ final class FileCopyService {
         workers: Int,
         preEnumeratedFiles: [URL]? = nil,
         pauseCheck: (@Sendable () async throws -> Void)? = nil,
-        onProgress: @escaping (String, Int64) -> Void,
+        onProgress: @escaping (String, Int64) async -> Void,
         onError: @escaping (String, Error) -> Void
     ) async throws {
         let fm = FileManager.default
@@ -52,9 +52,19 @@ final class FileCopyService {
                             try await pauseCheck()
                         }
                         guard let fileURL = await source.nextRegularFile() else { break }
+                        // Compute relative path before do block so it's available in catch
+                        // Fallback to lastPathComponent if file isn't under src (symlinks, etc.)
+                        let relPath: String = {
+                            let srcPath = src.path
+                            let filePath = fileURL.path
+                            if filePath.hasPrefix(srcPath + "/") {
+                                return String(filePath.dropFirst(srcPath.count + 1))
+                            } else {
+                                return fileURL.lastPathComponent
+                            }
+                        }()
                         do {
                             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
-                            let relPath = String(fileURL.path.dropFirst(src.path.count + 1))
                             let dstURL = dstRoot.appendingPathComponent(relPath)
                             let parentDir = dstURL.deletingLastPathComponent()
                             if !fm.fileExists(atPath: parentDir.path) {
@@ -64,12 +74,12 @@ final class FileCopyService {
                             if fm.fileExists(atPath: dstURL.path) {
                                 let destSize = (try? fm.attributesOfItem(atPath: dstURL.path)[.size] as? NSNumber)?.int64Value ?? -1
                                 if destSize == sourceSize {
-                                    onProgress(relPath, sourceSize)
+                                    await onProgress(relPath, sourceSize)
                                     continue
                                 }
                             }
                             try await copyFileSecurely(from: fileURL, to: dstURL, pauseCheck: pauseCheck)
-                            onProgress(relPath, sourceSize)
+                            await onProgress(relPath, sourceSize)
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {

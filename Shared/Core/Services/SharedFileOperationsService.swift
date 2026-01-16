@@ -448,7 +448,7 @@ class SharedFileOperationsService: FileOperationsService {
                         destinationURL: dstURL,
                         success: false,
                         error: err,
-                        fileSize: (try? fileSystem.getFileSize(for: srcURL)) ?? 0,
+                        fileSize: (try? self.fileSystem.getFileSize(for: srcURL)) ?? 0,
                         verificationResult: nil,
                         processingTime: 0
                     )

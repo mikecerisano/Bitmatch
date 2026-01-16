@@ -16,27 +16,27 @@ class MacOSPlatformManager: PlatformManager {
         SharedChecksumService.shared
     }
     
+    // Thread-safe lazy initialization via static let
+    private static let _sharedFileOperations = SharedFileOperationsService(
+        fileSystem: MacOSFileSystemService.shared,
+        checksum: SharedChecksumService.shared
+    )
+    private static let _sharedCameraDetection = SharedCameraDetectionService()
+
     nonisolated var fileOperations: FileOperationsService {
-        _fileOperations
+        Self._sharedFileOperations
     }
-    
+
     nonisolated var cameraDetection: CameraDetectionService {
-        _cameraDetection
+        Self._sharedCameraDetection
     }
-    
+
     nonisolated var supportsDragAndDrop: Bool {
         return true // macOS supports drag and drop
     }
-    
-    nonisolated(unsafe) private let _fileOperations: any FileOperationsService
-    nonisolated(unsafe) private let _cameraDetection: any CameraDetectionService
-    
+
     private init() {
-        self._fileOperations = SharedFileOperationsService(
-            fileSystem: MacOSFileSystemService.shared,
-            checksum: SharedChecksumService.shared
-        )
-        self._cameraDetection = SharedCameraDetectionService()
+        // Services are now initialized via static properties for thread safety
     }
     
     // MARK: - Platform-specific UI Methods

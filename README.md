@@ -1,205 +1,141 @@
-# BitMatch - Professional Video File Transfer & Verification
+# BitMatch
 
-BitMatch is a professional video production tool for copying and verifying file integrity across multiple backup destinations. It supports both macOS and iPad platforms with sophisticated interfaces designed for professional video workflows.
+A video file transfer and verification app for macOS and iPad. Copy camera cards to multiple backup drives, verify everything arrived intact, generate reports. The stuff you need on set.
 
-## Overview
+## The Story
 
-BitMatch provides industry-standard file transfer capabilities with integrity verification, supporting workflows similar to Silverstack and ShotPut Pro. The application features automatic camera detection, multiple verification modes, and comprehensive reporting.
+I was on a small film set and needed to offload camera cards. Looked at the options - Silverstack, ShotPut Pro, Hedge - and they're all either expensive, subscription-based, or way overkill for what I needed. I just wanted to copy files to two drives and know they weren't corrupted. That's it.
 
-What’s new (current build)
-- Shared core drives both macOS and iPad (single code path for operations)
-- Persistent checksum cache (cross‑platform, 1h TTL) speeds re‑verification dramatically
-- Off‑main folder analysis with parallel batching for smooth UI on large folders
-- Unified logging via SharedLogger
+So I started building my own. Six months later, here we are. ~32,000 lines of Swift, runs on macOS and iPad/iPhone. The mobile version is actually useful - when you're run-and-gun shooting and don't have a laptop, you can still offload to a portable SSD from your phone.
 
-## Build & Run
+## Who This Is For
 
-Prereqs
-- Xcode 15 or newer
-- macOS 14+ for building both targets
+- YouTube creators
+- People shooting shorts
+- Small productions
+- Anyone who doesn't want to pay $300/year for software that copies files
 
-Schemes
-- macOS app: select the `BitMatch` scheme and run
-- iPad app: select the `BitMatch-iPad` scheme, choose an iPad simulator or device, and run
+This is **not** for:
+- Huge budget productions (use the enterprise tools, you can afford them)
+- Union shoots (they probably have requirements about specific software)
+- Anyone who needs hand-holding (this is DIY territory)
 
-iOS signing
-- The iPad target requires a valid team. In Xcode, open `Targets → BitMatch-iPad → Signing & Capabilities` and set your team.
+## Why Open Source?
 
-Notes
-- The iPad app uses security‑scoped URLs. All file access must originate from the document picker; direct file system paths won’t work outside app‑granted scopes.
-- If you change shared models/services, build both schemes to catch platform issues early.
-- macOS uses SharedAppCoordinator by default; the legacy flow remains but is no longer used.
+Honestly? Selling this seemed insane. Nobody's going to trust a "vibe coded" app from some random person with their irreplaceable footage. And I get it.
+
+But if you download it, test it on some throwaway files, see that it works, and start using it? Great. That's the whole point.
+
+## License (MIT, but read this)
+
+It's MIT licensed, so legally you can do whatever. But here's the spirit of it:
+
+**Please do:**
+- Download it, use it, love it
+- Use it on every shoot you do
+- Fork it, extend it, make it better
+- Credit me if you build something from it
+
+**Please don't:**
+- Just slap it on the App Store unchanged and charge money for it
+
+That last one - look, I can't legally stop you, but it's stupid and rude. If you're going to redistribute this commercially, actually *do something* with it. Add features. Make it better. Don't just be a lazy middleman.
+
+## What It Does
+
+### Copy & Verify
+Copy files from a source (camera card, SSD, whatever) to multiple destinations simultaneously. Verify they copied correctly using checksums. Know your footage is safe.
+
+### Verification Modes
+- **Quick**: Just checks file sizes match (fast, good enough for most situations)
+- **Standard**: SHA-256 checksums (the default, what you probably want)
+- **Thorough**: Multiple checksum algorithms
+- **Paranoid**: Byte-by-byte comparison + multiple checksums + MHL files (for when you really, really need to be sure)
+
+### Camera Detection
+Automatically recognizes cards from Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM structures. Names your backup folders based on the camera.
+
+### Compare Folders
+Already copied something manually? Compare two folders to see if they match.
+
+### Reports
+Generate PDF reports of what you transferred. Useful for producers who want documentation.
 
 ## Platform Support
 
-- **macOS**: Full-featured desktop application
-- **iPad**: Touch-optimized interface with same functionality
+- **macOS**: Full desktop app with drag-and-drop
+- **iPad/iPhone**: Touch interface, works with external drives via Files app
 
-## Key Features
+The iPad version is the same core code - not a dumbed-down port. It just has a touch-friendly UI.
 
-### Core Functionality
-- **Copy & Verify**: Copy files to multiple backup destinations with integrity verification
-- **Compare Folders**: Compare two folders to identify differences
-- **Master Report**: Generate comprehensive transfer reports from completed operations
+## Building It
 
-### Professional Features
-- **Camera Detection**: Automatic detection of camera cards (Sony, Canon, ARRI, RED, etc.)
-- **Multiple Verification Modes**: Quick, Standard, Thorough, Paranoid with MHL support
-- **Folder Labeling**: Automatic camera-based folder naming with customizable patterns
-- **Progress Tracking**: Real-time progress with speed, ETA, and detailed statistics
-- **Report Generation**: Professional PDF and CSV reports
+### Requirements
+- Xcode 15+
+- macOS 14+
 
-## Architecture
+### To Build
+1. Open `BitMatch.xcodeproj`
+2. Select the `BitMatch` scheme for Mac or `BitMatch-iPad` for iOS
+3. For iOS, you'll need to set your development team in Signing & Capabilities
+4. Build and run
 
-### Shared Core Architecture
+### iOS Notes
+The iPad app uses iOS security-scoped URLs. You have to pick folders through the document picker - you can't just hardcode paths. This is an iOS thing, not a limitation of the app.
+
+## Technical Stuff
+
+- ~32,000 lines of Swift
+- SwiftUI for the interface
+- Async/await for file operations
+- About 80% of the code is shared between platforms
+- No external dependencies (all native frameworks)
+
+### Architecture
 ```
-Shared/
-├── Core/
-│   ├── Models/           # Shared data models
-│   │   ├── SharedModels.swift
-│   │   ├── CameraModels.swift
-│   │   ├── OperationModels.swift
-│   │   └── TransferModels.swift
-│   └── Services/         # Shared business logic
-│       ├── SharedAppCoordinator.swift
-│       ├── ServiceProtocols.swift
-│       ├── SharedChecksumService.swift
-│       ├── SharedFileOperationsService.swift
-│       ├── SharedCameraDetectionService.swift
-│       ├── SharedReportGenerationService.swift
-│       ├── OperationStateService.swift
-│       ├── OperationTimingService.swift
-│       ├── ErrorReportingService.swift
-│       └── File/         # Shared file operation helpers
-│           ├── FileCopyService.swift
-│           ├── PreScanService.swift
-│           └── FileTreeEnumerator.swift
+Shared/           # Core logic (works on both platforms)
+├── Models/       # Data structures
+└── Services/     # File operations, checksums, camera detection
+
+Platforms/        # Platform-specific code
+├── iOS/          # iPad/iPhone specific
+└── macOS/        # Mac specific
+
+BitMatch/         # macOS app
+BitMatch-iPad/    # iOS app
 ```
 
-### Platform-Specific Implementation
-```
-BitMatch/                 # macOS Application
-├── App/
-│   ├── ContentView.swift
-│   └── AppCoordinator.swift
-├── Views/               # macOS UI Components
-├── Core/               # macOS-specific services
-└── UI/                 # macOS UI utilities
+## Contributing
 
-BitMatch-iPad/          # iPad Application
-├── ContentView.swift
-├── Views/              # iPad UI Components
-│   ├── ModularContentView.swift
-│   ├── CopyAndVerifyView.swift
-│   ├── HeaderTabsView.swift
-│   ├── OperationProgressView.swift
-│   └── CompletionSummaryView.swift
-└── App/               # iPad app configuration
+Found a bug? Want to add a feature? PRs welcome.
 
-Platforms/             # Platform-specific services
-├── iOS/
-│   └── Services/
-│       ├── IOSPlatformManager.swift
-│       ├── IOSFileSystemService.swift
-│       └── IOSDriverScanner.swift
-└── macOS/
-    └── Services/
-        ├── MacOSPlatformManager.swift
-        └── MacOSFileSystemService.swift
+Some things that would be cool:
+- More camera detection patterns
+- Better progress UI
+- Network drive support improvements
+- Localization
+
+If you're going to contribute, build both the macOS and iPad schemes before submitting. The shared code means changes can break one platform without you noticing.
+
+## Running Tests
+
+```bash
+xcodebuild test -scheme BitMatch -enableCodeCoverage YES
 ```
 
-## Current Status
+Or just run `bash test.sh` from the repo root.
 
-### ✅ Completed Features
-- **Shared Architecture**: Complete migration to shared core services
-- **iPad Interface**: Fully functional touch-optimized interface
-- **Folder Selection**: Fixed iOS document picker implementation
-- **Interface Consistency**: Both platforms match in functionality and design
-- **Professional UI**: Collapsible sections, professional cards, sophisticated layouts
-- **Master Report**: Volume scanning and comprehensive report generation
-- **Timing & Error Services**: Integrated `OperationTimingService`, `OperationStateService`, and `ErrorReportingService` across flows
+## Known Issues
 
-### 🎯 Production Ready
-The application is currently in a production-ready state with:
-- All critical compilation errors resolved
-- Interface consistency between platforms achieved
-- Core functionality working on both macOS and iPad
-- Professional-grade UI matching video industry standards
+- There's a Swift 6 concurrency warning about actor isolation. It works fine, it's just the compiler being pedantic about future compatibility.
+- iPad can't see some external drives until you explicitly grant access through the Files app first.
 
-## Troubleshooting
+## Credits
 
-- iPad: folder selection doesn’t show the chosen path
-  - Ensure you picked a folder via the document picker. BitMatch displays the selection immediately; file counts and sizes appear after a short analysis pass.
-- iPad: cannot access external volumes
-  - iOS requires picking an external location via the document picker to grant access. Re‑select the volume or subfolder.
-- UI not updating after state change
-  - Verify the affected property is `@Published` on `SharedAppCoordinator` and updated on the main actor.
-- Slow build/type‑check on iPad views
-  - Prefer extracted row/section subviews and avoid deeply nested modifiers; we’ve applied this pattern to verification lists.
+Built by me over six months of "I'll just add one more feature" syndrome.
 
-Swift 6 notes
-- Avoid iterating NSDirectoryEnumerator directly in async contexts (e.g., `for in enumerator`). Use `while let url = enumerator.nextObject() as? URL` inside a background task to stay Swift‑6‑safe.
-- Prefer CryptoKit for hashing; MD5 remains available as a legacy option via `Insecure.MD5` and is not recommended for security contexts. SHA‑256 is the default.
+If you use this and it saves your footage, cool. If you improve it and share those improvements back, even cooler.
 
-## Documentation
+---
 
-- Architecture: ARCHITECTURE.md
-- Features: FEATURES.md
-- Development guide: DEVELOPMENT.md
-- Migration notes: [MIGRATION_SUMMARY.md](MIGRATION_SUMMARY.md)
- - Changelog: [CHANGELOG.md](CHANGELOG.md)
-
-## Running Tests with Coverage
-
-- Enable coverage and run tests:
-  - `xcodebuild test -scheme BitMatch -enableCodeCoverage YES -resultBundlePath coverage.xcresult`
-- View a summary report (requires Xcode command line tools):
-  - `xcrun xccov view --report coverage.xcresult`
-- View JSON report (for CI or tooling):
-  - `xcrun xccov view --report --json coverage.xcresult`
- - Convenience: run `bash test.sh` from the repo root to execute tests with coverage and print reports.
-
-## Performance Notes
-
-- Checksum cache persists within `~/Library/Caches` and auto‑invalidates on file size or modification time changes.
-- Folder info enumeration runs off the main thread and uses small batches (default 6 concurrent) to avoid saturating disks.
-- On iOS, file listing uses a single folder security scope with per‑file fallbacks only on errors.
-
-## Technical Details
-
-### Key Technologies
-- **SwiftUI**: Modern declarative UI framework
-- **Swift Concurrency**: Async/await for file operations
-- **Security-Scoped URLs**: iOS file system access
-- **MHL Standard**: Media Hash List compliance for professional video
-- **Core Graphics**: Professional PDF report generation
-
-### Verification Modes
-1. **Quick**: File size comparison only
-2. **Standard**: Basic SHA-256 checksum verification
-3. **Thorough**: Multiple checksum algorithms (SHA-256, MD5)
-4. **Paranoid**: Byte-by-byte comparison + multiple checksums + MHL
-
-### Camera Support
-- Sony (FX6, FX3, A7S series)
-- Canon (C70, EOS series)
-- ARRI (Alexa, Amira)
-- RED (Dragon series)
-- Blackmagic Design
-- Panasonic, Fujifilm, Nikon
-- GoPro, DJI, Insta360
-- Generic DCIM structures
-
-## Development Notes
-
-### Recent Major Changes
-1. **Architecture Migration**: Moved from separate macOS/iPad codebases to shared architecture
-2. **Interface Enhancement**: Enhanced iPad interface to match macOS sophistication
-3. **Bug Fixes**: Resolved iOS document picker continuation leaks
-4. **Layout Improvements**: Restored proper left-right source/destination layout
-
-### Code Quality
-- Clean, well-documented Swift code
-- MVVM architecture with ObservableObject patterns
-- Protocol-driven design for platform abstraction
-- Comprehensive error handling and user feedback
+MIT License - see [LICENSE](LICENSE) for the legal text.
