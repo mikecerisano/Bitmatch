@@ -27,7 +27,7 @@ But if you download it, test it on some throwaway files, see that it works, and 
 
 ## License (MIT, but read this)
 
-It's MIT licensed, so legally you can do whatever. But here's the spirit of it:
+It's MIT licensed, so legally you can do whatever. And maybe I'll compile it and put it on the app store for the cost of like a coffee later if I put some more time into it. But here's the spirit of it:
 
 **Please do:**
 - Download it, use it, love it
