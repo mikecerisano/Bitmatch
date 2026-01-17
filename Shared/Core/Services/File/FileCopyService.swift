@@ -12,14 +12,24 @@ final class FileCopyService {
         init(base: URL) {
             self.enumerator = fm.enumerator(
                 at: base,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
+                includingPropertiesForKeys: [
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                    .fileSizeKey,
+                    .contentModificationDateKey,
+                ],
                 options: [.skipsHiddenFiles]
             )
         }
         func nextRegularFile() -> URL? {
             while let item = enumerator?.nextObject() as? URL {
-                if let isFile = try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile == true {
+                if let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
+                    if values.isSymbolicLink == true {
+                        continue
+                    }
+                    if values.isRegularFile == true {
                     return item
+                    }
                 }
             }
             return nil

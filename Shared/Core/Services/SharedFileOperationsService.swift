@@ -190,14 +190,16 @@ class SharedFileOperationsService: FileOperationsService {
             var size: Int64 = 0
             if let enumerator = FileManager.default.enumerator(
                 at: operation.sourceURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles]
             ) {
                 for case let fileURL as URL in enumerator {
                     if Task.isCancelled { throw CancellationError() }
-                    if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                       resourceValues.isRegularFile == true {
-                        size += Int64(resourceValues.fileSize ?? 0)
+                    if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) {
+                        if resourceValues.isSymbolicLink == true { continue }
+                        if resourceValues.isRegularFile == true {
+                            size += Int64(resourceValues.fileSize ?? 0)
+                        }
                     }
                 }
             }
@@ -464,185 +466,188 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
             // If pipelining is enabled, we skip the sequential verification pass for this destination
             if shouldPipelineVerify == false {
-            // Stream over files again for verification without holding them in memory
-            if let enumerator = FileManager.default.enumerator(
-                at: operation.sourceURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-                options: [.skipsHiddenFiles]
-            ) {
-            while let fileURL = enumerator.nextObject() as? URL {
-                // Check for cancellation outside of autoreleasepool
-                try Task.checkCancellation()
-                try await waitIfPaused()
-                // Keep heavy work scoped to an autoreleasepool to minimize transient memory
-                if let isFile = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile != true { continue }
-                
-                // Destination path must mirror the same relative tree used during copy
-                let relativePath: String = {
-                    let base = operation.sourceURL.path
-                    let full = fileURL.path
-                    if full.hasPrefix(base + "/") {
-                        return String(full.dropFirst(base.count + 1))
-                    } else {
-                        return fileURL.lastPathComponent
-                    }
-                }()
-                let destinationFileURL = destFolder.appendingPathComponent(relativePath)
-                let fileStartTime = Date()
-                
-                do {
-                    let sizeForVerify = (try? fileSystem.getFileSize(for: fileURL)) ?? 0
-                    // Verify if requested
-                    var verificationResult: VerificationResult? = nil
-                    // Recompute timing for verification stage
-                    let elapsedTime = Date().timeIntervalSince(startTime)
-                    let speed = elapsedTime > 0 ? Double(totalBytesProcessed) / elapsedTime : nil
-                    let estimatedTotalBytes: Int64 = {
-                        if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
-                        if processedFiles > 0 {
-                            let avg = totalBytesProcessed / Int64(processedFiles)
-                            return Int64(totalFiles) * avg
+                // Stream over files again for verification without holding them in memory
+                if let enumerator = FileManager.default.enumerator(
+                    at: operation.sourceURL,
+                    includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
+                    options: [.skipsHiddenFiles]
+                ) {
+                    while let fileURL = enumerator.nextObject() as? URL {
+                        // Check for cancellation outside of autoreleasepool
+                        try Task.checkCancellation()
+                        try await waitIfPaused()
+                        // Keep heavy work scoped to an autoreleasepool to minimize transient memory
+                        if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
+                            if resourceValues.isSymbolicLink == true { continue }
+                            if resourceValues.isRegularFile != true { continue }
                         }
-                        return 50 * 1024 * 1024 * Int64(totalFiles)
-                    }()
-                    let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - totalBytesProcessed) / speed! : nil
-                    if operation.verificationMode == .paranoid {
-                        // Paranoid mode: Use byte-by-byte comparison
-                        // Emit enhanced progress for verification phase (paranoid)
-                        let verified = await verifyCounter.increment()
-                        progressCallback(OperationProgress(
-                            overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
-                            currentFile: fileURL.lastPathComponent,
-                            filesProcessed: processedFiles,
-                            totalFiles: totalFiles,
-                            currentStage: .verifying,
-                            speed: speed,
-                            timeRemaining: timeRemaining,
-                            elapsedTime: elapsedTime,
-                            averageSpeed: speed,
-                            peakSpeed: nil,
-                            bytesProcessed: totalBytesProcessed,
-                            totalBytes: estimatedTotalBytes,
-                            stageProgress: Double(verified) / Double(max(1, totalFiles)),
-                            reusedCopies: nil,
-                            perDestinationTotals: perDestinationTotals,
-                            perDestinationCompleted: perDestinationCompleted
-                        ))
                         
-                        let matches = try await checksumService.performByteComparison(
-                            sourceURL: fileURL,
-                            destinationURL: destinationFileURL,
-                            progressCallback: nil as ChecksumService.ProgressCallback?
-                        )
-                        verificationResult = VerificationResult(
-                            sourceChecksum: "byte-comparison",
-                            destinationChecksum: "byte-comparison",
-                            matches: matches,
-                            checksumType: .sha256,
-                            processingTime: Date().timeIntervalSince(fileStartTime),
-                            fileSize: sizeForVerify
-                        )
-                    } else if operation.verificationMode.useChecksum {
-                        // Standard/Thorough modes: Use checksum verification
-                        // Emit enhanced progress for verification phase (checksum)
-                        let verified = await verifyCounter.increment()
-                        progressCallback(OperationProgress(
-                            overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
-                            currentFile: fileURL.lastPathComponent,
-                            filesProcessed: processedFiles,
-                            totalFiles: totalFiles,
-                            currentStage: .verifying,
-                            speed: speed,
-                            timeRemaining: timeRemaining,
-                            elapsedTime: elapsedTime,
-                            averageSpeed: speed,
-                            peakSpeed: nil,
-                            bytesProcessed: totalBytesProcessed,
-                            totalBytes: estimatedTotalBytes,
-                            stageProgress: Double(verified) / Double(max(1, totalFiles)),
-                            reusedCopies: nil,
-                            perDestinationTotals: perDestinationTotals,
-                            perDestinationCompleted: perDestinationCompleted
-                        ))
-                        
-                        if operation.verificationMode == .thorough {
-                            // Compute all requested checksums and aggregate match state.
-                            var combinedMatches = true
-                            var primaryResult: VerificationResult?
-                            var totalProcessing: TimeInterval = 0
-                            for type in operation.verificationMode.checksumTypes {
-                                let res = try await checksumService.verifyFileIntegrity(
-                                    sourceURL: fileURL,
-                                    destinationURL: destinationFileURL,
-                                    type: type,
-                                    progressCallback: nil
-                                )
-                                combinedMatches = combinedMatches && res.matches
-                                totalProcessing += res.processingTime
-                                if type == .sha256 { primaryResult = res }
-                            }
-                            if let base = primaryResult {
-                                verificationResult = VerificationResult(
-                                    sourceChecksum: base.sourceChecksum,
-                                    destinationChecksum: base.destinationChecksum,
-                                    matches: combinedMatches,
-                                    checksumType: base.checksumType,
-                                    processingTime: totalProcessing,
-                                    fileSize: base.fileSize
-                                )
+                        // Destination path must mirror the same relative tree used during copy
+                        let relativePath: String = {
+                            let base = operation.sourceURL.path
+                            let full = fileURL.path
+                            if full.hasPrefix(base + "/") {
+                                return String(full.dropFirst(base.count + 1))
                             } else {
-                                // Fallback to first algorithm if SHA-256 wasn't included for any reason
-                                let firstType = operation.verificationMode.checksumTypes.first ?? .sha256
-                                verificationResult = try await checksumService.verifyFileIntegrity(
+                                return fileURL.lastPathComponent
+                            }
+                        }()
+                        let destinationFileURL = destFolder.appendingPathComponent(relativePath)
+                        let fileStartTime = Date()
+                        
+                        do {
+                            let sizeForVerify = (try? fileSystem.getFileSize(for: fileURL)) ?? 0
+                            // Verify if requested
+                            var verificationResult: VerificationResult? = nil
+                            // Recompute timing for verification stage
+                            let elapsedTime = Date().timeIntervalSince(startTime)
+                            let speed = elapsedTime > 0 ? Double(totalBytesProcessed) / elapsedTime : nil
+                            let estimatedTotalBytes: Int64 = {
+                                if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
+                                if processedFiles > 0 {
+                                    let avg = totalBytesProcessed / Int64(processedFiles)
+                                    return Int64(totalFiles) * avg
+                                }
+                                return 50 * 1024 * 1024 * Int64(totalFiles)
+                            }()
+                            let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - totalBytesProcessed) / speed! : nil
+                            if operation.verificationMode == .paranoid {
+                                // Paranoid mode: Use byte-by-byte comparison
+                                // Emit enhanced progress for verification phase (paranoid)
+                                let verified = await verifyCounter.increment()
+                                progressCallback(OperationProgress(
+                                    overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
+                                    currentFile: fileURL.lastPathComponent,
+                                    filesProcessed: processedFiles,
+                                    totalFiles: totalFiles,
+                                    currentStage: .verifying,
+                                    speed: speed,
+                                    timeRemaining: timeRemaining,
+                                    elapsedTime: elapsedTime,
+                                    averageSpeed: speed,
+                                    peakSpeed: nil,
+                                    bytesProcessed: totalBytesProcessed,
+                                    totalBytes: estimatedTotalBytes,
+                                    stageProgress: Double(verified) / Double(max(1, totalFiles)),
+                                    reusedCopies: nil,
+                                    perDestinationTotals: perDestinationTotals,
+                                    perDestinationCompleted: perDestinationCompleted
+                                ))
+                                
+                                let matches = try await checksumService.performByteComparison(
                                     sourceURL: fileURL,
                                     destinationURL: destinationFileURL,
-                                    type: firstType,
-                                    progressCallback: nil
+                                    progressCallback: nil as ChecksumService.ProgressCallback?
                                 )
+                                verificationResult = VerificationResult(
+                                    sourceChecksum: "byte-comparison",
+                                    destinationChecksum: "byte-comparison",
+                                    matches: matches,
+                                    checksumType: .sha256,
+                                    processingTime: Date().timeIntervalSince(fileStartTime),
+                                    fileSize: sizeForVerify
+                                )
+                            } else if operation.verificationMode.useChecksum {
+                                // Standard/Thorough modes: Use checksum verification
+                                // Emit enhanced progress for verification phase (checksum)
+                                let verified = await verifyCounter.increment()
+                                progressCallback(OperationProgress(
+                                    overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
+                                    currentFile: fileURL.lastPathComponent,
+                                    filesProcessed: processedFiles,
+                                    totalFiles: totalFiles,
+                                    currentStage: .verifying,
+                                    speed: speed,
+                                    timeRemaining: timeRemaining,
+                                    elapsedTime: elapsedTime,
+                                    averageSpeed: speed,
+                                    peakSpeed: nil,
+                                    bytesProcessed: totalBytesProcessed,
+                                    totalBytes: estimatedTotalBytes,
+                                    stageProgress: Double(verified) / Double(max(1, totalFiles)),
+                                    reusedCopies: nil,
+                                    perDestinationTotals: perDestinationTotals,
+                                    perDestinationCompleted: perDestinationCompleted
+                                ))
+                                
+                                if operation.verificationMode == .thorough {
+                                    // Compute all requested checksums and aggregate match state.
+                                    var combinedMatches = true
+                                    var primaryResult: VerificationResult?
+                                    var totalProcessing: TimeInterval = 0
+                                    for type in operation.verificationMode.checksumTypes {
+                                        let res = try await checksumService.verifyFileIntegrity(
+                                            sourceURL: fileURL,
+                                            destinationURL: destinationFileURL,
+                                            type: type,
+                                            progressCallback: nil
+                                        )
+                                        combinedMatches = combinedMatches && res.matches
+                                        totalProcessing += res.processingTime
+                                        if type == .sha256 { primaryResult = res }
+                                    }
+                                    if let base = primaryResult {
+                                        verificationResult = VerificationResult(
+                                            sourceChecksum: base.sourceChecksum,
+                                            destinationChecksum: base.destinationChecksum,
+                                            matches: combinedMatches,
+                                            checksumType: base.checksumType,
+                                            processingTime: totalProcessing,
+                                            fileSize: base.fileSize
+                                        )
+                                    } else {
+                                        // Fallback to first algorithm if SHA-256 wasn't included for any reason
+                                        let firstType = operation.verificationMode.checksumTypes.first ?? .sha256
+                                        verificationResult = try await checksumService.verifyFileIntegrity(
+                                            sourceURL: fileURL,
+                                            destinationURL: destinationFileURL,
+                                            type: firstType,
+                                            progressCallback: nil
+                                        )
+                                    }
+                                } else {
+                                    let checksumType = operation.verificationMode.checksumTypes.first ?? .sha256
+                                    verificationResult = try await checksumService.verifyFileIntegrity(
+                                        sourceURL: fileURL,
+                                        destinationURL: destinationFileURL,
+                                        type: checksumType,
+                                        progressCallback: nil
+                                    )
+                                }
                             }
-                        } else {
-                            let checksumType = operation.verificationMode.checksumTypes.first ?? .sha256
-                            verificationResult = try await checksumService.verifyFileIntegrity(
+                            // Quick mode (.quick): Skip verification entirely (verificationResult stays nil)
+                            
+                            let fileSize = sizeForVerify
+                            let result = FileOperationResult(
                                 sourceURL: fileURL,
                                 destinationURL: destinationFileURL,
-                                type: checksumType,
-                                progressCallback: nil
+                                success: true,
+                                error: nil,
+                                fileSize: fileSize,
+                                verificationResult: verificationResult,
+                                processingTime: Date().timeIntervalSince(fileStartTime)
                             )
+                            await resultStore.upsert(result)
+                            onFileResult?(result)
+                        
+                        } catch {
+                            let nsErr = error as NSError
+                            SharedLogger.error("Verify error on dest #\(destIndex + 1): \(fileURL.lastPathComponent) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
+                            let result = FileOperationResult(
+                                sourceURL: fileURL,
+                                destinationURL: destinationFileURL,
+                                success: false,
+                                error: error,
+                                fileSize: 0,
+                                verificationResult: nil,
+                                processingTime: Date().timeIntervalSince(fileStartTime)
+                            )
+                            await resultStore.upsert(result)
+                            onFileResult?(result)
                         }
-                    }
-                    // Quick mode (.quick): Skip verification entirely (verificationResult stays nil)
-                    
-                    let fileSize = sizeForVerify
-                    let result = FileOperationResult(
-                        sourceURL: fileURL,
-                        destinationURL: destinationFileURL,
-                        success: true,
-                        error: nil,
-                        fileSize: fileSize,
-                        verificationResult: verificationResult,
-                        processingTime: Date().timeIntervalSince(fileStartTime)
-                    )
-                    await resultStore.upsert(result)
-                    onFileResult?(result)
-                
-                } catch {
-                    let nsErr = error as NSError
-                    SharedLogger.error("Verify error on dest #\(destIndex + 1): \(fileURL.lastPathComponent) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
-                    let result = FileOperationResult(
-                        sourceURL: fileURL,
-                        destinationURL: destinationFileURL,
-                        success: false,
-                        error: error,
-                        fileSize: 0,
-                        verificationResult: nil,
-                        processingTime: Date().timeIntervalSince(fileStartTime)
-                    )
-                    await resultStore.upsert(result)
-                    onFileResult?(result)
+                        // processedFiles is incremented during copy callbacks
+                    } // end streaming enumeration
                 }
-                // processedFiles is incremented during copy callbacks
-            } // end streaming enumeration
-            }
             } // end non-pipelined verify
 
             SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)

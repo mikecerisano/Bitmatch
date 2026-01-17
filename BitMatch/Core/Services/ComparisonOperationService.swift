@@ -38,14 +38,16 @@ final class ComparisonOperationService {
             batch.reserveCapacity(50)
             
             let fm = FileManager.default
-            let enumKeys: [URLResourceKey] = [.isRegularFileKey]
+            let enumKeys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey]
             let maxInFlightTasks = max(128, workers * 32) // bound task graph to keep memory stable
             var inFlight = 0
             if let enumerator = fm.enumerator(at: left, includingPropertiesForKeys: enumKeys, options: [.skipsHiddenFiles]) {
                 while let nextObj = enumerator.nextObject() as? URL {
                     do {
-                        let isFile = try nextObj.resourceValues(forKeys: Set(enumKeys)).isRegularFile ?? false
-                        if !isFile { continue }
+                        let values = try nextObj.resourceValues(forKeys: Set(enumKeys))
+                        let isSymlink = values.isSymbolicLink ?? false
+                        let isFile = values.isRegularFile ?? false
+                        if isSymlink || !isFile { continue }
                     } catch {
                         continue
                     }
@@ -156,7 +158,7 @@ final class ComparisonOperationService {
         // Always perform real copy+verify in production testing
         
         // Safety checks
-        try await performSafetyChecks(
+        try await SafetyValidator.performSafetyChecks(
             source: source,
             destinations: destinations
         )
