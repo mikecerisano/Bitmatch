@@ -102,33 +102,9 @@ class IOSFileSystemService: NSObject, FileSystemService {
         return fileURLs
     }
     
-    func copyFile(from sourceURL: URL, to destinationURL: URL) async throws {
-        // Acquire security-scoped resource access for source
-        guard sourceURL.startAccessingSecurityScopedResource() else {
-            throw NSError(domain: "IOSFileSystemService", code: -2, userInfo: [
-                NSLocalizedDescriptionKey: "Cannot access source file: \(sourceURL.lastPathComponent)"
-            ])
-        }
-        defer { sourceURL.stopAccessingSecurityScopedResource() }
-        
-        // Acquire security-scoped resource access for destination directory
-        let destinationDirectory = destinationURL.deletingLastPathComponent()
-        guard destinationDirectory.startAccessingSecurityScopedResource() else {
-            throw NSError(domain: "IOSFileSystemService", code: -3, userInfo: [
-                NSLocalizedDescriptionKey: "Cannot access destination directory"
-            ])
-        }
-        defer { destinationDirectory.stopAccessingSecurityScopedResource() }
-        
-        try createDirectory(at: destinationDirectory)
-        
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
-        
-        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-    }
-    
+    // NOTE: copyFile removed - all copying uses FileCopyService.copyAllSafely() for atomic writes
+    // The previous implementation was dangerous: it deleted destination before copy, risking data loss
+
     nonisolated func getFileSize(for url: URL) throws -> Int64 {
         guard url.startAccessingSecurityScopedResource() else {
             throw NSError(domain: "IOSFileSystemService", code: -4, userInfo: [

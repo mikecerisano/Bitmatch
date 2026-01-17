@@ -74,10 +74,14 @@ final class OperationManager {
         do {
             let fileManager = FileManager.default
             let tempItems = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            
+
             for item in tempItems {
                 let fileName = item.lastPathComponent
-                if fileName.contains("._") || fileName.hasPrefix(".DS_Store") || fileName.hasPrefix("Thumbs.db") {
+                // SAFETY FIX: Use hasPrefix("._") instead of contains("._")
+                // Resource fork files always START with "._" (e.g., "._Document.pdf")
+                // Using contains("._") was too broad and could match legitimate files like "video_01._backup.mov"
+                // Also use exact matches for .DS_Store and Thumbs.db
+                if fileName.hasPrefix("._") || fileName == ".DS_Store" || fileName == "Thumbs.db" {
                     try? fileManager.removeItem(at: item)
                 }
             }

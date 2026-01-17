@@ -16,7 +16,8 @@ final class ComparisonOperationService {
         shouldGenerateMHL: Bool,
         mhlCollector: MHLOperationService.MHLCollectorActor?
     ) async throws {
-        
+        try await SafetyValidator.performComparisonChecks(left: left, right: right)
+
         // Always perform real comparison in production testing
         
         // Count files for progress tracking
@@ -174,7 +175,7 @@ final class ComparisonOperationService {
             let labeledName = cameraLabelSettings.formattedFolderName(for: baseName)
             if cameraLabelSettings.groupByCamera {
                 let raw = cameraLabelSettings.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                let group = raw.isEmpty ? "Camera" : raw
+            let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
                 return destination.appendingPathComponent(group).appendingPathComponent(baseName)
             } else {
                 let folderName = labeledName.isEmpty ? baseName : labeledName
@@ -237,6 +238,7 @@ final class ComparisonOperationService {
                     try await FileCopyService.copyAllSafely(
                         from: source,
                         toRoot: destRoot,
+                        verificationMode: verificationMode,
                         workers: workers,
                         preEnumeratedFiles: nil,
                         pauseCheck: nil,
@@ -253,6 +255,16 @@ final class ComparisonOperationService {
                         },
                         onError: { fileName, error in
                             SharedLogger.error("Copy error for \(fileName): \(error.localizedDescription)", category: .transfer)
+                            let errorRow = ResultRow(
+                                path: fileName,
+                                status: "❌ Copy Failed: \(error.localizedDescription)",
+                                leftChecksum: "",
+                                rightChecksum: "",
+                                leftSize: 0,
+                                rightSize: 0,
+                                match: false
+                            )
+                            onProgress([errorRow])
                         }
                     )
                 }

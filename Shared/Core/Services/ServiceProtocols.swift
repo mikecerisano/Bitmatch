@@ -11,7 +11,8 @@ protocol FileSystemService {
     func startAccessing(url: URL) -> Bool
     func stopAccessing(url: URL)
     func getFileList(from folderURL: URL) async throws -> [URL]
-    func copyFile(from sourceURL: URL, to destinationURL: URL) async throws
+    // NOTE: copyFile removed - all copying now goes through FileCopyService.copyAllSafely()
+    // which provides atomic writes, resume support, and streaming enumeration
     nonisolated func getFileSize(for url: URL) throws -> Int64
     nonisolated func createDirectory(at url: URL) throws
     nonisolated func freeSpace(at url: URL) -> Int64

@@ -104,11 +104,8 @@ final class MacOSFileSystemService: FileSystemService {
         return fileURLs
     }
     
-    func copyFile(from sourceURL: URL, to destinationURL: URL) async throws {
-        let fileManager = FileManager.default
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
-    }
-    
+    // NOTE: copyFile removed - all copying uses FileCopyService.copyAllSafely() for atomic writes
+
     nonisolated func getFileSize(for url: URL) throws -> Int64 {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return attributes[.size] as? Int64 ?? 0

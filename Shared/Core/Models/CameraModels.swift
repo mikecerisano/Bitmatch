@@ -75,7 +75,7 @@ struct CameraLabelSettings: Codable {
     /// - Traversal components (., ..)
     /// - Control characters (ASCII 0-31 and DEL 0x7F)
     /// - Length limits for filesystem compatibility
-    private func sanitizePathComponent(_ input: String) -> String {
+    static func sanitizePathComponent(_ input: String) -> String {
         // Step 1: Loop-decode URL-encoded input to catch double-encoding attacks
         // e.g., %252e%252e → %2e%2e → ..
         var decoded = input
@@ -128,8 +128,8 @@ struct CameraLabelSettings: Codable {
     }
 
     func formattedFolderName(for baseName: String) -> String {
-        let trimmedBase = sanitizePathComponent(baseName.trimmingCharacters(in: .whitespacesAndNewlines))
-        let trimmedLabel = sanitizePathComponent(label.trimmingCharacters(in: .whitespacesAndNewlines))
+        let trimmedBase = Self.sanitizePathComponent(baseName.trimmingCharacters(in: .whitespacesAndNewlines))
+        let trimmedLabel = Self.sanitizePathComponent(label.trimmingCharacters(in: .whitespacesAndNewlines))
         
         switch (trimmedLabel.isEmpty, trimmedBase.isEmpty) {
         case (true, _):

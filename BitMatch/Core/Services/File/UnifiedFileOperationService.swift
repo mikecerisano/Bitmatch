@@ -12,6 +12,7 @@ final class UnifiedFileOperationService {
     func performSecureCopyOperation(
         from source: URL,
         toDestinations destinations: [URL],
+        verificationMode: VerificationMode = .standard,
         workers: Int = 4,
         onProgress: @escaping (String, Int64) -> Void,
         onError: @escaping (String, Error) -> Void
@@ -29,6 +30,7 @@ final class UnifiedFileOperationService {
             try await FileCopyService.copyAllSafely(
                 from: source,
                 toRoot: destination,
+                verificationMode: verificationMode,
                 workers: workers,
                 preEnumeratedFiles: nil,
                 pauseCheck: nil,

@@ -12,7 +12,7 @@ final class FileCopyService {
         init(base: URL) {
             self.enumerator = fm.enumerator(
                 at: base,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             )
         }
@@ -28,6 +28,7 @@ final class FileCopyService {
     static func copyAllSafely(
         from src: URL,
         toRoot dstRoot: URL,
+        verificationMode: VerificationMode,
         workers: Int,
         preEnumeratedFiles: [URL]? = nil,
         pauseCheck: (@Sendable () async throws -> Void)? = nil,
@@ -64,7 +65,7 @@ final class FileCopyService {
                             }
                         }()
                         do {
-                            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
                             let dstURL = dstRoot.appendingPathComponent(relPath)
                             let parentDir = dstURL.deletingLastPathComponent()
                             if !fm.fileExists(atPath: parentDir.path) {
@@ -72,10 +73,32 @@ final class FileCopyService {
                             }
                             let sourceSize = Int64(resourceValues.fileSize ?? 0)
                             if fm.fileExists(atPath: dstURL.path) {
-                                let destSize = (try? fm.attributesOfItem(atPath: dstURL.path)[.size] as? NSNumber)?.int64Value ?? -1
+                                let destAttributes = try? fm.attributesOfItem(atPath: dstURL.path)
+                                let destSize = (destAttributes?[.size] as? NSNumber)?.int64Value ?? -1
+                                let destModDate = destAttributes?[.modificationDate] as? Date
                                 if destSize == sourceSize {
-                                    await onProgress(relPath, sourceSize)
-                                    continue
+                                    let sourceModDate = resourceValues.contentModificationDate
+                                    let shouldSkip: Bool
+                                    if verificationMode == .quick {
+                                        shouldSkip = Self.modificationDatesMatch(source: sourceModDate, destination: destModDate)
+                                    } else {
+                                        do {
+                                            shouldSkip = try await Self.checksumsMatch(
+                                                source: fileURL,
+                                                destination: dstURL,
+                                                verificationMode: verificationMode
+                                            )
+                                        } catch is CancellationError {
+                                            throw CancellationError()
+                                        } catch {
+                                            shouldSkip = false
+                                        }
+                                    }
+                                    if shouldSkip {
+                                        await onProgress(relPath, sourceSize)
+                                        continue
+                                    }
+                                } else {
                                 }
                             }
                             try await copyFileSecurely(from: fileURL, to: dstURL, pauseCheck: pauseCheck)
@@ -113,7 +136,10 @@ final class FileCopyService {
             if !replaceSucceeded { try? fm.removeItem(at: tempURL) }
         }
         let bufferSize = 1 * 1024 * 1024 // 1MB chunk to keep memory steady
-        let sourceSize = (try? fm.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.int64Value ?? 0
+        // Get source attributes at START - captures original state before any race conditions
+        let sourceAttributes = try? fm.attributesOfItem(atPath: source.path)
+        let sourceSize = (sourceAttributes?[.size] as? NSNumber)?.int64Value ?? 0
+        let sourceModificationDate = sourceAttributes?[.modificationDate] as? Date
         let logInterval: Int64 = 512 * 1024 * 1024
         var bytesCopied: Int64 = 0
         var nextLogMark = logInterval
@@ -170,9 +196,49 @@ final class FileCopyService {
         }
         _ = try fm.replaceItemAt(destination, withItemAt: tempURL, backupItemName: nil, options: [.usingNewMetadataOnly])
         replaceSucceeded = true
+
+        // Restore original modification time from source file
+        // This is critical for quick-mode resume to work correctly (mtime comparison)
+        // Using try? so metadata failure doesn't fail an otherwise successful copy
+        if let modDate = sourceModificationDate {
+            try? fm.setAttributes([.modificationDate: modDate], ofItemAtPath: destination.path)
+        }
+
         if shouldLog {
             Self.logMemoryUsage(context: "completed \(destination.lastPathComponent)")
         }
+    }
+
+    private static let modificationTolerance: TimeInterval = 2.0
+
+    private static func modificationDatesMatch(source: Date?, destination: Date?) -> Bool {
+        guard let source, let destination else { return false }
+        return abs(source.timeIntervalSince(destination)) <= modificationTolerance
+    }
+
+    private static func checksumsMatch(
+        source: URL,
+        destination: URL,
+        verificationMode: VerificationMode
+    ) async throws -> Bool {
+        let types = verificationMode.checksumTypes
+        guard !types.isEmpty else { return false }
+        for type in types {
+            let srcHash = try await SharedChecksumService.shared.generateChecksum(
+                for: source,
+                type: type,
+                progressCallback: nil
+            )
+            let dstHash = try await SharedChecksumService.shared.generateChecksum(
+                for: destination,
+                type: type,
+                progressCallback: nil
+            )
+            if srcHash.lowercased() != dstHash.lowercased() {
+                return false
+            }
+        }
+        return true
     }
 }
 

@@ -214,6 +214,30 @@ class SharedAppCoordinator: ObservableObject {
             return
         }
 
+        // iOS: Acquire security-scoped access BEFORE any FileManager operations
+        // This is required for document picker URLs to work with FileManager on iOS
+        // On macOS, these methods return true/no-op, so this is safe cross-platform
+        let didStartSourceScope = platformManager.fileSystem.startAccessing(url: sourceURL)
+        var destinationScopes: [URL: Bool] = [:]
+        for destinationURL in destinationURLs {
+            destinationScopes[destinationURL] = platformManager.fileSystem.startAccessing(url: destinationURL)
+        }
+        defer {
+            if didStartSourceScope { platformManager.fileSystem.stopAccessing(url: sourceURL) }
+            for (url, didStart) in destinationScopes where didStart {
+                platformManager.fileSystem.stopAccessing(url: url)
+            }
+        }
+
+        // SAFETY: Perform validation before starting (same checks as macOS)
+        // Validates: source exists, not copying to self/subdirectory, symlink loops, sufficient space
+        do {
+            try await SafetyValidator.performSafetyChecks(source: sourceURL, destinations: destinationURLs)
+        } catch {
+            await platformManager.presentError(error)
+            return
+        }
+
         isOperationInProgress = true
         operationState = .inProgress
         results = []

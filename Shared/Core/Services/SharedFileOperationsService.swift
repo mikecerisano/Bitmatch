@@ -239,7 +239,7 @@ class SharedFileOperationsService: FileOperationsService {
             let destFolder: URL = {
                 if operation.settings.groupByCamera {
                     let raw = operation.settings.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let group = raw.isEmpty ? "Camera" : raw
+                    let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
                     return destinationURL.appendingPathComponent(group).appendingPathComponent(cardName)
                 } else {
                     let folderName = labeledCardName.isEmpty ? cardName : labeledCardName
@@ -260,6 +260,7 @@ class SharedFileOperationsService: FileOperationsService {
             try await FileCopyService.copyAllSafely(
                 from: operation.sourceURL,
                 toRoot: destFolder,
+                verificationMode: operation.verificationMode,
                 workers: 1,
                 preEnumeratedFiles: nil,
                 pauseCheck: { [weak self] in

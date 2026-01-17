@@ -192,6 +192,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        Task.detached(priority: .background) {
+            await Self.cleanupOrphanedTempFiles()
+        }
+    }
+
+    private static func cleanupOrphanedTempFiles() async {
+        let fm = FileManager.default
+        let oneHourAgo = Date().addingTimeInterval(-3600)
+
+        var searchPaths: [URL] = []
+        if let desktop = fm.urls(for: .desktopDirectory, in: .userDomainMask).first {
+            searchPaths.append(desktop)
+        }
+        if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+            searchPaths.append(docs)
+        }
+        if let volumes = fm.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) {
+            searchPaths.append(contentsOf: volumes)
+        }
+
+        for searchPath in searchPaths {
+            guard let enumerator = fm.enumerator(
+                at: searchPath,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+
+            while let fileURL = enumerator.nextObject() as? URL {
+                guard fileURL.lastPathComponent.hasPrefix(".bitmatch.tmp.") else { continue }
+
+                if let modDate = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                   modDate < oneHourAgo {
+                    try? fm.removeItem(at: fileURL)
+                    SharedLogger.info("Cleaned orphaned temp: \(fileURL.lastPathComponent)", category: .transfer)
+                }
+            }
+        }
     }
 }
 

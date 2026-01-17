@@ -516,21 +516,18 @@ final class OperationViewModel: ObservableObject {
     }
     
     private func cleanupAfterOperation() async {
-        // Clean up temporary files
-        var urlsToClean: [URL] = []
-        
-        if let source = fileSelectionViewModel.sourceURL {
-            urlsToClean.append(source)
+        // Clean up temporary files from DESTINATIONS ONLY
+        // SAFETY: Never clean source folders to prevent accidental data loss on camera cards
+        // Source URLs (sourceURL, leftURL) are intentionally excluded
+        var destinationsToClean: [URL] = []
+
+        // Only clean destination folders - never source or comparison folders
+        destinationsToClean.append(contentsOf: fileSelectionViewModel.destinationURLs)
+
+        // Only run cleanup if we have destinations and we're in copy mode
+        if !destinationsToClean.isEmpty {
+            await OperationManager.cleanupTemporaryFiles(at: destinationsToClean)
         }
-        if let left = fileSelectionViewModel.leftURL {
-            urlsToClean.append(left)
-        }
-        if let right = fileSelectionViewModel.rightURL {
-            urlsToClean.append(right)
-        }
-        urlsToClean.append(contentsOf: fileSelectionViewModel.destinationURLs)
-        
-        await OperationManager.cleanupTemporaryFiles(at: urlsToClean)
         
         // Save partial results for potential resume
         OperationManager.savePartialResults(results, jobID: jobID)
