@@ -78,6 +78,18 @@ final class FileCopyService {
                             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
                             let dstURL = dstRoot.appendingPathComponent(relPath)
                             let parentDir = dstURL.deletingLastPathComponent()
+                            // Security: Resolve symlinks in destination path to prevent writes outside intended directory
+                            let realParentDirURL = parentDir.standardized.resolvingSymlinksInPath()
+                            let realDstRootURL = dstRoot.standardized.resolvingSymlinksInPath()
+
+                            guard realParentDirURL.path.hasPrefix(realDstRootURL.path) else {
+                                onError(relPath, NSError(
+                                    domain: "FileCopyService",
+                                    code: NSFileWriteNoPermissionError,
+                                    userInfo: [NSLocalizedDescriptionKey: "Destination path escapes root directory"]
+                                ))
+                                continue
+                            }
                             if !fm.fileExists(atPath: parentDir.path) {
                                 try fm.createDirectory(at: parentDir, withIntermediateDirectories: true, attributes: nil)
                             }
