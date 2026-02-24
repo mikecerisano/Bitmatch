@@ -219,13 +219,17 @@ extension CompactTransferCard.TransferState {
     }
 }
 
+#if DEBUG
 // MARK: - Preview
-#Preview {
-    DestinationDetailView(
-        destination: URL(fileURLWithPath: "/Volumes/Samsung T7"),
-        progress: 0.65,
-        transferState: .copying,
-        currentFile: "DSC00123.ARW"
-    )
-    .background(Color.black)
+struct DestinationDetailView_Previews: PreviewProvider {
+    static var previews: some View {
+        DestinationDetailView(
+            destination: URL(fileURLWithPath: "/Volumes/Samsung T7"),
+            progress: 0.65,
+            transferState: .copying,
+            currentFile: "DSC00123.ARW"
+        )
+        .background(Color.black)
+    }
 }
+#endif

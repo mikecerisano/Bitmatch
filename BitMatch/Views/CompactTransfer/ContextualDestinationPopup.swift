@@ -335,19 +335,23 @@ struct Triangle: Shape {
     }
 }
 
+#if DEBUG
 // MARK: - Preview
-#Preview {
-    ZStack {
-        Color.black.opacity(0.1)
-        
-        ContextualDestinationPopup(
-            destination: URL(fileURLWithPath: "/Volumes/Samsung T7 NVMe"),
-            progress: 0.65,
-            transferState: .copying,
-            currentFile: "DSC00123.ARW",
-            sourceFrame: CGRect(x: 100, y: 100, width: 200, height: 20),
-            isShowing: .constant(true)
-        )
+struct ContextualDestinationPopup_Previews: PreviewProvider {
+    static var previews: some View {
+        ZStack {
+            Color.black.opacity(0.1)
+
+            ContextualDestinationPopup(
+                destination: URL(fileURLWithPath: "/Volumes/Samsung T7 NVMe"),
+                progress: 0.65,
+                transferState: .copying,
+                currentFile: "DSC00123.ARW",
+                sourceFrame: CGRect(x: 100, y: 100, width: 200, height: 20),
+                isShowing: .constant(true)
+            )
+        }
+        .frame(width: 600, height: 400)
     }
-    .frame(width: 600, height: 400)
 }
+#endif

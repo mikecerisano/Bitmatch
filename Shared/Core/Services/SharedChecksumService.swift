@@ -16,6 +16,10 @@ class SharedChecksumService: ChecksumService {
         type: ChecksumAlgorithm,
         progressCallback: ProgressCallback? = nil
     ) async throws -> String {
+        // Security 9: warn when using deprecated algorithms
+        if type.isDeprecated {
+            SharedLogger.warning("Using deprecated checksum algorithm \(type.rawValue) – prefer SHA-256 for security", category: .transfer)
+        }
         // Use shared cache when possible to avoid recomputation
         if let cached = await SharedChecksumCache.shared.get(for: fileURL, algorithm: type.rawValue) {
             progressCallback?(1.0, "Using cached checksum")
@@ -28,7 +32,12 @@ class SharedChecksumService: ChecksumService {
         defer { if didStartScope { fileURL.stopAccessingSecurityScopedResource() } }
         #endif
         
-        let fileSize = try getFileSize(for: fileURL)
+        let fileSize: Int64
+        do {
+            fileSize = try getFileSize(for: fileURL)
+        } catch {
+            throw mapFileOpenError(error, for: fileURL)
+        }
         
         let checksum: String = try await {
             switch type {
@@ -102,14 +111,23 @@ class SharedChecksumService: ChecksumService {
             return false
         }
         
-        guard let sourceHandle = try? FileHandle(forReadingFrom: sourceURL),
-              let destinationHandle = try? FileHandle(forReadingFrom: destinationURL) else {
-            throw BitMatchError.fileNotFound(sourceURL)
+        let sourceHandle: FileHandle
+        do {
+            sourceHandle = try FileHandle(forReadingFrom: sourceURL)
+        } catch {
+            throw mapFileOpenError(error, for: sourceURL)
+        }
+        let destinationHandle: FileHandle
+        do {
+            destinationHandle = try FileHandle(forReadingFrom: destinationURL)
+        } catch {
+            closeFileHandle(sourceHandle, context: sourceURL.path)
+            throw mapFileOpenError(error, for: destinationURL)
         }
 
         defer {
-            try? sourceHandle.close()
-            try? destinationHandle.close()
+            closeFileHandle(sourceHandle, context: sourceURL.path)
+            closeFileHandle(destinationHandle, context: destinationURL.path)
         }
         
         let chunkSize = 64 * 1024 // 64KB chunks
@@ -151,10 +169,13 @@ class SharedChecksumService: ChecksumService {
         progressCallback: ProgressCallback?
     ) async throws -> String {
         // Use CryptoKit's Insecure.MD5 to avoid CommonCrypto deprecation warnings.
-        guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
-            throw BitMatchError.fileNotFound(fileURL)
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: fileURL)
+        } catch {
+            throw mapFileOpenError(error, for: fileURL)
         }
-        defer { try? fileHandle.close() }
+        defer { closeFileHandle(fileHandle, context: fileURL.path) }
         
         var hasher = Insecure.MD5()
         let chunkSize = 64 * 1024
@@ -186,10 +207,13 @@ class SharedChecksumService: ChecksumService {
         progressCallback: ProgressCallback?
     ) async throws -> String {
 
-        guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
-            throw BitMatchError.fileNotFound(fileURL)
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: fileURL)
+        } catch {
+            throw mapFileOpenError(error, for: fileURL)
         }
-        defer { try? fileHandle.close() }
+        defer { closeFileHandle(fileHandle, context: fileURL.path) }
         
         var hasher = SHA256()
         let chunkSize = 64 * 1024 // 64KB chunks
@@ -224,10 +248,13 @@ class SharedChecksumService: ChecksumService {
         progressCallback: ProgressCallback?
     ) async throws -> String {
 
-        guard let fileHandle = try? FileHandle(forReadingFrom: fileURL) else {
-            throw BitMatchError.fileNotFound(fileURL)
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: fileURL)
+        } catch {
+            throw mapFileOpenError(error, for: fileURL)
         }
-        defer { try? fileHandle.close() }
+        defer { closeFileHandle(fileHandle, context: fileURL.path) }
 
         var hasher = Insecure.SHA1()
         let chunkSize = 64 * 1024 // 64KB chunks
@@ -255,5 +282,26 @@ class SharedChecksumService: ChecksumService {
 
         let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
+    }
+
+    private func mapFileOpenError(_ error: Error, for url: URL) -> Error {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            if nsError.code == NSFileReadNoSuchFileError {
+                return BitMatchError.fileNotFound(url)
+            }
+            if nsError.code == NSFileReadNoPermissionError {
+                return BitMatchError.fileAccessDenied(url)
+            }
+        }
+        return error
+    }
+
+    private func closeFileHandle(_ handle: FileHandle, context: String) {
+        do {
+            try handle.close()
+        } catch {
+            SharedLogger.warning("Failed to close file handle for \(context): \(error)", category: .transfer)
+        }
     }
 }

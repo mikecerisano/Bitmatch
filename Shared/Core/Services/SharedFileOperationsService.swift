@@ -40,6 +40,106 @@ actor VerifyCounter {
     }
 }
 
+/// Thread-safe progress tracking for multi-destination copies (Bug 1 fix)
+actor DestinationProgress {
+    private var completed: [Int]
+    private let totals: [Int]
+
+    init(destinationCount: Int, perSourceFileCount: Int) {
+        self.completed = Array(repeating: 0, count: destinationCount)
+        self.totals = Array(repeating: perSourceFileCount, count: destinationCount)
+    }
+
+    func increment(destIndex: Int) {
+        guard destIndex < completed.count else { return }
+        completed[destIndex] += 1
+    }
+
+    func snapshot() -> (completed: [Int], totals: [Int]) {
+        (completed, totals)
+    }
+}
+
+/// Serialized progress state to avoid data races across concurrent copy/verify tasks.
+actor ProgressState {
+    private var processedFiles = 0
+    private var totalBytesProcessed: Int64 = 0
+    private var lastProgressCallbackTime = Date.distantPast
+    private var lastCopyLogCount = 0
+
+    struct CopyUpdate {
+        let processedFiles: Int
+        let totalBytesProcessed: Int64
+        let shouldEmitProgress: Bool
+        let shouldLog: Bool
+    }
+
+    func recordCopy(fileSize: Int64, totalFiles: Int, now: Date, throttleInterval: TimeInterval) -> CopyUpdate {
+        processedFiles += 1
+        totalBytesProcessed += max(0, fileSize)
+
+        let shouldLog = processedFiles - lastCopyLogCount >= 25 || processedFiles == totalFiles
+        if shouldLog {
+            lastCopyLogCount = processedFiles
+        }
+
+        let isFirstOrLast = processedFiles <= 1 || processedFiles >= totalFiles
+        let shouldEmitProgress = isFirstOrLast || now.timeIntervalSince(lastProgressCallbackTime) >= throttleInterval
+        if shouldEmitProgress {
+            lastProgressCallbackTime = now
+        }
+
+        return CopyUpdate(
+            processedFiles: processedFiles,
+            totalBytesProcessed: totalBytesProcessed,
+            shouldEmitProgress: shouldEmitProgress,
+            shouldLog: shouldLog
+        )
+    }
+
+    func recordCopyError() -> (processedFiles: Int, totalBytesProcessed: Int64) {
+        processedFiles += 1
+        return (processedFiles, totalBytesProcessed)
+    }
+
+    func shouldEmitVerify(now: Date, throttleInterval: TimeInterval, force: Bool) -> Bool {
+        if force || now.timeIntervalSince(lastProgressCallbackTime) >= throttleInterval {
+            lastProgressCallbackTime = now
+            return true
+        }
+        return false
+    }
+
+    func snapshot() -> (processedFiles: Int, totalBytesProcessed: Int64) {
+        (processedFiles, totalBytesProcessed)
+    }
+}
+
+/// Serialized storage for pipelined verification tasks.
+actor VerifyTaskStore {
+    private var tasks: [Task<Void, Never>] = []
+
+    func enqueue(_ task: Task<Void, Never>, maxQueued: Int) -> Task<Void, Never>? {
+        tasks.append(task)
+        if tasks.count >= max(1, maxQueued) {
+            return tasks.removeFirst()
+        }
+        return nil
+    }
+
+    func drain() -> [Task<Void, Never>] {
+        let pending = tasks
+        tasks.removeAll()
+        return pending
+    }
+}
+
+/// Safe multiplication that returns Int64.max on overflow (Bug 6 fix)
+private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
+    let (result, overflow) = a.multipliedReportingOverflow(by: b)
+    return overflow ? Int64.max : result
+}
+
 class SharedFileOperationsService: FileOperationsService {
     typealias ProgressCallback = (OperationProgress) -> Void
 
@@ -173,11 +273,10 @@ class SharedFileOperationsService: FileOperationsService {
         let perSourceFileCount = FileTreeEnumerator.countRegularFiles(base: operation.sourceURL)
         let totalFiles = perSourceFileCount * operation.destinationURLs.count
         SharedLogger.debug("Prep: source files=\(perSourceFileCount), destinations=\(operation.destinationURLs.count), planned total rows=\(totalFiles)", category: .transfer)
-        var processedFiles = 0
         let destinationCount = operation.destinationURLs.count
-        var perDestinationCompleted = Array(repeating: 0, count: destinationCount)
-        let perDestinationTotals = Array(repeating: perSourceFileCount, count: destinationCount)
+        let destProgress = DestinationProgress(destinationCount: destinationCount, perSourceFileCount: perSourceFileCount)
         let totalStageUnits = operation.verificationMode == .quick ? 1 : 2
+        let progressState = ProgressState()
         
         // Step 2a: Validate sufficient storage space
         // Calculate total size if not provided
@@ -193,7 +292,8 @@ class SharedFileOperationsService: FileOperationsService {
                 includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles]
             ) {
-                for case let fileURL as URL in enumerator {
+                let anyEnum: NSEnumerator = enumerator
+                while let fileURL = anyEnum.nextObject() as? URL {
                     if Task.isCancelled { throw CancellationError() }
                     if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) {
                         if resourceValues.isSymbolicLink == true { continue }
@@ -218,21 +318,21 @@ class SharedFileOperationsService: FileOperationsService {
         
         // Step 3: Copy files to each destination
         let startTime = Date()
-        var totalBytesProcessed: Int64 = 0
-        // Feature flag for pipelined verification; defaults to off
-        let shouldPipelineVerify = UserDefaults.standard.bool(forKey: "EnablePipelinedVerify")
-        // Conservative default: at most 2 concurrent verifies total
-        let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? 2 : 0)
-        var verifyTasks: [Task<Void, Never>] = []
+        // Perf 5: pipelined verification on by default for checksum/byte-compare modes; user can disable
+        let shouldPipelineVerify = operation.verificationMode != .quick
+            && !UserDefaults.standard.bool(forKey: "DisablePipelinedVerify")
+        // Perf 6: adaptive concurrency based on CPU count
+        let verifyConcurrency = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
+        let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? verifyConcurrency : 0)
+        let verifyTaskStore = VerifyTaskStore()
         let maxQueuedVerifyTasks = 200
-        defer {
-            for task in verifyTasks {
-                task.cancel()
-            }
-        }
-        var lastCopyLogCount = 0
+        // Perf 2: time-based throttle on progress callbacks (500ms)
+        let progressThrottleInterval: TimeInterval = 0.5
         
-        // Skip heavy pre-scan to reduce memory and start copying sooner
+        // Perf 1: enumerate files once; reuse for copy and verify phases
+        let preEnumeratedFiles = FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        // Perf 7: adaptive copy worker count
+        let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
         for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
             // Compute destination root folder, honoring camera grouping settings
@@ -251,10 +351,11 @@ class SharedFileOperationsService: FileOperationsService {
             try fileSystem.createDirectory(at: destFolder)
 
             SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
-            if destIndex < perDestinationTotals.count && destIndex < perDestinationCompleted.count {
-                let seededCompleted = perDestinationCompleted[destIndex]
-                let seededTotal = perDestinationTotals[destIndex]
-                SharedLogger.debug("   Resume seed on destination: \(seededCompleted)/\(seededTotal) files already present", category: .transfer)
+            do {
+                let snap = await destProgress.snapshot()
+                if destIndex < snap.totals.count && destIndex < snap.completed.count {
+                    SharedLogger.debug("   Resume seed on destination: \(snap.completed[destIndex])/\(snap.totals[destIndex]) files already present", category: .transfer)
+                }
             }
 
             // Copy to this destination using atomic writes and resume-aware skip
@@ -263,20 +364,23 @@ class SharedFileOperationsService: FileOperationsService {
                 from: operation.sourceURL,
                 toRoot: destFolder,
                 verificationMode: operation.verificationMode,
-                workers: 1,
-                preEnumeratedFiles: nil,
+                workers: copyWorkers,
+                preEnumeratedFiles: preEnumeratedFiles.map { $0.url },
                 pauseCheck: { [weak self] in
                     guard let self else { return }
                     try await self.waitIfPaused()
                 },
                 onProgress: { fileName, fileSize in
-                    processedFiles += 1
-                    if destIndex < perDestinationCompleted.count { perDestinationCompleted[destIndex] += 1 }
-                    totalBytesProcessed += max(0, fileSize)
-                    if processedFiles - lastCopyLogCount >= 25 || processedFiles == totalFiles {
-                        let formatted = ByteCountFormatter.string(fromByteCount: totalBytesProcessed, countStyle: .file)
-                        SharedLogger.debug("Copy progress: files=\(processedFiles)/\(totalFiles) bytes=\(formatted)", category: .transfer)
-                        lastCopyLogCount = processedFiles
+                    let copyUpdate = await progressState.recordCopy(
+                        fileSize: fileSize,
+                        totalFiles: totalFiles,
+                        now: Date(),
+                        throttleInterval: progressThrottleInterval
+                    )
+                    await destProgress.increment(destIndex: destIndex)
+                    if copyUpdate.shouldLog {
+                        let formatted = ByteCountFormatter.string(fromByteCount: copyUpdate.totalBytesProcessed, countStyle: .file)
+                        SharedLogger.debug("Copy progress: files=\(copyUpdate.processedFiles)/\(totalFiles) bytes=\(formatted)", category: .transfer)
                     }
                     // fileName here is the relative path; emit per-file copy result, and enqueue verify if enabled
                     let relativePath = fileName
@@ -291,159 +395,176 @@ class SharedFileOperationsService: FileOperationsService {
                         verificationResult: nil,
                         processingTime: 0
                     )
+                    await resultStore.upsert(copyResult)
                     onFileResult?(copyResult)
 
                     if shouldPipelineVerify {
                         let mode = operation.verificationMode
-                        verifyTasks.append(Task { [verifySemaphore] in
-                            await verifySemaphore.wait()
-                            do {
-                                try Task.checkCancellation()
-                                try await self.waitIfPaused()
-                                var verificationResult: VerificationResult?
-                                if mode == .thorough {
-                                    var combinedMatches = true
-                                    var primaryResult: VerificationResult?
-                                    var totalProcessing: TimeInterval = 0
-                                    for type in mode.checksumTypes {
-                                        let res = try await self.checksumService.verifyFileIntegrity(
-                                            sourceURL: srcURL,
-                                            destinationURL: dstURL,
-                                            type: type,
-                                            progressCallback: nil
-                                        )
-                                        combinedMatches = combinedMatches && res.matches
-                                        totalProcessing += res.processingTime
-                                        if type == .sha256 { primaryResult = res }
-                                    }
-                                    if let baseRes = primaryResult {
-                                        verificationResult = VerificationResult(
-                                            sourceChecksum: baseRes.sourceChecksum,
-                                            destinationChecksum: baseRes.destinationChecksum,
-                                            matches: combinedMatches,
-                                            checksumType: baseRes.checksumType,
-                                            processingTime: totalProcessing,
-                                            fileSize: baseRes.fileSize
-                                        )
-                                    } else {
-                                        let firstType = mode.checksumTypes.first ?? .sha256
+                        let task = Task { [verifySemaphore] in
+                            // Bug 7 fix: use withSemaphore to guarantee permit release on cancel/throw
+                            await withSemaphore(verifySemaphore) {
+                                do {
+                                    try Task.checkCancellation()
+                                    try await self.waitIfPaused()
+                                    var verificationResult: VerificationResult?
+                                    if mode == .thorough {
+                                        var combinedMatches = true
+                                        var primaryResult: VerificationResult?
+                                        var totalProcessing: TimeInterval = 0
+                                        for type in mode.checksumTypes {
+                                            let res = try await self.checksumService.verifyFileIntegrity(
+                                                sourceURL: srcURL,
+                                                destinationURL: dstURL,
+                                                type: type,
+                                                progressCallback: nil
+                                            )
+                                            combinedMatches = combinedMatches && res.matches
+                                            totalProcessing += res.processingTime
+                                            if type == .sha256 { primaryResult = res }
+                                        }
+                                        if let baseRes = primaryResult {
+                                            verificationResult = VerificationResult(
+                                                sourceChecksum: baseRes.sourceChecksum,
+                                                destinationChecksum: baseRes.destinationChecksum,
+                                                matches: combinedMatches,
+                                                checksumType: baseRes.checksumType,
+                                                processingTime: totalProcessing,
+                                                fileSize: baseRes.fileSize
+                                            )
+                                        } else {
+                                            let firstType = mode.checksumTypes.first ?? .sha256
+                                            verificationResult = try await self.checksumService.verifyFileIntegrity(
+                                                sourceURL: srcURL,
+                                                destinationURL: dstURL,
+                                                type: firstType,
+                                                progressCallback: nil
+                                            )
+                                        }
+                                    } else if mode.useChecksum {
+                                        let t = mode.checksumTypes.first ?? .sha256
                                         verificationResult = try await self.checksumService.verifyFileIntegrity(
                                             sourceURL: srcURL,
                                             destinationURL: dstURL,
-                                            type: firstType,
+                                            type: t,
                                             progressCallback: nil
                                         )
                                     }
-                                } else if mode.useChecksum {
-                                    let t = mode.checksumTypes.first ?? .sha256
-                                    verificationResult = try await self.checksumService.verifyFileIntegrity(
+                                    let verified = FileOperationResult(
                                         sourceURL: srcURL,
                                         destinationURL: dstURL,
-                                        type: t,
-                                        progressCallback: nil
+                                        success: true,
+                                        error: nil,
+                                        fileSize: max(0, fileSize),
+                                        verificationResult: verificationResult,
+                                        processingTime: 0
                                     )
-                                }
-                                let verified = FileOperationResult(
-                                    sourceURL: srcURL,
-                                    destinationURL: dstURL,
-                                    success: true,
-                                    error: nil,
-                                    fileSize: max(0, fileSize),
-                                    verificationResult: verificationResult,
-                                    processingTime: 0
-                                )
-                                let verifiedCount = await self.verifyCounter.increment()
-                                let elapsedTime = Date().timeIntervalSince(startTime)
-                                let speed = elapsedTime > 0 ? Double(totalBytesProcessed) / elapsedTime : nil
-                                let estimatedTotalBytes: Int64 = {
-                                    if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
-                                    if processedFiles > 0 {
-                                        let avg = totalBytesProcessed / Int64(processedFiles)
-                                        return Int64(totalFiles) * avg
+                                    let verifiedCount = await self.verifyCounter.increment()
+                                    // Perf 2: throttle pipelined verify progress callbacks
+                                    let now = Date()
+                                    let isLast = verifiedCount >= totalFiles
+                                    let shouldEmitVerify = await progressState.shouldEmitVerify(
+                                        now: now,
+                                        throttleInterval: progressThrottleInterval,
+                                        force: isLast
+                                    )
+                                    if shouldEmitVerify {
+                                        let metrics = await progressState.snapshot()
+                                        let elapsedTime = now.timeIntervalSince(startTime)
+                                        let speed = elapsedTime > 0 ? Double(metrics.totalBytesProcessed) / elapsedTime : nil
+                                        let estimatedTotalBytes: Int64 = {
+                                            if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
+                                            if metrics.processedFiles > 0 {
+                                                let avg = metrics.totalBytesProcessed / Int64(metrics.processedFiles)
+                                                return safeMultiply(Int64(totalFiles), avg)
+                                            }
+                                            return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
+                                        }()
+                                        let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - metrics.totalBytesProcessed) / speed! : nil
+                                        let overall = Double(metrics.processedFiles + verifiedCount) / Double(max(1, totalFiles * totalStageUnits))
+                                        let snap = await destProgress.snapshot()
+                                        progressCallback(OperationProgress(
+                                            overallProgress: overall,
+                                            currentFile: srcURL.lastPathComponent,
+                                            filesProcessed: metrics.processedFiles,
+                                            totalFiles: totalFiles,
+                                            currentStage: .verifying,
+                                            speed: speed,
+                                            timeRemaining: timeRemaining,
+                                            elapsedTime: elapsedTime,
+                                            averageSpeed: speed,
+                                            peakSpeed: nil,
+                                            bytesProcessed: metrics.totalBytesProcessed,
+                                            totalBytes: estimatedTotalBytes,
+                                            stageProgress: Double(verifiedCount) / Double(max(1, totalFiles)),
+                                            reusedCopies: nil,
+                                            perDestinationTotals: snap.totals,
+                                            perDestinationCompleted: snap.completed
+                                        ))
                                     }
-                                    return 50 * 1024 * 1024 * Int64(totalFiles)
-                                }()
-                                let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - totalBytesProcessed) / speed! : nil
-                                let overall = Double(processedFiles + verifiedCount) / Double(max(1, totalFiles * totalStageUnits))
-                                progressCallback(OperationProgress(
-                                    overallProgress: overall,
-                                    currentFile: srcURL.lastPathComponent,
-                                    filesProcessed: processedFiles,
-                                    totalFiles: totalFiles,
-                                    currentStage: .verifying,
-                                    speed: speed,
-                                    timeRemaining: timeRemaining,
-                                    elapsedTime: elapsedTime,
-                                    averageSpeed: speed,
-                                    peakSpeed: nil,
-                                    bytesProcessed: totalBytesProcessed,
-                                    totalBytes: estimatedTotalBytes,
-                                    stageProgress: Double(verifiedCount) / Double(max(1, totalFiles)),
-                                    reusedCopies: nil,
-                                    perDestinationTotals: perDestinationTotals,
-                                    perDestinationCompleted: perDestinationCompleted
-                                ))
-                                await resultStore.upsert(verified)
-                                onFileResult?(verified)
-                            } catch is CancellationError {
-                                // Skip result on cancellation
-                            } catch {
-                                let failure = FileOperationResult(
-                                    sourceURL: srcURL,
-                                    destinationURL: dstURL,
-                                    success: false,
-                                    error: error,
-                                    fileSize: 0,
-                                    verificationResult: nil,
-                                    processingTime: 0
-                                )
-                                _ = await self.verifyCounter.increment()
-                                await resultStore.upsert(failure)
-                                onFileResult?(failure)
+                                    await resultStore.upsert(verified)
+                                    onFileResult?(verified)
+                                } catch is CancellationError {
+                                    // Skip result on cancellation
+                                } catch {
+                                    let failure = FileOperationResult(
+                                        sourceURL: srcURL,
+                                        destinationURL: dstURL,
+                                        success: false,
+                                        error: error,
+                                        fileSize: 0,
+                                        verificationResult: nil,
+                                        processingTime: 0
+                                    )
+                                    _ = await self.verifyCounter.increment()
+                                    await resultStore.upsert(failure)
+                                    onFileResult?(failure)
+                                }
                             }
-                            await verifySemaphore.signal()
-                        })
-                        if verifyTasks.count >= maxQueuedVerifyTasks {
-                            let next = verifyTasks.removeFirst()
+                        }
+                        if let next = await verifyTaskStore.enqueue(task, maxQueued: maxQueuedVerifyTasks) {
                             await next.value
                         }
                     }
-                    let elapsedTime = Date().timeIntervalSince(startTime)
-                    let speed = elapsedTime > 0 ? Double(totalBytesProcessed) / elapsedTime : nil
-                    let estimatedTotalBytes: Int64 = {
-                        if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
-                        if processedFiles > 0 {
-                            let avg = totalBytesProcessed / Int64(processedFiles)
-                            return Int64(totalFiles) * avg
-                        }
-                        return 50 * 1024 * 1024 * Int64(totalFiles)
-                    }()
-                    let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - totalBytesProcessed) / speed! : nil
-                    let overall = Double(processedFiles) / Double(max(1, totalFiles * totalStageUnits))
-                    progressCallback(OperationProgress(
-                        overallProgress: overall,
-                        currentFile: fileName,
-                        filesProcessed: processedFiles,
-                        totalFiles: totalFiles,
-                        currentStage: .copying,
-                        speed: speed,
-                        timeRemaining: timeRemaining,
-                        elapsedTime: elapsedTime,
-                        averageSpeed: speed,
-                        peakSpeed: nil,
-                        bytesProcessed: totalBytesProcessed,
-                        totalBytes: estimatedTotalBytes,
-                        stageProgress: nil,
-                        reusedCopies: nil,
-                        perDestinationTotals: perDestinationTotals,
-                        perDestinationCompleted: perDestinationCompleted
-                    ))
+
+                    if copyUpdate.shouldEmitProgress {
+                        let now = Date()
+                        let elapsedTime = now.timeIntervalSince(startTime)
+                        let speed = elapsedTime > 0 ? Double(copyUpdate.totalBytesProcessed) / elapsedTime : nil
+                        // Bug 6 fix: safe multiplication to prevent overflow
+                        let estimatedTotalBytes: Int64 = {
+                            if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
+                            if copyUpdate.processedFiles > 0 {
+                                let avg = copyUpdate.totalBytesProcessed / Int64(copyUpdate.processedFiles)
+                                return safeMultiply(Int64(totalFiles), avg)
+                            }
+                            return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
+                        }()
+                        let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - copyUpdate.totalBytesProcessed) / speed! : nil
+                        let overall = Double(copyUpdate.processedFiles) / Double(max(1, totalFiles * totalStageUnits))
+                        let copySnap = await destProgress.snapshot()
+                        progressCallback(OperationProgress(
+                            overallProgress: overall,
+                            currentFile: fileName,
+                            filesProcessed: copyUpdate.processedFiles,
+                            totalFiles: totalFiles,
+                            currentStage: .copying,
+                            speed: speed,
+                            timeRemaining: timeRemaining,
+                            elapsedTime: elapsedTime,
+                            averageSpeed: speed,
+                            peakSpeed: nil,
+                            bytesProcessed: copyUpdate.totalBytesProcessed,
+                            totalBytes: estimatedTotalBytes,
+                            stageProgress: nil,
+                            reusedCopies: nil,
+                            perDestinationTotals: copySnap.totals,
+                            perDestinationCompleted: copySnap.completed
+                        ))
+                    }
                 },
                 onError: { fileName, err in
                     let nsErr = err as NSError
                     SharedLogger.error("Copy error on dest #\(destIndex + 1): \(fileName) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
-                    processedFiles += 1
-                    if destIndex < perDestinationCompleted.count { perDestinationCompleted[destIndex] += 1 }
                     let srcURL = operation.sourceURL.appendingPathComponent(fileName)
                     let dstURL = destFolder.appendingPathComponent(fileName)
                     let result = FileOperationResult(
@@ -456,6 +577,8 @@ class SharedFileOperationsService: FileOperationsService {
                         processingTime: 0
                     )
                     Task {
+                        _ = await progressState.recordCopyError()
+                        await destProgress.increment(destIndex: destIndex)
                         await resultStore.upsert(result)
                         onFileResult?(result)
                     }
@@ -465,33 +588,13 @@ class SharedFileOperationsService: FileOperationsService {
             // Verification pass per file
             SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
             // If pipelining is enabled, we skip the sequential verification pass for this destination
-            if shouldPipelineVerify == false {
-                // Stream over files again for verification without holding them in memory
-                if let enumerator = FileManager.default.enumerator(
-                    at: operation.sourceURL,
-                    includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
-                    options: [.skipsHiddenFiles]
-                ) {
-                    while let fileURL = enumerator.nextObject() as? URL {
-                        // Check for cancellation outside of autoreleasepool
+            if operation.verificationMode != .quick && shouldPipelineVerify == false {
+                // Perf 1: reuse pre-enumerated file list instead of re-enumerating filesystem
+                for entry in preEnumeratedFiles {
                         try Task.checkCancellation()
                         try await waitIfPaused()
-                        // Keep heavy work scoped to an autoreleasepool to minimize transient memory
-                        if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
-                            if resourceValues.isSymbolicLink == true { continue }
-                            if resourceValues.isRegularFile != true { continue }
-                        }
-                        
-                        // Destination path must mirror the same relative tree used during copy
-                        let relativePath: String = {
-                            let base = operation.sourceURL.path
-                            let full = fileURL.path
-                            if full.hasPrefix(base + "/") {
-                                return String(full.dropFirst(base.count + 1))
-                            } else {
-                                return fileURL.lastPathComponent
-                            }
-                        }()
+                        let fileURL = entry.url
+                        let relativePath = entry.relativePath
                         let destinationFileURL = destFolder.appendingPathComponent(relativePath)
                         let fileStartTime = Date()
                         
@@ -501,38 +604,50 @@ class SharedFileOperationsService: FileOperationsService {
                             var verificationResult: VerificationResult? = nil
                             // Recompute timing for verification stage
                             let elapsedTime = Date().timeIntervalSince(startTime)
-                            let speed = elapsedTime > 0 ? Double(totalBytesProcessed) / elapsedTime : nil
+                            let metrics = await progressState.snapshot()
+                            let speed = elapsedTime > 0 ? Double(metrics.totalBytesProcessed) / elapsedTime : nil
+                            // Bug 6 fix: safe multiplication to prevent overflow
                             let estimatedTotalBytes: Int64 = {
                                 if let etb = operation.estimatedTotalBytes, etb > 0 { return etb }
-                                if processedFiles > 0 {
-                                    let avg = totalBytesProcessed / Int64(processedFiles)
-                                    return Int64(totalFiles) * avg
+                                if metrics.processedFiles > 0 {
+                                    let avg = metrics.totalBytesProcessed / Int64(metrics.processedFiles)
+                                    return safeMultiply(Int64(totalFiles), avg)
                                 }
-                                return 50 * 1024 * 1024 * Int64(totalFiles)
+                                return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
                             }()
-                            let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - totalBytesProcessed) / speed! : nil
+                            let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - metrics.totalBytesProcessed) / speed! : nil
                             if operation.verificationMode == .paranoid {
                                 // Paranoid mode: Use byte-by-byte comparison
-                                // Emit enhanced progress for verification phase (paranoid)
                                 let verified = await verifyCounter.increment()
-                                progressCallback(OperationProgress(
-                                    overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
-                                    currentFile: fileURL.lastPathComponent,
-                                    filesProcessed: processedFiles,
-                                    totalFiles: totalFiles,
-                                    currentStage: .verifying,
-                                    speed: speed,
-                                    timeRemaining: timeRemaining,
-                                    elapsedTime: elapsedTime,
-                                    averageSpeed: speed,
-                                    peakSpeed: nil,
-                                    bytesProcessed: totalBytesProcessed,
-                                    totalBytes: estimatedTotalBytes,
-                                    stageProgress: Double(verified) / Double(max(1, totalFiles)),
-                                    reusedCopies: nil,
-                                    perDestinationTotals: perDestinationTotals,
-                                    perDestinationCompleted: perDestinationCompleted
-                                ))
+                                // Perf 2: throttle sequential verify progress callbacks
+                                let verifyNow = Date()
+                                let shouldEmit = await progressState.shouldEmitVerify(
+                                    now: verifyNow,
+                                    throttleInterval: progressThrottleInterval,
+                                    force: verified >= totalFiles
+                                )
+                                if shouldEmit {
+                                    let latest = await progressState.snapshot()
+                                    let verifySnap = await destProgress.snapshot()
+                                    progressCallback(OperationProgress(
+                                        overallProgress: Double(latest.processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
+                                        currentFile: fileURL.lastPathComponent,
+                                        filesProcessed: latest.processedFiles,
+                                        totalFiles: totalFiles,
+                                        currentStage: .verifying,
+                                        speed: speed,
+                                        timeRemaining: timeRemaining,
+                                        elapsedTime: elapsedTime,
+                                        averageSpeed: speed,
+                                        peakSpeed: nil,
+                                        bytesProcessed: latest.totalBytesProcessed,
+                                        totalBytes: estimatedTotalBytes,
+                                        stageProgress: Double(verified) / Double(max(1, totalFiles)),
+                                        reusedCopies: nil,
+                                        perDestinationTotals: verifySnap.totals,
+                                        perDestinationCompleted: verifySnap.completed
+                                    ))
+                                }
                                 
                                 let matches = try await checksumService.performByteComparison(
                                     sourceURL: fileURL,
@@ -549,27 +664,37 @@ class SharedFileOperationsService: FileOperationsService {
                                 )
                             } else if operation.verificationMode.useChecksum {
                                 // Standard/Thorough modes: Use checksum verification
-                                // Emit enhanced progress for verification phase (checksum)
                                 let verified = await verifyCounter.increment()
-                                progressCallback(OperationProgress(
-                                    overallProgress: Double(processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
-                                    currentFile: fileURL.lastPathComponent,
-                                    filesProcessed: processedFiles,
-                                    totalFiles: totalFiles,
-                                    currentStage: .verifying,
-                                    speed: speed,
-                                    timeRemaining: timeRemaining,
-                                    elapsedTime: elapsedTime,
-                                    averageSpeed: speed,
-                                    peakSpeed: nil,
-                                    bytesProcessed: totalBytesProcessed,
-                                    totalBytes: estimatedTotalBytes,
-                                    stageProgress: Double(verified) / Double(max(1, totalFiles)),
-                                    reusedCopies: nil,
-                                    perDestinationTotals: perDestinationTotals,
-                                    perDestinationCompleted: perDestinationCompleted
-                                ))
-                                
+                                // Perf 2: throttle sequential verify progress callbacks
+                                let verifyNow2 = Date()
+                                let shouldEmit = await progressState.shouldEmitVerify(
+                                    now: verifyNow2,
+                                    throttleInterval: progressThrottleInterval,
+                                    force: verified >= totalFiles
+                                )
+                                if shouldEmit {
+                                    let latest = await progressState.snapshot()
+                                    let verifySnap = await destProgress.snapshot()
+                                    progressCallback(OperationProgress(
+                                        overallProgress: Double(latest.processedFiles + verified) / Double(max(1, totalFiles * totalStageUnits)),
+                                        currentFile: fileURL.lastPathComponent,
+                                        filesProcessed: latest.processedFiles,
+                                        totalFiles: totalFiles,
+                                        currentStage: .verifying,
+                                        speed: speed,
+                                        timeRemaining: timeRemaining,
+                                        elapsedTime: elapsedTime,
+                                        averageSpeed: speed,
+                                        peakSpeed: nil,
+                                        bytesProcessed: latest.totalBytesProcessed,
+                                        totalBytes: estimatedTotalBytes,
+                                        stageProgress: Double(verified) / Double(max(1, totalFiles)),
+                                        reusedCopies: nil,
+                                        perDestinationTotals: verifySnap.totals,
+                                        perDestinationCompleted: verifySnap.completed
+                                    ))
+                                }
+
                                 if operation.verificationMode == .thorough {
                                     // Compute all requested checksums and aggregate match state.
                                     var combinedMatches = true
@@ -615,7 +740,6 @@ class SharedFileOperationsService: FileOperationsService {
                                     )
                                 }
                             }
-                            // Quick mode (.quick): Skip verification entirely (verificationResult stays nil)
                             
                             let fileSize = sizeForVerify
                             let result = FileOperationResult(
@@ -646,27 +770,27 @@ class SharedFileOperationsService: FileOperationsService {
                             onFileResult?(result)
                         }
                         // processedFiles is incremented during copy callbacks
-                    } // end streaming enumeration
-                }
+                } // end file iteration
             } // end non-pipelined verify
 
             SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
         }
         
         // Wait for any in-flight pipelined verifications to complete
-        for task in verifyTasks { await task.value }
+        for task in await verifyTaskStore.drain() { await task.value }
 
-        // Final progress update
+        let finalMetrics = await progressState.snapshot()
+
         // Final progress update including total bytes
         let finalEstimatedTotalBytes: Int64 = {
             if let folderTotalSize = operation.estimatedTotalBytes, folderTotalSize > 0 {
                 return folderTotalSize
             }
-            if processedFiles > 0 {
-                let averageBytesPerFile = totalBytesProcessed / Int64(processedFiles)
-                return Int64(totalFiles) * averageBytesPerFile
+            if finalMetrics.processedFiles > 0 {
+                let averageBytesPerFile = finalMetrics.totalBytesProcessed / Int64(finalMetrics.processedFiles)
+                return safeMultiply(Int64(totalFiles), averageBytesPerFile)
             }
-            return 50 * 1024 * 1024 * Int64(totalFiles)
+            return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
         }()
         progressCallback(OperationProgress(
             overallProgress: 1.0,
@@ -679,7 +803,7 @@ class SharedFileOperationsService: FileOperationsService {
             elapsedTime: Date().timeIntervalSince(startTime),
             averageSpeed: nil,
             peakSpeed: nil,
-            bytesProcessed: totalBytesProcessed,
+            bytesProcessed: finalMetrics.totalBytesProcessed,
             totalBytes: finalEstimatedTotalBytes,
             stageProgress: nil
         ))

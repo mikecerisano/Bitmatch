@@ -2,33 +2,32 @@
 import Foundation
 import UIKit
 
-@MainActor
 class IOSPlatformManager: PlatformManager {
     static let shared = IOSPlatformManager()
     
     // MARK: - Service Instances
-    nonisolated var fileSystem: FileSystemService {
+    var fileSystem: FileSystemService {
         IOSFileSystemService.shared
     }
     
-    nonisolated var checksum: ChecksumService {
+    var checksum: ChecksumService {
         SharedChecksumService.shared
     }
     
-    nonisolated var fileOperations: FileOperationsService {
+    var fileOperations: FileOperationsService {
         _fileOperations
     }
     
-    nonisolated var cameraDetection: CameraDetectionService {
+    var cameraDetection: CameraDetectionService {
         _cameraDetection
     }
     
-    nonisolated var supportsDragAndDrop: Bool {
+    var supportsDragAndDrop: Bool {
         return false // iOS/iPadOS has limited drag and drop support
     }
     
-    private nonisolated let _fileOperations: any FileOperationsService
-    private nonisolated let _cameraDetection: any CameraDetectionService
+    private let _fileOperations: any FileOperationsService
+    private let _cameraDetection: any CameraDetectionService
     
     private init() {
         self._fileOperations = SharedFileOperationsService(
@@ -40,19 +39,20 @@ class IOSPlatformManager: PlatformManager {
     
     // MARK: - Platform-specific UI Methods
     
-    @MainActor
     func presentAlert(title: String, message: String) async {
-        return await withCheckedContinuation { continuation in
-            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
-                continuation.resume()
-            })
-            
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootViewController = windowScene.windows.first?.rootViewController {
-                rootViewController.present(alert, animated: true)
-            } else {
-                continuation.resume()
+        await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+                    continuation.resume()
+                })
+
+                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                   let rootViewController = windowScene.windows.first?.rootViewController {
+                    rootViewController.present(alert, animated: true)
+                } else {
+                    continuation.resume()
+                }
             }
         }
     }
@@ -63,7 +63,7 @@ class IOSPlatformManager: PlatformManager {
     
     func openURL(_ url: URL) async -> Bool {
         return await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 if UIApplication.shared.canOpenURL(url) {
                     UIApplication.shared.open(url) { success in
                         continuation.resume(returning: success)
@@ -90,18 +90,41 @@ class IOSPlatformManager: PlatformManager {
     // MARK: - Background Tasks
     
     func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int {
-        var identifier: UIBackgroundTaskIdentifier = .invalid
-        identifier = UIApplication.shared.beginBackgroundTask(withName: name) {
-            expirationHandler?()
-            UIApplication.shared.endBackgroundTask(identifier)
+        final class TaskIDBox { var id: UIBackgroundTaskIdentifier = .invalid }
+        let box = TaskIDBox()
+
+        let register: () -> Void = {
+            box.id = UIApplication.shared.beginBackgroundTask(withName: name) {
+                expirationHandler?()
+                let current = box.id
+                if current != .invalid {
+                    UIApplication.shared.endBackgroundTask(current)
+                    box.id = .invalid
+                }
+            }
         }
-        return identifier.rawValue
+
+        if Thread.isMainThread {
+            register()
+        } else {
+            DispatchQueue.main.sync(execute: register)
+        }
+
+        return box.id.rawValue
     }
     
     func endBackgroundTask(_ id: Int) {
-        let identifier = UIBackgroundTaskIdentifier(rawValue: id)
-        if identifier != .invalid {
-            UIApplication.shared.endBackgroundTask(identifier)
+        let endTask: () -> Void = {
+            let identifier = UIBackgroundTaskIdentifier(rawValue: id)
+            if identifier != .invalid {
+                UIApplication.shared.endBackgroundTask(identifier)
+            }
+        }
+
+        if Thread.isMainThread {
+            endTask()
+        } else {
+            DispatchQueue.main.sync(execute: endTask)
         }
     }
 }

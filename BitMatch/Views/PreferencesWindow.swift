@@ -11,11 +11,13 @@ struct PreferencesWindow: View {
     
     enum PreferencesTab: String, CaseIterable {
         case general = "General"
+        case reports = "Reports"
         case cameraDetection = "Camera Detection"
         
         var icon: String {
             switch self {
             case .general: return "gear"
+            case .reports: return "doc.text"
             case .cameraDetection: return "externaldrive"
             }
         }
@@ -33,6 +35,8 @@ struct PreferencesWindow: View {
                 switch selectedTab {
                 case .general:
                     generalPreferences
+                case .reports:
+                    reportPreferences
                 case .cameraDetection:
                     cameraDetectionPreferences
                 }
@@ -40,7 +44,7 @@ struct PreferencesWindow: View {
             .frame(minWidth: 500, minHeight: 300)
             .padding(20)
         }
-        .frame(width: 600, height: 450)
+        .frame(width: 640, height: 520)
         .background(Color(NSColor.windowBackgroundColor))
     }
     
@@ -60,7 +64,7 @@ struct PreferencesWindow: View {
                             .font(.system(size: 11))
                     }
                     .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
-                    .frame(width: 80, height: 50)
+                    .frame(width: 100, height: 50)
                 }
                 .buttonStyle(.plain)
                 .background(
@@ -87,30 +91,6 @@ struct PreferencesWindow: View {
                 .fontWeight(.semibold)
             
             VStack(alignment: .leading, spacing: 16) {
-                // Report generation toggle
-                HStack {
-                    Toggle("Generate PDF & CSV reports automatically", isOn: $coordinator.settingsViewModel.prefs.makeReport)
-                        .toggleStyle(.checkbox)
-                    Spacer()
-                }
-                
-                if coordinator.settingsViewModel.prefs.makeReport {
-                    GroupBox("Report Settings") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            TextField("Client Name:", text: $coordinator.settingsViewModel.prefs.clientName)
-                                .textFieldStyle(.roundedBorder)
-                            
-                            TextField("Production Title:", text: $coordinator.settingsViewModel.prefs.production)
-                                .textFieldStyle(.roundedBorder)
-                            
-                            TextField("Production Company:", text: $coordinator.settingsViewModel.prefs.company)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        .padding(8)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
-                
                 // Verification preferences
                 GroupBox("Verification") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -138,6 +118,68 @@ struct PreferencesWindow: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Report Preferences
+
+    @ViewBuilder
+    private var reportPreferences: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Reports")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Toggle("Generate PDF & CSV reports automatically", isOn: $coordinator.settingsViewModel.prefs.makeReport)
+                .toggleStyle(.checkbox)
+
+            if coordinator.settingsViewModel.prefs.makeReport {
+                GroupBox("Project Metadata") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Client Name", text: $coordinator.settingsViewModel.prefs.clientName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Project Name", text: $coordinator.settingsViewModel.prefs.projectName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Production Title", text: $coordinator.settingsViewModel.prefs.production)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Production Company", text: $coordinator.settingsViewModel.prefs.company)
+                            .textFieldStyle(.roundedBorder)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Notes")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            TextEditor(text: $coordinator.settingsViewModel.prefs.notes)
+                                .font(.system(size: 12))
+                                .frame(minHeight: 80)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                    }
+                    .padding(8)
+                }
+
+                GroupBox("Output") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Generate PDF", isOn: $coordinator.settingsViewModel.prefs.generatePDF)
+                            .toggleStyle(.checkbox)
+                        Toggle("Generate CSV", isOn: $coordinator.settingsViewModel.prefs.generateCSV)
+                            .toggleStyle(.checkbox)
+                        Toggle("Include Thumbnails", isOn: $coordinator.settingsViewModel.prefs.includeThumbnails)
+                            .toggleStyle(.checkbox)
+                    }
+                    .padding(8)
+                }
+
+                Button("Clear Report Metadata") {
+                    clearReportMetadata()
+                }
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut, value: coordinator.settingsViewModel.prefs.makeReport)
     }
     
     // MARK: - Camera Detection Preferences
@@ -242,10 +284,22 @@ struct PreferencesWindow: View {
 
 // MARK: - Preferences Window Controller
 
+private extension PreferencesWindow {
+    func clearReportMetadata() {
+        var prefs = coordinator.settingsViewModel.prefs
+        prefs.clientName = ""
+        prefs.projectName = ""
+        prefs.production = ""
+        prefs.company = ""
+        prefs.notes = ""
+        coordinator.settingsViewModel.prefs = prefs
+    }
+}
+
 class PreferencesWindowController: NSWindowController {
     convenience init(coordinator: AppCoordinator) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 450),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -260,6 +314,10 @@ class PreferencesWindowController: NSWindowController {
     }
 }
 
-#Preview {
-    PreferencesWindow(coordinator: AppCoordinator())
+#if DEBUG
+struct PreferencesWindow_Previews: PreviewProvider {
+    static var previews: some View {
+        PreferencesWindow(coordinator: AppCoordinator())
+    }
 }
+#endif

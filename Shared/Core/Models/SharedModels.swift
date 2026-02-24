@@ -11,14 +11,22 @@ enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
     case sha256 = "SHA-256"
     case sha1 = "SHA-1"
     case md5 = "MD5"
-    
+
     var id: String { self.rawValue }
-    
+
     var description: String {
         switch self {
         case .sha256: return "SHA-256 (Recommended)"
         case .sha1: return "SHA-1"
         case .md5: return "MD5 (Legacy)"
+        }
+    }
+
+    /// Security 9: MD5 and SHA-1 are cryptographically broken; kept only for MHL compatibility
+    var isDeprecated: Bool {
+        switch self {
+        case .sha256: return false
+        case .sha1, .md5: return true
         }
     }
 }

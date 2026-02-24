@@ -8,6 +8,10 @@ struct CopyAndVerifyView: View {
     @Binding var cameraLabelExpanded: Bool
     @Binding var verificationModeExpanded: Bool
     
+    @State private var showOperationError = false
+    @State private var operationErrorMessage: String?
+    @State private var showVerificationHelp = false
+
     // Convenience accessors
     private var fileSelection: FileSelectionViewModel { coordinator.fileSelectionViewModel }
     private var progress: ProgressViewModel { coordinator.progressViewModel }
@@ -43,15 +47,12 @@ struct CopyAndVerifyView: View {
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: coordinator.isOperationInProgress)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.completionState)
-        .alert("Invalid Destination", isPresented: Binding(
-            get: { coordinator.operationViewModel.showError },
-            set: { coordinator.operationViewModel.showError = $0 }
-        )) {
+        .alert("Error", isPresented: $showOperationError) {
             Button("OK") {
-                coordinator.operationViewModel.errorMessage = nil
+                operationErrorMessage = nil
             }
         } message: {
-            Text(coordinator.operationViewModel.errorMessage ?? "An error occurred")
+            Text(operationErrorMessage ?? "An error occurred")
         }
         .onAppear {
             updateModeEstimates()
@@ -144,7 +145,7 @@ struct CopyAndVerifyView: View {
                     Text(speed)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
-                    
+
                     if let filesLeft = progress.formattedFilesRemaining {
                         Text("• \(filesLeft)")
                             .font(.system(size: 10))
@@ -158,6 +159,40 @@ struct CopyAndVerifyView: View {
                     }
                 }
             }
+
+            // Pause/Resume button
+            if coordinator.canPause || coordinator.canResume {
+                Button {
+                    coordinator.togglePause()
+                } label: {
+                    Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(coordinator.isPaused ? .green : .white.opacity(0.8))
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(coordinator.isPaused ? Color.green.opacity(0.2) : Color.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(coordinator.isPaused ? "Resume" : "Pause")
+            }
+
+            // Cancel button
+            Button {
+                coordinator.cancelOperation()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.red.opacity(0.8))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.red.opacity(0.1))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Cancel")
         }
     }
     
@@ -282,11 +317,34 @@ struct CopyAndVerifyView: View {
                     Text("Verification Mode")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
-                    
+
                     Text("(\(coordinator.verificationMode.rawValue))")
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
-                    
+
+                    Button {
+                        showVerificationHelp.toggle()
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showVerificationHelp, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Verification Modes")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Quick: Compares file sizes only. Fast but less thorough.")
+                                .font(.system(size: 11))
+                            Text("Standard: Computes SHA-256 checksums to verify byte-for-byte integrity.")
+                                .font(.system(size: 11))
+                            Text("Paranoid: SHA-256 checksums + MHL report generation for archival proof.")
+                                .font(.system(size: 11))
+                        }
+                        .padding(12)
+                        .frame(width: 300)
+                    }
+
                     Spacer()
                     
                     // Show MHL badge if current mode requires it

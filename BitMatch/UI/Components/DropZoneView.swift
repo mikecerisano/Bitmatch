@@ -106,11 +106,16 @@ class DropView: NSView {
     }
     
     private func handleDroppedURLs(_ urls: [URL]) -> Bool {
-        
+
         var validDirectories: [URL] = []
-        
-        // Check each URL to ensure it's a directory
+
+        // Check each URL to ensure it's a directory and not a system path
         for url in urls {
+            // Security 19: reject system directories
+            if DropValidation.isSystemDirectory(url) {
+                SharedLogger.warning("Rejecting system directory drop: \(url.lastPathComponent)", category: .transfer)
+                continue
+            }
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
                isDirectory.boolValue {
@@ -122,6 +127,19 @@ class DropView: NSView {
         
         guard !validDirectories.isEmpty else {
             SharedLogger.warning("No valid directories found in drop", category: .transfer)
+            let rejectionReason: String
+            if urls.contains(where: { DropValidation.isSystemDirectory($0) }) {
+                rejectionReason = "System directories cannot be used"
+            } else {
+                rejectionReason = "Only folders can be dropped here"
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .dropRejected,
+                    object: nil,
+                    userInfo: ["reason": rejectionReason]
+                )
+            }
             return false
         }
         

@@ -2,7 +2,6 @@
 import Foundation
 import AVFoundation
 
-@MainActor
 class SharedCameraDetectionService: CameraDetectionService {
     
     func detectCamera(from folderURL: URL) async -> CameraDetectionResult {

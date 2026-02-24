@@ -23,13 +23,23 @@ final class FolderInfoService: ObservableObject {
     // MARK: - Public API
 
     /// Update source folder info when source URL changes
+    /// Perf 8: returns fast count+size immediately, then updates with full details asynchronously
     func updateSource(_ url: URL?) async {
         sourceURL = url
         if let url = url {
             folderInfoLoadingState[url] = true
-            let info = await getEnhancedFolderInfo(for: url)
-            sourceFolderInfo = info
-            folderInfoLoadingState[url] = false
+            // Fast pass: count + size only
+            let fastInfo = await getFastFolderInfo(for: url)
+            sourceFolderInfo = fastInfo
+            // Lazy pass: full details (types, dates, largest file) - update asynchronously
+            Task { [weak self] in
+                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
+                await MainActor.run {
+                    guard let self, self.sourceURL == url else { return }
+                    self.sourceFolderInfo = fullInfo
+                    self.folderInfoLoadingState[url] = false
+                }
+            }
         } else {
             sourceFolderInfo = nil
         }
@@ -40,9 +50,16 @@ final class FolderInfoService: ObservableObject {
         leftURL = url
         if let url = url {
             folderInfoLoadingState[url] = true
-            let info = await getEnhancedFolderInfo(for: url)
-            leftFolderInfo = info
-            folderInfoLoadingState[url] = false
+            let fastInfo = await getFastFolderInfo(for: url)
+            leftFolderInfo = fastInfo
+            Task { [weak self] in
+                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
+                await MainActor.run {
+                    guard let self, self.leftURL == url else { return }
+                    self.leftFolderInfo = fullInfo
+                    self.folderInfoLoadingState[url] = false
+                }
+            }
         } else {
             leftFolderInfo = nil
         }
@@ -53,9 +70,16 @@ final class FolderInfoService: ObservableObject {
         rightURL = url
         if let url = url {
             folderInfoLoadingState[url] = true
-            let info = await getEnhancedFolderInfo(for: url)
-            rightFolderInfo = info
-            folderInfoLoadingState[url] = false
+            let fastInfo = await getFastFolderInfo(for: url)
+            rightFolderInfo = fastInfo
+            Task { [weak self] in
+                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
+                await MainActor.run {
+                    guard let self, self.rightURL == url else { return }
+                    self.rightFolderInfo = fullInfo
+                    self.folderInfoLoadingState[url] = false
+                }
+            }
         } else {
             rightFolderInfo = nil
         }
@@ -140,6 +164,44 @@ final class FolderInfoService: ObservableObject {
     }
 
     // MARK: - Private Scanning Methods
+
+    /// Perf 8: Fast pass - count + size only, returns quickly
+    nonisolated private func getFastFolderInfo(for url: URL) async -> EnhancedFolderInfo? {
+        return await Task.detached(priority: .userInitiated) {
+            var fileCount = 0
+            var totalSize: Int64 = 0
+
+            let fastKeys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]
+            guard let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: fastKeys,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { return nil }
+
+            while let file = enumerator.nextObject() {
+                guard let fileURL = file as? URL else { continue }
+                guard let rv = try? fileURL.resourceValues(forKeys: Set(fastKeys)) else { continue }
+                if rv.isSymbolicLink == true { continue }
+                if rv.isRegularFile == true {
+                    fileCount += 1
+                    totalSize += Int64(rv.fileSize ?? 0)
+                }
+            }
+
+            let folderModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            return EnhancedFolderInfo(
+                url: url,
+                fileCount: fileCount,
+                totalSize: totalSize,
+                lastModified: folderModified,
+                isInternalDrive: !url.path.starts(with: "/Volumes/"),
+                fileTypeBreakdown: [:],
+                largestFile: nil,
+                oldestFileDate: nil,
+                newestFileDate: nil
+            )
+        }.value
+    }
 
     /// Full scan for source folders - includes file type breakdown
     nonisolated private func getEnhancedFolderInfo(for url: URL) async -> EnhancedFolderInfo? {

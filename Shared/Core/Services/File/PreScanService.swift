@@ -20,7 +20,7 @@ enum PreScanService {
                       values.isRegularFile == true else { continue }
                 let relative = String(fileURL.path.dropFirst(sourceBase.path.count + 1))
                 let destURL = destRoot.appendingPathComponent(relative)
-                if fm.fileExists(atPath: destURL.path) {
+                if (try? destURL.checkResourceIsReachable()) == true {
                     let destAttributes = try? fm.attributesOfItem(atPath: destURL.path)
                     let destSize = (destAttributes?[.size] as? NSNumber)?.int64Value ?? -1
                     let sourceSize = Int64(values.fileSize ?? -2)
@@ -44,7 +44,7 @@ enum PreScanService {
                             } catch is CancellationError {
                                 return count
                             } catch {
-                                // ignore
+                                SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
                             }
                         }
                     }
@@ -66,7 +66,7 @@ enum PreScanService {
                 let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
                 let relative = String(fileURL.path.dropFirst(sourceBase.path.count + 1))
                 let destURL = destRoot.appendingPathComponent(relative)
-                if fm.fileExists(atPath: destURL.path) {
+                if (try? destURL.checkResourceIsReachable()) == true {
                     let destAttributes = try fm.attributesOfItem(atPath: destURL.path)
                     let destSize = (destAttributes[.size] as? NSNumber)?.int64Value ?? -1
                     if destSize == Int64(values.fileSize ?? -2) {
@@ -89,7 +89,7 @@ enum PreScanService {
                             } catch is CancellationError {
                                 return count
                             } catch {
-                                // ignore
+                                SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
                             }
                         }
                     }

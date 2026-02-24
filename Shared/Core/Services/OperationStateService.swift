@@ -108,7 +108,9 @@ class OperationStateService: ObservableObject {
         }
         
         // Transition to active state after brief resuming state
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        let expectedOpId = currentOperationId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.currentOperationId == expectedOpId else { return }
             if self.currentState == .resuming {
                 self.currentState = .inProgress
             }

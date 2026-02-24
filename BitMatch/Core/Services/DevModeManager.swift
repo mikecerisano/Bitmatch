@@ -1,4 +1,5 @@
 // DevModeManager.swift - Development mode testing utilities
+// Security 13: entire class gated to DEBUG builds only
 import Foundation
 import Combine
 import SwiftUI
@@ -9,26 +10,22 @@ import AppKit
 import UIKit
 #endif
 
+#if DEBUG
 class DevModeManager: ObservableObject {
     static let shared = DevModeManager()
-    
+
     @Published var isDevModeEnabled: Bool = false {
         didSet {
-            UserDefaults.standard.set(isDevModeEnabled, forKey: "DevModeEnabled")
             AppLogger.devMode("Mode \(isDevModeEnabled ? "ENABLED" : "DISABLED")")
         }
     }
-    
+
     // Controls whether verbose dev logs are printed from subsystems (e.g., volume scanning)
-    @Published var verboseLogs: Bool = false {
-        didSet {
-            UserDefaults.standard.set(verboseLogs, forKey: "VerboseDevLogs")
-        }
-    }
-    
+    @Published var verboseLogs: Bool = false
+
     private init() {
-        self.isDevModeEnabled = UserDefaults.standard.bool(forKey: "DevModeEnabled")
-        self.verboseLogs = UserDefaults.standard.bool(forKey: "VerboseDevLogs")
+        self.isDevModeEnabled = false
+        self.verboseLogs = false
     }
     
     private var stressCancellables = Set<AnyCancellable>()
@@ -195,7 +192,7 @@ class DevModeManager: ObservableObject {
                 
                 // Subscribe for cleanup on completion/cancel
                 self.stressCancellables.removeAll()
-                coordinator.operationViewModel.$state
+                coordinator.sharedCoordinator.$operationState
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] state in
                         guard let self = self else { return }
@@ -526,3 +523,12 @@ extension DevModeManager {
         }
     }
 }
+#else
+// Release stub: DevModeManager is a no-op in release builds
+class DevModeManager: ObservableObject {
+    static let shared = DevModeManager()
+    @Published var isDevModeEnabled: Bool = false
+    @Published var verboseLogs: Bool = false
+    private init() {}
+}
+#endif

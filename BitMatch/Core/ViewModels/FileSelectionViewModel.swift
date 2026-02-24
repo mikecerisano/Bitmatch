@@ -64,12 +64,33 @@ final class FileSelectionViewModel: ObservableObject {
     private let recentFoldersListKey = "recentFoldersList"
     var volumeMonitor = VolumeMonitorService.shared
     private var cancellables = Set<AnyCancellable>()
+    /// Track active security-scoped resource URLs to prevent leaks (Bug 2 fix)
+    private var activeSecurityScopes = Set<URL>()
     
     // MARK: - Initialization
     init() {
         loadRecentFolders()
         setupVolumeMonitoring()
         loadSavedBookmarks()
+    }
+
+    deinit {
+        // stopAccessingSecurityScopedResource is safe to call from any thread
+        for url in activeSecurityScopes {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
+
+    /// Release all active security-scoped resources to prevent leaks
+    func stopAllSecurityScopes() {
+        for url in activeSecurityScopes {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeSecurityScopes.removeAll()
+    }
+
+    private func trackSecurityScope(_ url: URL) {
+        activeSecurityScopes.insert(url)
     }
     
     // MARK: - Volume Monitoring Setup
@@ -143,6 +164,7 @@ final class FileSelectionViewModel: ObservableObject {
     }
     
     func clearAllSelections() {
+        stopAllSecurityScopes()
         leftURL = nil
         rightURL = nil
         sourceURL = nil
@@ -231,16 +253,18 @@ final class FileSelectionViewModel: ObservableObject {
                     relativeTo: nil
                 )
                 
+                // Security 17: store bookmark in Keychain instead of UserDefaults
                 let key = "volumesDirectoryBookmark"
-                UserDefaults.standard.set(bookmarkData, forKey: key)
+                _ = KeychainHelper.save(bookmarkData, forKey: key)
                 UserDefaults.standard.set(selectedURL.path, forKey: "volumesDirectoryPath")
 
                 SharedLogger.info("Saved volumes directory bookmark for: \(selectedURL.path)", category: .transfer)
 
                 // Start accessing the security-scoped resource immediately
                 if selectedURL.startAccessingSecurityScopedResource() {
+                    self?.trackSecurityScope(selectedURL)
                     SharedLogger.info("Started accessing volumes directory: \(selectedURL.path)", category: .transfer)
-                    
+
                     // Trigger a fresh volume scan
                     self?.volumeMonitor.refreshVolumes()
                 }
@@ -258,8 +282,9 @@ final class FileSelectionViewModel: ObservableObject {
     func loadSavedBookmarks() {
         let defaults = UserDefaults.standard
         
-        // Check for the volumes directory bookmark first
-        if let bookmarkData = defaults.data(forKey: "volumesDirectoryBookmark") {
+        // Security 17: load bookmark from Keychain (fall back to UserDefaults for migration)
+        let bookmarkData = KeychainHelper.load(forKey: "volumesDirectoryBookmark") ?? defaults.data(forKey: "volumesDirectoryBookmark")
+        if let bookmarkData = bookmarkData {
             do {
                 var isStale = false
                 #if os(macOS)
@@ -280,6 +305,7 @@ final class FileSelectionViewModel: ObservableObject {
 
                     // Start accessing the security-scoped resource
                     if url.startAccessingSecurityScopedResource() {
+                        trackSecurityScope(url)
                         SharedLogger.info("Started accessing volumes directory: \(url.path)", category: .transfer)
                         // Trigger volume scan; specific write checks happen when starting a copy
                         volumeMonitor.refreshVolumes()
@@ -288,11 +314,13 @@ final class FileSelectionViewModel: ObservableObject {
                     }
                 } else {
                     SharedLogger.debug("Removing stale volumes directory bookmark", category: .transfer)
+                    KeychainHelper.delete(forKey: "volumesDirectoryBookmark")
                     defaults.removeObject(forKey: "volumesDirectoryBookmark")
                     defaults.removeObject(forKey: "volumesDirectoryPath")
                 }
             } catch {
                 SharedLogger.error("Failed to resolve volumes directory bookmark: \(error)", category: .transfer)
+                KeychainHelper.delete(forKey: "volumesDirectoryBookmark")
                 defaults.removeObject(forKey: "volumesDirectoryBookmark")
                 defaults.removeObject(forKey: "volumesDirectoryPath")
             }
@@ -322,8 +350,9 @@ final class FileSelectionViewModel: ObservableObject {
 
                         // Start accessing the security-scoped resource
                         if url.startAccessingSecurityScopedResource() {
+                            trackSecurityScope(url)
                             SharedLogger.info("Started accessing: \(url.path)", category: .transfer)
-                            
+
                             // Analyze the volume
                             volumeMonitor.forceAnalyzeVolume(at: url)
                         }
@@ -340,7 +369,8 @@ final class FileSelectionViewModel: ObservableObject {
     }
     
     var hasVolumeAccess: Bool {
-        return UserDefaults.standard.data(forKey: "volumesDirectoryBookmark") != nil
+        return KeychainHelper.load(forKey: "volumesDirectoryBookmark") != nil
+            || UserDefaults.standard.data(forKey: "volumesDirectoryBookmark") != nil
     }
     
     // MARK: - Smart Defaults Methods

@@ -185,10 +185,14 @@ struct AnalyticsOptInView: View {
     }
 }
 
+#if DEBUG
 // MARK: - Preview
-#Preview {
-    ZStack {
-        Color.black.ignoresSafeArea()
-        AnalyticsOptInView(isShowing: .constant(true))
+struct AnalyticsOptInView_Previews: PreviewProvider {
+    static var previews: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            AnalyticsOptInView(isShowing: .constant(true))
+        }
     }
 }
+#endif

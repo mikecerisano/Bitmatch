@@ -130,6 +130,15 @@ class ErrorReportingService: ObservableObject {
         return analyzeGenericError(error)
     }
     
+    /// Security 14: strip full paths from user-facing messages
+    private func sanitizedPath(_ url: URL) -> String {
+        url.lastPathComponent
+    }
+
+    private func sanitizedPath(_ path: String) -> String {
+        (path as NSString).lastPathComponent
+    }
+
     private func analyzeBitMatchError(_ error: BitMatchError) -> ErrorAnalysis {
         switch error {
         case .fileAccessDenied(let url):
@@ -137,8 +146,8 @@ class ErrorReportingService: ObservableObject {
                 category: .fileSystem,
                 severity: .medium,
                 title: "File Access Denied",
-                userFriendlyMessage: "Permission denied accessing file: \(url.lastPathComponent)",
-                technicalDetails: "File path: \(url.path)\nError: Access denied",
+                userFriendlyMessage: "Permission denied accessing file: \(sanitizedPath(url))",
+                technicalDetails: "File: \(sanitizedPath(url))\nError: Access denied",
                 recoveryActions: [
                     "Check file permissions",
                     "Ensure file is not locked by another application",
@@ -153,8 +162,8 @@ class ErrorReportingService: ObservableObject {
                 category: .fileSystem,
                 severity: .medium,
                 title: "File Not Found",
-                userFriendlyMessage: "File not found: \(url.lastPathComponent)",
-                technicalDetails: "Expected file path: \(url.path)",
+                userFriendlyMessage: "File not found: \(sanitizedPath(url))",
+                technicalDetails: "Expected file: \(sanitizedPath(url))",
                 recoveryActions: [
                     "Verify the file exists at the specified location",
                     "Check if the file was moved or deleted",

@@ -34,7 +34,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var verificationMode: VerificationMode = .standard
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
-    
+
     // MARK: - Operation State
     @Published var isOperationInProgress = false
     @Published var operationState: OperationState = .notStarted
@@ -42,7 +42,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var results: [ResultRow] = []
     @Published var currentOperation: FileOperation?
 
-    // Operation executor for copy/verify
+    // MARK: - Sub-coordinators (Phase 3: split coordinator)
     private lazy var copyVerifyExecutor: CopyVerifyExecutor = {
         CopyVerifyExecutor(
             platformManager: platformManager,
@@ -51,6 +51,12 @@ class SharedAppCoordinator: ObservableObject {
             stateService: stateService,
             backgroundTaskService: backgroundTaskService
         )
+    }()
+    private(set) lazy var comparisonCoordinator: ComparisonCoordinator = {
+        ComparisonCoordinator(platformManager: platformManager)
+    }()
+    private(set) lazy var reportCoordinator: ReportCoordinator = {
+        ReportCoordinator(platformManager: platformManager)
     }()
     
     // MARK: - File Selection State
@@ -66,7 +72,6 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - Folder Info State (delegated to FolderInfoService)
     @Published var folderInfoService = FolderInfoService.shared
     @Published var lastCompareStats: CompareStats?
-    private var compareCancellationRequested = false
 
     // Convenience accessors for folder info (delegated to service)
     var sourceFolderInfo: EnhancedFolderInfo? { folderInfoService.sourceFolderInfo }
@@ -288,7 +293,7 @@ class SharedAppCoordinator: ObservableObject {
     func cancelOperation() {
         copyVerifyExecutor.cancel()
         if currentMode == .compareFolders {
-            compareCancellationRequested = true
+            comparisonCoordinator.requestCancellation()
         }
 
         // Report cancellation to error service
@@ -364,8 +369,8 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
-    // MARK: - Folder Comparison (for Compare mode)
-    
+    // MARK: - Folder Comparison (delegated to ComparisonCoordinator)
+
     func compareFolders() async {
         guard currentMode == .compareFolders else { return }
         guard let left = leftURL, let right = rightURL else {
@@ -378,7 +383,6 @@ class SharedAppCoordinator: ObservableObject {
 
         isOperationInProgress = true
         operationState = .inProgress
-        compareCancellationRequested = false
         progress = OperationProgress(
             overallProgress: 0.0,
             currentFile: nil,
@@ -389,128 +393,33 @@ class SharedAppCoordinator: ObservableObject {
             timeRemaining: nil
         )
 
-        // Implement basic folder comparison using file system service
         do {
-            let sourceFiles = try await platformManager.fileSystem.getFileList(from: left)
-            let destFiles = try await platformManager.fileSystem.getFileList(from: right)
-
-            let sourceMap = try buildFileMap(files: sourceFiles, base: left)
-            let destMap = try buildFileMap(files: destFiles, base: right)
-
-            let sourceSet = Set(sourceMap.keys)
-            let destSet = Set(destMap.keys)
-
-            let onlyInSource = sourceSet.subtracting(destSet)
-            let onlyInDest = destSet.subtracting(sourceSet)
-            let common = sourceSet.intersection(destSet)
-
-            var mismatched: Set<String> = []
-            let totalCommon = common.count
-            var processedCommon = 0
-            progress = OperationProgress(
-                overallProgress: totalCommon == 0 ? 1.0 : 0.0,
-                currentFile: nil,
-                filesProcessed: 0,
-                totalFiles: totalCommon,
-                currentStage: .verifying,
-                speed: nil,
-                timeRemaining: nil
-            )
-            for key in common {
-                if compareCancellationRequested { throw CancellationError() }
-                try Task.checkCancellation()
-                guard let src = sourceMap[key], let dst = destMap[key] else { continue }
-                if src.size != dst.size {
-                    mismatched.insert(key)
-                } else if verificationMode == .quick {
-                    // size-only comparison already done
-                } else if verificationMode == .paranoid {
-                    let matches = try await platformManager.checksum.performByteComparison(
-                        sourceURL: src.url,
-                        destinationURL: dst.url,
-                        progressCallback: nil
-                    )
-                    if !matches { mismatched.insert(key) }
-                } else if verificationMode.useChecksum {
-                    var allMatch = true
-                    let types = verificationMode == .thorough ? verificationMode.checksumTypes : [verificationMode.checksumTypes.first ?? .sha256]
-                    for type in types {
-                        let result = try await platformManager.checksum.verifyFileIntegrity(
-                            sourceURL: src.url,
-                            destinationURL: dst.url,
-                            type: type,
-                            progressCallback: nil
-                        )
-                        if !result.matches {
-                            allMatch = false
-                            break
-                        }
-                    }
-                    if !allMatch { mismatched.insert(key) }
+            let stats = try await comparisonCoordinator.compareFolders(
+                left: left,
+                right: right,
+                verificationMode: verificationMode,
+                onProgress: { [weak self] prog in
+                    self?.progress = prog
                 }
-                processedCommon += 1
-                let overall = totalCommon == 0 ? 1.0 : Double(processedCommon) / Double(totalCommon)
-                progress = OperationProgress(
-                    overallProgress: overall,
-                    currentFile: key,
-                    filesProcessed: processedCommon,
-                    totalFiles: totalCommon,
-                    currentStage: .verifying,
-                    speed: nil,
-                    timeRemaining: nil
-                )
-            }
-
-            let matched = common.subtracting(mismatched)
-            
-            // Publish stats for UI/tests
-            self.lastCompareStats = CompareStats(
-                onlyInLeftCount: onlyInSource.count,
-                onlyInRightCount: onlyInDest.count,
-                commonCount: matched.count,
-                mismatchedCount: mismatched.count
             )
-            SharedLogger.info("Comparison complete", category: .transfer)
-            SharedLogger.debug("Only in source: \(onlyInSource.count)", category: .transfer)
-            SharedLogger.debug("Only in destination: \(onlyInDest.count)", category: .transfer)
-            SharedLogger.debug("Common files: \(matched.count)", category: .transfer)
-            if !mismatched.isEmpty {
-                SharedLogger.debug("Mismatched files: \(mismatched.count)", category: .transfer)
-            }
+            self.lastCompareStats = stats
+            isOperationInProgress = false
+            operationState = .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully"))
+            return
         } catch is CancellationError {
             isOperationInProgress = false
             operationState = .cancelled
             return
         } catch {
+            isOperationInProgress = false
+            operationState = .failed
             await platformManager.presentError(error)
+            return
         }
-        
-        isOperationInProgress = false
-        operationState = .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully"))
-    }
-
-    private func relativePath(from base: URL, to fileURL: URL) -> String {
-        let basePath = base.path
-        let fullPath = fileURL.path
-        if fullPath.hasPrefix(basePath + "/") {
-            return String(fullPath.dropFirst(basePath.count + 1))
-        }
-        return fileURL.lastPathComponent
-    }
-
-    private func buildFileMap(files: [URL], base: URL) throws -> [String: (url: URL, size: Int64)] {
-        var map: [String: (url: URL, size: Int64)] = [:]
-        map.reserveCapacity(files.count)
-        for fileURL in files {
-            let key = relativePath(from: base, to: fileURL)
-            let size = try platformManager.fileSystem.getFileSize(for: fileURL)
-            map[key] = (fileURL, size)
-        }
-        return map
     }
     
-    // MARK: - Report Generation
-    
+    // MARK: - Report Generation (delegated to ReportCoordinator)
+
     func generateReport() async {
         guard currentOperation != nil else {
             await platformManager.presentAlert(
@@ -521,62 +430,68 @@ class SharedAppCoordinator: ObservableObject {
         }
 
         do {
-            // Build a minimal TransferCard from current state
-            let srcInfo: FolderInfo = try {
-                if let info = sourceFolderInfo {
-                    return FolderInfo(url: info.url, fileCount: info.fileCount, totalSize: info.totalSize, lastModified: info.lastModified, isInternalDrive: false)
-                } else if let src = sourceURL {
-                    return FolderInfo(url: src, fileCount: 0, totalSize: 0, lastModified: Date(), isInternalDrive: false)
-                } else {
-                    throw NSError(domain: "BitMatch", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing source info for report"])
-                }
-            }()
-            let destInfos: [FolderInfo] = destinationURLs.map { url in
-                if let info = destinationFolderInfos[url] {
-                    return FolderInfo(url: info.url, fileCount: info.fileCount, totalSize: info.totalSize, lastModified: info.lastModified, isInternalDrive: false)
-                } else {
-                    return FolderInfo(url: url, fileCount: 0, totalSize: 0, lastModified: Date(), isInternalDrive: false)
-                }
-            }
-
-            let transfer = TransferCard(
-                source: srcInfo,
-                destinations: destInfos,
-                cameraCard: detectedCamera,
-                metadata: TransferMetadata(
-                    sourceURL: srcInfo.url,
-                    destinationURLs: destInfos.map { $0.url },
-                    startTime: timingService.currentTiming?.startTime ?? Date(),
-                    endTime: Date(),
-                    totalFiles: sourceFolderInfo?.fileCount ?? 0,
-                    totalSize: sourceFolderInfo?.totalSize ?? 0,
-                    verificationMode: verificationMode,
-                    cameraSettings: cameraLabelSettings
-                ),
-                progress: 1.0,
-                state: .completed(OperationCompletionInfo(success: true, message: ""))
+            try await reportCoordinator.generateReport(
+                sourceURL: sourceURL,
+                sourceFolderInfo: sourceFolderInfo,
+                destinationURLs: destinationURLs,
+                destinationFolderInfos: destinationFolderInfos,
+                detectedCamera: detectedCamera,
+                timingService: timingService,
+                verificationMode: verificationMode,
+                cameraLabelSettings: cameraLabelSettings
             )
-
-            let config = SharedReportGenerationService.ReportConfiguration.default()
-            let generator = SharedReportGenerationService()
-            let result = try await generator.generateMasterReport(transfers: [transfer], configuration: config)
-
-            // Persist to temp and open
-            let tempDir = FileManager.default.temporaryDirectory
-            let timestamp = Int(Date().timeIntervalSince1970)
-            let pdfURL = tempDir.appendingPathComponent("BitMatch_Report_\(timestamp).pdf")
-            let jsonURL = tempDir.appendingPathComponent("BitMatch_Report_\(timestamp).json")
-            try result.pdfData.write(to: pdfURL)
-            try result.jsonData.write(to: jsonURL)
-
-            _ = await platformManager.openURL(pdfURL)
         } catch {
             await platformManager.presentError(error)
         }
     }
     
+    // MARK: - Mode Management
+
+    func switchMode(to mode: AppMode) {
+        guard !isOperationInProgress else { return }
+        currentMode = mode
+    }
+
+    func resetForNewOperation() {
+        results = []
+        progress = nil
+        operationState = .notStarted
+        currentOperation = nil
+    }
+
+    func togglePause() async {
+        if canPause {
+            await pauseOperation()
+        } else if canResume {
+            await resumeOperation()
+        }
+    }
+
+    func saveVerificationMode() {
+        UserDefaults.standard.set(verificationMode.rawValue, forKey: "lastVerificationMode")
+    }
+
+    // MARK: - Completion State (derived from OperationState)
+
+    var completionState: CompletionState {
+        switch operationState {
+        case .completed(let info):
+            if info.success {
+                return .success(message: info.message)
+            } else {
+                return .issues(message: info.message)
+            }
+        case .failed:
+            return .failed(message: "Operation failed")
+        case .inProgress, .copying, .verifying, .resuming:
+            return .inProgress
+        case .idle, .notStarted, .paused, .cancelled:
+            return .idle
+        }
+    }
+
     // MARK: - Computed Properties
-    
+
     var canStartOperation: Bool {
         switch currentMode {
         case .copyAndVerify:

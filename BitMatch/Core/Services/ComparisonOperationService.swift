@@ -55,7 +55,7 @@ final class ComparisonOperationService {
                     // Backpressure: if too many tasks are queued, drain one result before queuing more
                     if inFlight >= maxInFlightTasks {
                         if let row = try await group.next() { 
-                            await OperationManager.checkPause()
+                            await cooperativePauseCheck()
                             await MainActor.run {
                                 progressViewModel.incrementFileCompleted()
                                 if row.status.contains("✅") || row.status.contains("Match") {
@@ -112,7 +112,7 @@ final class ComparisonOperationService {
             }
             // Process any remaining results in batches
             while let row = try await group.next() {
-                await OperationManager.checkPause()
+                await cooperativePauseCheck()
                 
                 await MainActor.run {
                     progressViewModel.incrementFileCompleted()
@@ -260,11 +260,10 @@ final class ComparisonOperationService {
                             let errorRow = ResultRow(
                                 path: fileName,
                                 status: "❌ Copy Failed: \(error.localizedDescription)",
-                                leftChecksum: "",
-                                rightChecksum: "",
-                                leftSize: 0,
-                                rightSize: 0,
-                                match: false
+                                size: 0,
+                                checksum: nil,
+                                destination: destination.lastPathComponent,
+                                destinationPath: destination.path
                             )
                             onProgress([errorRow])
                         }
@@ -299,6 +298,11 @@ final class ComparisonOperationService {
     
     
     // MARK: - Helper Functions
+
+    private static func cooperativePauseCheck() async {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        await Task.yield()
+    }
 
     private static func countFilesInDirectory(at url: URL) async throws -> Int {
         return try await withCheckedThrowingContinuation { continuation in

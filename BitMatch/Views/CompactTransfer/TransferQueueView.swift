@@ -262,7 +262,7 @@ struct TransferQueueView: View {
         guard coordinator.isOperationInProgress else { return nil }
         
         let state: CompactTransferCard.TransferState = {
-            switch coordinator.operationViewModel.state {
+            switch coordinator.operationState {
             case .copying: return .copying
             case .verifying: return .verifying
             case .completed: return .completed

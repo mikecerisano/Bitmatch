@@ -159,32 +159,45 @@ class AnalyticsSharing: ObservableObject {
     
     // MARK: - Privacy & Platform Info
     
+    // Security 16: generalize hardware info to reduce fingerprinting
     private func getCurrentPlatformInfo() -> AnonymizedRecord.PlatformInfo {
-        var systemInfo = utsname()
-        uname(&systemInfo)
-        let hardware = withUnsafePointer(to: &systemInfo.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
-                String(validatingUTF8: $0) ?? "Unknown"
-            }
-        }
-        
         let processInfo = ProcessInfo.processInfo
+        // Only report major OS version
+        let osVersion = "macOS \(processInfo.operatingSystemVersion.majorVersion)"
+        // Generalize to chip family instead of exact model
+        let chipFamily = getChipFamily()
+        // Round memory to nearest power of 2
         let memoryGB = Int(processInfo.physicalMemory / (1024 * 1024 * 1024))
-        
+        let roundedMemory = nearestPowerOfTwo(memoryGB)
+
         return AnonymizedRecord.PlatformInfo(
-            osVersion: "macOS \(processInfo.operatingSystemVersion.majorVersion).\(processInfo.operatingSystemVersion.minorVersion)",
-            hardwareModel: hardware,
-            processorInfo: getProcessorInfo(),
-            memoryGB: memoryGB
+            osVersion: osVersion,
+            hardwareModel: chipFamily,
+            processorInfo: chipFamily,
+            memoryGB: roundedMemory
         )
     }
-    
-    private func getProcessorInfo() -> String {
+
+    private func getChipFamily() -> String {
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
         var machine = [CChar](repeating: 0, count: size)
         sysctlbyname("machdep.cpu.brand_string", &machine, &size, nil, 0)
-        return String(cString: machine)
+        let cpuString = String(cString: machine)
+        // Generalize to chip family
+        if cpuString.contains("Apple M4") { return "Apple M4 family" }
+        if cpuString.contains("Apple M3") { return "Apple M3 family" }
+        if cpuString.contains("Apple M2") { return "Apple M2 family" }
+        if cpuString.contains("Apple M1") { return "Apple M1 family" }
+        if cpuString.contains("Intel") { return "Intel" }
+        return "Other"
+    }
+
+    private func nearestPowerOfTwo(_ value: Int) -> Int {
+        guard value > 0 else { return 0 }
+        var power = 1
+        while power < value { power *= 2 }
+        return power
     }
     
     private func getUnsharedRecords() -> [TransferAnalytics.TransferRecord] {

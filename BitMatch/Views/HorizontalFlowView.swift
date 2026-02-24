@@ -168,13 +168,17 @@ struct HorizontalFlowView: View {
     private var emptySourceView: some View {
         VStack(spacing: 6) {
             Image(systemName: "folder.badge.plus")
-                .font(.system(size: 20))
+                .font(.system(size: 24))
+                .foregroundColor(isSourceTargeted ? .green.opacity(0.7) : .white.opacity(0.3))
+
+            Text("Drag source folder here")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSourceTargeted ? .green.opacity(0.8) : .white.opacity(0.5))
+
+            Text("or")
+                .font(.system(size: 9))
                 .foregroundColor(.white.opacity(0.3))
-            
-            Text("Drop folder")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.5))
-            
+
             Button("Choose...") {
                 selectSourceFolder()
             }
@@ -187,12 +191,13 @@ struct HorizontalFlowView: View {
                 .fill(Color.white.opacity(0.03))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(
-                            isSourceTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.1),
-                            lineWidth: isSourceTargeted ? 2 : 1
+                        .strokeBorder(
+                            isSourceTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.15),
+                            style: StrokeStyle(lineWidth: isSourceTargeted ? 2 : 1, dash: isSourceTargeted ? [] : [6, 4])
                         )
                 )
         )
+        .animation(.easeInOut(duration: 0.2), value: isSourceTargeted)
     }
     
     // MARK: - Compact Destinations Section  
@@ -208,13 +213,17 @@ struct HorizontalFlowView: View {
                 // Empty state
                 VStack(spacing: 6) {
                     Image(systemName: "externaldrive.badge.plus")
-                        .font(.system(size: 20))
+                        .font(.system(size: 24))
+                        .foregroundColor(isAddDestinationTargeted ? .green.opacity(0.7) : .white.opacity(0.3))
+
+                    Text("Drag backup drives here")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isAddDestinationTargeted ? .green.opacity(0.8) : .white.opacity(0.5))
+
+                    Text("or")
+                        .font(.system(size: 9))
                         .foregroundColor(.white.opacity(0.3))
-                    
-                    Text("Add backup drives")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.5))
-                    
+
                     Button("Add Destinations...") {
                         selectDestinationFolder()
                     }
@@ -227,12 +236,13 @@ struct HorizontalFlowView: View {
                         .fill(Color.white.opacity(0.03))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(
-                                    isAddDestinationTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.1),
-                                    lineWidth: isAddDestinationTargeted ? 2 : 1
+                                .strokeBorder(
+                                    isAddDestinationTargeted ? Color.green.opacity(0.6) : Color.white.opacity(0.15),
+                                    style: StrokeStyle(lineWidth: isAddDestinationTargeted ? 2 : 1, dash: isAddDestinationTargeted ? [] : [6, 4])
                                 )
                         )
                 )
+                .animation(.easeInOut(duration: 0.2), value: isAddDestinationTargeted)
                 .onDrop(of: [.fileURL], isTargeted: $isAddDestinationTargeted) { providers, location in
                     handleAddDestinationDrop(providers: providers)
                 }

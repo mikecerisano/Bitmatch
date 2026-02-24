@@ -41,4 +41,31 @@ final class TempFileManager {
         defer { tempFilesLock.unlock() }
         return activeTempFiles.count
     }
+
+    /// Security 12: clean up orphaned .bitmatch.tmp.* files from previous crashed sessions
+    static func cleanupOrphanedTempFiles(in directory: URL? = nil) {
+        let fm = FileManager.default
+        let searchDirs: [URL]
+        if let dir = directory {
+            searchDirs = [dir]
+        } else {
+            searchDirs = [fm.temporaryDirectory]
+        }
+        for dir in searchDirs {
+            guard let enumerator = fm.enumerator(
+                at: dir,
+                includingPropertiesForKeys: [.creationDateKey],
+                options: [.skipsSubdirectoryDescendants]
+            ) else { continue }
+            let staleThreshold = Date().addingTimeInterval(-3600) // 1 hour old
+            for case let fileURL as URL in enumerator {
+                let name = fileURL.lastPathComponent
+                guard name.hasPrefix(".bitmatch.tmp.") else { continue }
+                if let created = (try? fileURL.resourceValues(forKeys: [.creationDateKey]))?.creationDate,
+                   created < staleThreshold {
+                    try? fm.removeItem(at: fileURL)
+                }
+            }
+        }
+    }
 }

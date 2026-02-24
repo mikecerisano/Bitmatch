@@ -189,13 +189,13 @@ struct ResultsTableView: View {
             ScrollView {
                 if filteredResults.isEmpty && showOnlyIssues {
                     // Empty state when filtering shows no issues
-                    VStack(spacing: 12) {
+                    VStack(spacing: 14) {
                         Image(systemName: "checkmark.shield.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.green.opacity(0.5))
+                            .font(.system(size: 34))
+                            .foregroundColor(.green.opacity(0.65))
                         
                         Text("No issues found")
-                            .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.white.opacity(0.6))
                         
                         if progress.matchCount > 0 {
@@ -203,6 +203,11 @@ struct ResultsTableView: View {
                                 .font(.system(size: 11))
                                 .foregroundColor(.white.opacity(0.4))
                         }
+
+                        Button("Show All Results") {
+                            showOnlyIssues = false
+                        }
+                        .buttonStyle(CustomButtonStyle())
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 60)
@@ -213,9 +218,15 @@ struct ResultsTableView: View {
                             .font(.system(size: 32))
                             .foregroundColor(.white.opacity(0.3))
                         
-                        Text("No results yet")
+                        Text(coordinator.isOperationInProgress ? "Waiting for first results..." : "No results yet")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.white.opacity(0.5))
+
+                        if coordinator.isOperationInProgress {
+                            Text("Files will appear here as they are copied and verified.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 60)

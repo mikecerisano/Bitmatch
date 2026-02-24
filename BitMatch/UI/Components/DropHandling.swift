@@ -123,10 +123,22 @@ extension View {
 // MARK: - Directory Validation Helpers
 
 struct DropValidation {
+    /// Security 19: system directories that must never be used as source/destination
+    private static let systemPrefixes: [String] = [
+        "/System", "/Library", "/usr", "/bin", "/sbin", "/private", "/var"
+    ]
+
+    static func isSystemDirectory(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        return systemPrefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
     static func directoriesOnly(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
         return urls.allSatisfy { url in
             var isDirectory: ObjCBool = false
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+                && !isSystemDirectory(url)
         }
     }
     

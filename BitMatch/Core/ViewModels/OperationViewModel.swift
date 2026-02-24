@@ -112,7 +112,7 @@ final class OperationViewModel: ObservableObject {
                     onProgress: { [weak self] newResults in
                         Task { @MainActor [weak self] in
                             guard let self = self else { return }
-                            OperationManager.addResults(newResults, to: &self.results, maxResultsInMemory: self.maxResultsInMemory)
+                            self.addResults(newResults)
                         }
                     },
                     onComplete: { [weak self] in
@@ -179,7 +179,7 @@ final class OperationViewModel: ObservableObject {
                     onProgress: { [weak self] newResults in
                         Task { @MainActor [weak self] in
                             guard let self = self else { return }
-                            OperationManager.addResults(newResults, to: &self.results, maxResultsInMemory: self.maxResultsInMemory)
+                            self.addResults(newResults)
                         }
                     },
                     onComplete: { [weak self] in
@@ -272,27 +272,36 @@ final class OperationViewModel: ObservableObject {
     // MARK: - Private Methods
     
     private func prepareForOperation() {
-        OperationManager.prepareForOperation(
-            jobID: &jobID,
-            jobStart: &jobStart,
-            currentMode: currentMode,
-            fileSelectionViewModel: fileSelectionViewModel,
-            progressViewModel: progressViewModel,
-            verificationMode: verificationMode,
-            onClearResults: { [weak self] in
-                self?.results.removeAll()
-                self?.results.reserveCapacity(min(1000, self?.maxResultsInMemory ?? 10_000))
-                self?.resultsOverflowFile = nil
-            },
-            onClearMHL: { [weak self] in
-                Task { [weak self] in
-                    await self?.mhlCollectorActor.clear()
-                }
-                self?.mhlGenerated = false
-                self?.mhlFilePath = nil
-                self?.isGeneratingMHL = false
-            }
+        results.removeAll()
+        results.reserveCapacity(min(1000, maxResultsInMemory))
+        resultsOverflowFile = nil
+
+        jobID = UUID()
+        jobStart = Date()
+        progressViewModel.reset()
+
+        Task { [weak self] in
+            await self?.mhlCollectorActor.clear()
+        }
+        mhlGenerated = false
+        mhlFilePath = nil
+        isGeneratingMHL = false
+
+        let initialOperation = OperationStateManager.PersistedOperation(
+            id: jobID,
+            startTime: jobStart,
+            mode: currentMode == .copyAndVerify ? "copy" : "compare",
+            sourceURL: fileSelectionViewModel.sourceURL ?? fileSelectionViewModel.leftURL ?? URL(fileURLWithPath: "/"),
+            destinationURLs: currentMode == .copyAndVerify
+                ? fileSelectionViewModel.destinationURLs
+                : [fileSelectionViewModel.rightURL].compactMap { $0 },
+            verificationMode: verificationMode.rawValue,
+            lastProcessedFile: "Starting...",
+            processedCount: 0,
+            totalCount: 0,
+            checkpoints: []
         )
+        OperationStateManager.saveState(initialOperation)
         
         state = .idle
         // Future enhancement: implement operation queue for multiple pending tasks
@@ -526,11 +535,11 @@ final class OperationViewModel: ObservableObject {
 
         // Only run cleanup if we have destinations and we're in copy mode
         if !destinationsToClean.isEmpty {
-            await OperationManager.cleanupTemporaryFiles(at: destinationsToClean)
+            await cleanupTemporaryFiles(at: destinationsToClean)
         }
         
         // Save partial results for potential resume
-        OperationManager.savePartialResults(results, jobID: jobID)
+        savePartialResults()
         activeDestinations = []
     }
 
@@ -557,5 +566,54 @@ final class OperationViewModel: ObservableObject {
         )
 
         UNUserNotificationCenter.current().add(request)
+    }
+
+    private func addResults(_ newResults: [ResultRow]) {
+        if results.count + newResults.count > maxResultsInMemory {
+            let errors = results.filter { !$0.status.contains("✅") && !$0.status.contains("Match") }
+            let keepCount = maxResultsInMemory / 2
+            let matchesToKeep = max(0, keepCount - errors.count)
+            let matches = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.suffix(matchesToKeep)
+            results = Array(errors + matches)
+        }
+        results.append(contentsOf: newResults)
+    }
+
+    private func savePartialResults() {
+        guard results.count > 100 else { return }
+        OperationStateManager.createCheckpoint(
+            for: jobID,
+            filesProcessed: results.count,
+            lastFile: results.last?.path ?? "unknown"
+        )
+    }
+
+    private func cleanupTemporaryFiles(at urls: [URL]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for url in urls {
+                group.addTask {
+                    await Self.cleanupTemporaryFilesAtURL(url)
+                }
+            }
+        }
+    }
+
+    private static func cleanupTemporaryFilesAtURL(_ url: URL) async {
+        do {
+            let fileManager = FileManager.default
+            let tempItems = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
+            for item in tempItems {
+                let fileName = item.lastPathComponent
+                if fileName.hasPrefix("._") || fileName == ".DS_Store" || fileName == "Thumbs.db" {
+                    do {
+                        try fileManager.removeItem(at: item)
+                    } catch {
+                        SharedLogger.warning("Failed to remove temp item \(item.path): \(error)", category: .transfer)
+                    }
+                }
+            }
+        } catch {
+            SharedLogger.error("Cleanup error at \(url.path): \(error)", category: .transfer)
+        }
     }
 }

@@ -65,7 +65,8 @@ final class ProgressViewModel: ObservableObject {
     func startProgressTracking() {
         reset()
         progressTimer?.invalidate()
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+        // Perf 2: reduce timer frequency from 0.1s to 0.25s for less UI overhead
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
                 self.updateInterpolatedProgress()
             }

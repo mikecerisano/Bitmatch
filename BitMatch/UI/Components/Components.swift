@@ -73,17 +73,24 @@ struct CompletionView: View {
     let iconName: String
     let iconColor: Color
     let onNewTask: () -> Void
+    @State private var didAppear = false
+    @State private var pulse = false
     
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: iconName)
                 .font(.system(size: 48, weight: .light))
                 .foregroundColor(iconColor)
+                .scaleEffect(pulse ? 1.06 : 0.96)
+                .opacity(didAppear ? 1 : 0)
+                .shadow(color: iconColor.opacity(0.35), radius: pulse ? 14 : 4, x: 0, y: 0)
             
             Text(message)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
+                .opacity(didAppear ? 1 : 0)
+                .offset(y: didAppear ? 0 : 8)
             
             Button("Start New Task") {
                 withAnimation {
@@ -91,13 +98,33 @@ struct CompletionView: View {
                 }
             }
             .buttonStyle(CustomButtonStyle())
+            .opacity(didAppear ? 1 : 0)
+            .offset(y: didAppear ? 0 : 10)
         }
         .padding(32)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.03))
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.05), Color.white.opacity(0.02)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                )
         )
+        .onAppear {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                didAppear = true
+            }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 

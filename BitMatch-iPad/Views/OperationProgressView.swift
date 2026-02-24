@@ -46,17 +46,49 @@ struct OperationProgressView: View {
                 ErrorSummaryView(coordinator: coordinator)
             }
             
-            // Queue section (if exists)
-            if !transferQueue.isEmpty {
-                TransferQueueView(coordinator: coordinator)
+            // Destination queue visualization
+            if !destinationQueue.isEmpty {
+                TransferQueueView(
+                    destinationQueue: destinationQueue,
+                    currentStage: coordinator.currentStage
+                )
             }
         }
         .padding(.horizontal, 20)
     }
     
-    private var transferQueue: [ProgressQueuedTransfer] {
-        // Placeholder for actual queue implementation
-        return []
+    private var destinationQueue: [ProgressDestinationQueueItem] {
+        guard !coordinator.destinationURLs.isEmpty else { return [] }
+        let progress = coordinator.progress
+        let totals = progress?.perDestinationTotals
+        let completed = progress?.perDestinationCompleted
+        let fallbackTotal = max(1, progress?.totalFiles ?? 1)
+
+        return coordinator.destinationURLs.enumerated().map { index, destinationURL in
+            let total = (totals != nil && index < (totals?.count ?? 0)) ? (totals?[index] ?? fallbackTotal) : fallbackTotal
+            let done = (completed != nil && index < (completed?.count ?? 0)) ? (completed?[index] ?? 0) : 0
+            let fraction = total > 0 ? min(1.0, Double(done) / Double(total)) : 0
+            let status = queueState(for: fraction, currentStage: coordinator.currentStage)
+
+            return ProgressDestinationQueueItem(
+                index: index + 1,
+                destinationURL: destinationURL,
+                completedFiles: done,
+                totalFiles: total,
+                progressFraction: fraction,
+                state: status
+            )
+        }
+    }
+
+    private func queueState(for progress: Double, currentStage: ProgressStage) -> ProgressDestinationQueueItem.State {
+        if progress >= 1.0 {
+            return .completed
+        }
+        if progress > 0 {
+            return currentStage == .verifying ? .verifying : .copying
+        }
+        return .queued
     }
 }
 
@@ -307,6 +339,8 @@ struct CurrentFileInfoView: View {
 
 struct ErrorSummaryView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    @State private var didAppear = false
+    @State private var pulse = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -338,40 +372,147 @@ struct ErrorSummaryView: View {
                 .fill(Color.orange.opacity(0.1))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                        .stroke(Color.orange.opacity(pulse ? 0.65 : 0.3), lineWidth: pulse ? 1.6 : 1)
                 )
         )
+        .opacity(didAppear ? 1 : 0)
+        .offset(y: didAppear ? 0 : 8)
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                didAppear = true
+            }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 
-// MARK: - Transfer Queue Component (Placeholder)
+// MARK: - Destination Queue Visualization
 
 struct TransferQueueView: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
+    let destinationQueue: [ProgressDestinationQueueItem]
+    let currentStage: ProgressStage
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("QUEUE")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.6))
-                .tracking(1.0)
-            
-            Text("Queue functionality placeholder")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.7))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("DESTINATION QUEUE")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+                    .tracking(1.0)
+                Spacer()
+                Text("\(destinationQueue.count) targets")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
+            ForEach(destinationQueue) { item in
+                DestinationQueueRow(item: item, currentStage: currentStage)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color.white.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
         )
     }
 }
 
-// MARK: - Supporting Types (Temporary)
+private struct DestinationQueueRow: View {
+    let item: ProgressDestinationQueueItem
+    let currentStage: ProgressStage
 
-struct ProgressQueuedTransfer {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: item.state.icon)
+                    .foregroundColor(item.state.color)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text("D\(item.index): \(item.destinationURL.lastPathComponent)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text(item.state.label(currentStage: currentStage))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(item.state.color)
+            }
+
+            ProgressView(value: item.progressFraction)
+                .progressViewStyle(LinearProgressViewStyle(tint: item.state.color))
+
+            HStack {
+                Text(item.destinationURL.path)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.45))
+                    .lineLimit(1)
+                Spacer()
+                Text("\(item.completedFiles)/\(item.totalFiles) files")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(0.025))
+        )
+    }
+}
+
+struct ProgressDestinationQueueItem: Identifiable {
+    enum State {
+        case queued
+        case copying
+        case verifying
+        case completed
+
+        var icon: String {
+            switch self {
+            case .queued: return "clock"
+            case .copying: return "arrow.right.doc.on.clipboard"
+            case .verifying: return "checkmark.shield"
+            case .completed: return "checkmark.circle.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .queued: return .orange
+            case .copying: return .blue
+            case .verifying: return .yellow
+            case .completed: return .green
+            }
+        }
+
+        func label(currentStage: ProgressStage) -> String {
+            switch self {
+            case .queued:
+                return currentStage == .preparing ? "Preparing" : "Queued"
+            case .copying:
+                return "Copying"
+            case .verifying:
+                return "Verifying"
+            case .completed:
+                return "Done"
+            }
+        }
+    }
+
     let id = UUID()
-    let name: String
+    let index: Int
+    let destinationURL: URL
+    let completedFiles: Int
+    let totalFiles: Int
+    let progressFraction: Double
+    let state: State
 }

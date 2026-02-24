@@ -23,6 +23,8 @@ struct ContentView: View {
     @State private var cameraLabelExpanded = false
     @State private var verificationModeExpanded = false
     @State private var showCancelNotice = false
+    @State private var showDropRejection = false
+    @State private var dropRejectionMessage = ""
     
     // Calculate ideal window height based on content and current mode
     private var idealWindowHeight: CGFloat {
@@ -76,16 +78,8 @@ struct ContentView: View {
     
     // Calculate ideal window width based on content and current mode
     private var idealWindowWidth: CGFloat {
-        switch coordinator.currentMode {
-        case .copyAndVerify, .compareFolders:
-            if coordinator.settingsViewModel.prefs.makeReport {
-                return 980 // Width with report panel
-            } else {
-                return 680 // Compact width without report panel
-            }
-        case .masterReport:
-            return 680 // Master report uses same compact width as other modes
-        }
+        // Report settings now live in Preferences, so keep a single content width.
+        680
     }
 
     var body: some View {
@@ -96,15 +90,27 @@ struct ContentView: View {
     private var configuredMainContentView: some View {
         keyboardShortcutsView
             .onAppear {
+                restoreWindowFrame()
                 updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
                 checkForResumableOperations()
             }
             .alert("Error", isPresented: $errorHandler.showErrorAlert) {
-                Button("OK") {
+                if errorHandler.currentError?.canRetry == true {
+                    Button("Retry") {
+                        errorHandler.retry()
+                    }
+                }
+                Button("OK", role: .cancel) {
                     errorHandler.clearError()
                 }
             } message: {
-                Text(errorHandler.currentError?.localizedDescription ?? "An unknown error occurred")
+                let description = errorHandler.currentError?.localizedDescription ?? "An unknown error occurred"
+                let recovery = errorHandler.currentError?.recoverySuggestion
+                if let recovery {
+                    Text("\(description)\n\n\(recovery)")
+                } else {
+                    Text(description)
+                }
             }
     }
     
@@ -112,7 +118,6 @@ struct ContentView: View {
     private var styledMainContentView: some View {
         mainContentView
             .preferredColorScheme(.dark)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: coordinator.settingsViewModel.prefs.makeReport)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.completionState)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.isOperationInProgress)
             .animation(.spring(response: 0.35, dampingFraction: 0.9), value: coordinator.currentMode)
@@ -121,26 +126,21 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContentView: some View {
         ZStack {
-            contentHStack
-            // Lightweight, temporary overlay when user cancels an operation
-            if showCancelNotice {
-                VStack {
+            mainContentArea
+            // Lightweight toast overlays
+            VStack {
+                if showCancelNotice {
                     ToastView(icon: "xmark.circle", message: "User cancelled transfer", tint: .red)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    Spacer()
                 }
-                .padding(.top, 16)
+                if showDropRejection {
+                    ToastView(icon: "exclamationmark.triangle", message: dropRejectionMessage, tint: .orange)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                Spacer()
             }
+            .padding(.top, 16)
         }
-    }
-    
-    @ViewBuilder
-    private var contentHStack: some View {
-        HStack(spacing: 0) {
-            mainContentArea
-            reportSettingsArea
-        }
-        .frame(width: coordinator.settingsViewModel.prefs.makeReport && coordinator.currentMode != .masterReport ? 980 : 680)
     }
     
     @ViewBuilder
@@ -204,18 +204,6 @@ struct ContentView: View {
                 )
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-    
-    @ViewBuilder
-    private var reportSettingsArea: some View {
-        if coordinator.settingsViewModel.prefs.makeReport && coordinator.currentMode != .masterReport {
-            ReportSettingsPanel(coordinator: coordinator)
-                .frame(width: 300)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .trailing).combined(with: .opacity)
-                ))
         }
     }
     
@@ -349,7 +337,8 @@ struct ContentView: View {
                 Button {
                     withAnimation {
                         showResumeDialog = false
-                        coordinator.operationViewModel.resumeOperation(operation)
+                        // Phase 3: resume via SharedAppCoordinator
+                        Task { await coordinator.sharedCoordinator.resumeOperation() }
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -486,21 +475,20 @@ struct ContentView: View {
                 let currentFrame = window.frame
                 let newFrame = NSRect(
                     x: currentFrame.origin.x,
-                    y: currentFrame.origin.y + (currentFrame.height - newHeight), // Adjust Y to keep top position
+                    y: currentFrame.origin.y + (currentFrame.height - newHeight),
                     width: currentFrame.width,
                     height: newHeight
                 )
-                
-                // Animate the window resize
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.25
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     window.animator().setFrame(newFrame, display: true)
                 }
+                saveWindowFrame(newFrame)
             }
         }
     }
-    
+
     private func updateWindowWidth(to newWidth: CGFloat) {
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
@@ -511,13 +499,12 @@ struct ContentView: View {
                     width: newWidth,
                     height: currentFrame.height
                 )
-                
-                // Animate the window resize
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.25
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     window.animator().setFrame(newFrame, display: true)
                 }
+                saveWindowFrame(newFrame)
             }
         }
     }
@@ -528,16 +515,40 @@ struct ContentView: View {
                 let currentFrame = window.frame
                 let newFrame = NSRect(
                     x: currentFrame.origin.x,
-                    y: currentFrame.origin.y + (currentFrame.height - height), // Adjust Y to keep top position
+                    y: currentFrame.origin.y + (currentFrame.height - height),
                     width: width,
                     height: height
                 )
-                
-                // Animate the window resize
+
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.25
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     window.animator().setFrame(newFrame, display: true)
+                }
+                saveWindowFrame(newFrame)
+            }
+        }
+    }
+
+    private func saveWindowFrame(_ frame: NSRect) {
+        let dict: [String: CGFloat] = [
+            "x": frame.origin.x, "y": frame.origin.y,
+            "w": frame.size.width, "h": frame.size.height
+        ]
+        UserDefaults.standard.set(dict, forKey: "BitMatch.windowFrame")
+    }
+
+    private func restoreWindowFrame() {
+        guard let dict = UserDefaults.standard.dictionary(forKey: "BitMatch.windowFrame"),
+              let x = dict["x"] as? CGFloat, let y = dict["y"] as? CGFloat else { return }
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.windows.first {
+                var frame = window.frame
+                // Only restore position, let size be computed from content
+                frame.origin = NSPoint(x: x, y: y)
+                // Validate the position is on a visible screen
+                if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+                    window.setFrameOrigin(frame.origin)
                 }
             }
         }
@@ -555,11 +566,6 @@ struct ContentView: View {
             .onChange(of: idealWindowWidth) { _, newWidth in
                 if !coordinator.isOperationInProgress {
                     updateWindowWidth(to: newWidth)
-                }
-            }
-            .onChange(of: coordinator.settingsViewModel.prefs.makeReport) { _, _ in
-                if !coordinator.isOperationInProgress {
-                    updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
                 }
             }
             .onChange(of: coordinator.currentMode) { _, _ in
@@ -606,13 +612,17 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelOperation)) { _ in
                 coordinator.cancelOperation()
-                showUserCancelToast()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showPreferences)) { _ in
                 openPreferences()
             }
             .onReceive(NotificationCenter.default.publisher(for: .operationCancelledByUser)) { _ in
                 showUserCancelToast()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .dropRejected)) { notification in
+                if let reason = notification.userInfo?["reason"] as? String {
+                    showDropRejectionToast(reason)
+                }
             }
             // Dev-only shortcuts
 #if DEBUG
@@ -657,6 +667,7 @@ extension Notification.Name {
     static let runStressTestSmall = Notification.Name("runStressTestSmall")
     static let runStressTestMedium = Notification.Name("runStressTestMedium")
     static let runStressTestLarge = Notification.Name("runStressTestLarge")
+    static let dropRejected = Notification.Name("dropRejected")
     // operationCancelledByUser is defined in Shared/Core/Models/SharedModels.swift
 }
 
@@ -669,6 +680,18 @@ private extension ContentView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 showCancelNotice = false
+            }
+        }
+    }
+
+    func showDropRejectionToast(_ reason: String) {
+        dropRejectionMessage = reason
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            showDropRejection = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                showDropRejection = false
             }
         }
     }

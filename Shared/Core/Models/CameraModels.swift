@@ -128,8 +128,10 @@ struct CameraLabelSettings: Codable {
     }
 
     func formattedFolderName(for baseName: String) -> String {
-        let trimmedBase = Self.sanitizePathComponent(baseName.trimmingCharacters(in: .whitespacesAndNewlines))
-        let trimmedLabel = Self.sanitizePathComponent(label.trimmingCharacters(in: .whitespacesAndNewlines))
+        let rawBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBase = rawBase.isEmpty ? "" : Self.sanitizePathComponent(rawBase)
+        let trimmedLabel = rawLabel.isEmpty ? "" : Self.sanitizePathComponent(rawLabel)
         
         switch (trimmedLabel.isEmpty, trimmedBase.isEmpty) {
         case (true, _):

@@ -3,16 +3,15 @@ import Foundation
 #if os(macOS)
 import AppKit
 
-@MainActor
 class MacOSPlatformManager: PlatformManager {
     static let shared = MacOSPlatformManager()
     
     // MARK: - Service Instances
-    nonisolated var fileSystem: FileSystemService {
+    var fileSystem: FileSystemService {
         MacOSFileSystemService.shared
     }
     
-    nonisolated var checksum: ChecksumService {
+    var checksum: ChecksumService {
         SharedChecksumService.shared
     }
     
@@ -23,15 +22,15 @@ class MacOSPlatformManager: PlatformManager {
     )
     private static let _sharedCameraDetection = SharedCameraDetectionService()
 
-    nonisolated var fileOperations: FileOperationsService {
+    var fileOperations: FileOperationsService {
         Self._sharedFileOperations
     }
 
-    nonisolated var cameraDetection: CameraDetectionService {
+    var cameraDetection: CameraDetectionService {
         Self._sharedCameraDetection
     }
 
-    nonisolated var supportsDragAndDrop: Bool {
+    var supportsDragAndDrop: Bool {
         return true // macOS supports drag and drop
     }
 
@@ -41,17 +40,14 @@ class MacOSPlatformManager: PlatformManager {
     
     // MARK: - Platform-specific UI Methods
     
-    @MainActor
     func presentAlert(title: String, message: String) async {
-        return await withCheckedContinuation { continuation in
+        await MainActor.run {
             let alert = NSAlert()
             alert.messageText = title
             alert.informativeText = message
             alert.addButton(withTitle: "OK")
             alert.alertStyle = .warning
-            
             alert.runModal()
-            continuation.resume()
         }
     }
     

@@ -48,9 +48,9 @@ struct CompareFoldersView: View {
                         speed: speed,
                         timeRemaining: timeRemaining,
                         showMHLBadge: coordinator.verificationMode == .paranoid && coordinator.isOperationInProgress,
-                        isMHLGenerating: coordinator.operationViewModel.isGeneratingMHL,
-                        isMHLGenerated: coordinator.operationViewModel.mhlGenerated,
-                        mhlFileName: coordinator.operationViewModel.mhlFilePath,
+                        isMHLGenerating: false,
+                        isMHLGenerated: false,
+                        mhlFileName: nil,
                         onDrop: coordinator.isOperationInProgress ? nil : { url in fileSelection.leftURL = url }
                     ) {
                         folderContent(
