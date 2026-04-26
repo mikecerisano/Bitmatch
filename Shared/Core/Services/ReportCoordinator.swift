@@ -65,8 +65,8 @@ final class ReportCoordinator {
         // Persist to temp and open
         let tempDir = FileManager.default.temporaryDirectory
         let timestamp = Int(Date().timeIntervalSince1970)
-        let pdfURL = tempDir.appendingPathComponent("BitMatch_Report_\(timestamp).pdf")
-        let jsonURL = tempDir.appendingPathComponent("BitMatch_Report_\(timestamp).json")
+        let pdfURL = tempDir.appendingPathComponent("BitMatch_Report_\(timestamp).pdf").nonConflictingSibling()
+        let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json").nonConflictingSibling()
         try result.pdfData.write(to: pdfURL)
         try result.jsonData.write(to: jsonURL)
 

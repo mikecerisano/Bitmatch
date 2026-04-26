@@ -538,19 +538,6 @@ final class OperationViewModel: ObservableObject {
     }
     
     private func cleanupAfterOperation() async {
-        // Clean up temporary files from DESTINATIONS ONLY
-        // SAFETY: Never clean source folders to prevent accidental data loss on camera cards
-        // Source URLs (sourceURL, leftURL) are intentionally excluded
-        var destinationsToClean: [URL] = []
-
-        // Only clean destination folders - never source or comparison folders
-        destinationsToClean.append(contentsOf: fileSelectionViewModel.destinationURLs)
-
-        // Only run cleanup if we have destinations and we're in copy mode
-        if !destinationsToClean.isEmpty {
-            await cleanupTemporaryFiles(at: destinationsToClean)
-        }
-        
         // Save partial results for potential resume
         savePartialResults()
         activeDestinations = []
@@ -601,32 +588,4 @@ final class OperationViewModel: ObservableObject {
         )
     }
 
-    private func cleanupTemporaryFiles(at urls: [URL]) async {
-        await withTaskGroup(of: Void.self) { group in
-            for url in urls {
-                group.addTask {
-                    await Self.cleanupTemporaryFilesAtURL(url)
-                }
-            }
-        }
-    }
-
-    private static func cleanupTemporaryFilesAtURL(_ url: URL) async {
-        do {
-            let fileManager = FileManager.default
-            let tempItems = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            for item in tempItems {
-                let fileName = item.lastPathComponent
-                if fileName.hasPrefix("._") || fileName == ".DS_Store" || fileName == "Thumbs.db" {
-                    do {
-                        try fileManager.removeItem(at: item)
-                    } catch {
-                        SharedLogger.warning("Failed to remove temp item \(item.path): \(error)", category: .transfer)
-                    }
-                }
-            }
-        } catch {
-            SharedLogger.error("Cleanup error at \(url.path): \(error)", category: .transfer)
-        }
-    }
 }

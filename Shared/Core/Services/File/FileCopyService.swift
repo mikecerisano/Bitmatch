@@ -297,7 +297,10 @@ final class FileCopyService {
             )
         }
 
-        _ = try fm.replaceItemAt(destination, withItemAt: tempURL, backupItemName: nil, options: [.usingNewMetadataOnly])
+        // Publish only when the final path is still empty. moveItem refuses to
+        // replace an existing file, so a race creates a copy error instead of
+        // clobbering someone else's destination item.
+        try fm.moveItem(at: tempURL, to: destination)
         replaceSucceeded = true
 
         // Restore original modification time from source file

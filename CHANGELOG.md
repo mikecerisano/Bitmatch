@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- Safety: Align drop-zone system-path validation with transfer safety validation for temporary scratch paths.
+- Safety: Make automatic report, checksum, and MHL export filenames collision-safe.
+- Safety: Validate resolved output folders before any destination directory creation in all copy entry points.
+- Safety: Publish copied temp files with a non-overwriting move so destination races fail instead of replacing an existing item.
+- Safety: Remove automatic cleanup scans that deleted matching temp/junk files from user folders or mounted volumes.
+- Safety: Detect source write protection from volume metadata instead of creating a probe file on the source volume.
 - Privacy: Remove opt-in network analytics sharing and community baseline fetching so BitMatch has no app analytics upload path.
 - Release: Guard debug-only stress-test and fake-transfer UI call sites so the Release configuration compiles.
 - Safety: Make first-run verification default to Standard SHA-256 instead of Quick mode.

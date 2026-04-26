@@ -411,7 +411,7 @@ final class ReportExporter {
             return
         }
         
-        let pdfURL = saveDirectory.appendingPathComponent(fileName)
+        let pdfURL = saveDirectory.appendingPathComponent(fileName).nonConflictingSibling()
         
         do {
             if generateFullReport, let pdfData {
@@ -420,7 +420,7 @@ final class ReportExporter {
             }
             
             // Save CSV manifest with enhanced data
-            let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv")
+            let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv").nonConflictingSibling()
             try exportEnhancedCSV(results: results,
                                  to: csvURL,
                                  started: started,
@@ -428,7 +428,7 @@ final class ReportExporter {
                                  filesPerSecond: filesPerSecond)
             
             // Save enhanced JSON report
-            let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json")
+            let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json").nonConflictingSibling()
             try exportEnhancedJSONReport(
                 results: results,
                 to: jsonURL,
@@ -777,6 +777,7 @@ final class ReportExporter {
         // Auto-export checksums without asking
         let checksumURL = baseURL.deletingPathExtension()
             .appendingPathExtension("\(algorithm.rawValue.lowercased()).txt")
+            .nonConflictingSibling()
         
         Task { @MainActor in
             await exportChecksumsAsync(results: results, algorithm: algorithm, to: checksumURL)

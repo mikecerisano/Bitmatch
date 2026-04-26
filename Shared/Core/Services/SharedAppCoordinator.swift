@@ -237,12 +237,12 @@ class SharedAppCoordinator: ObservableObject {
         // SAFETY: Perform validation before starting (same checks as macOS)
         // Validates: source exists, not copying to self/subdirectory, symlink loops, sufficient space
         do {
-            try await SafetyValidator.performSafetyChecks(source: sourceURL, destinations: destinationURLs)
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
                 destinations: destinationURLs,
                 settings: cameraLabelSettings
             )
+            try await SafetyValidator.performSafetyChecks(source: sourceURL, destinations: destinationURLs)
         } catch {
             await platformManager.presentError(error)
             return

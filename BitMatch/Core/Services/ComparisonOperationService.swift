@@ -157,15 +157,16 @@ final class ComparisonOperationService {
         
         // Always perform real copy+verify in production testing
         
-        // Safety checks
-        try await SafetyValidator.performSafetyChecks(
-            source: source,
-            destinations: destinations
-        )
+        // Safety checks. Validate resolved output roots before any directory
+        // creation performed by performSafetyChecks.
         try SafetyValidator.validateResolvedDestinationRoots(
             source: source,
             destinations: destinations,
             settings: cameraLabelSettings
+        )
+        try await SafetyValidator.performSafetyChecks(
+            source: source,
+            destinations: destinations
         )
 
         // Establish file counts for progress (copy phase) without holding full list

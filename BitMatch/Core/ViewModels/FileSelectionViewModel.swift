@@ -506,17 +506,8 @@ final class FileSelectionViewModel: ObservableObject {
                 sourceFolderInfo = info
                 isFetchingSourceInfo = false
                 if let src = sourceURL {
-                    // Basic write protection check: if we cannot create a temp file in parent dir, mark as write-protected
-                    let parent = src.deletingLastPathComponent()
-                    let probeURL = parent.appendingPathComponent(".bitmatch_write_probe_\(UUID().uuidString)")
-                    var writeProtected = false
-                    do {
-                        try "probe".data(using: .utf8)?.write(to: probeURL)
-                        try? FileManager.default.removeItem(at: probeURL)
-                    } catch {
-                        writeProtected = true
-                    }
-                    sourceIsWriteProtected = writeProtected
+                    let values = try? src.resourceValues(forKeys: [.volumeIsReadOnlyKey])
+                    sourceIsWriteProtected = values?.volumeIsReadOnly ?? false
                     // Kick off camera detection hint
                     let hint = CameraDetectionOrchestrator.shared.detectCamera(at: src)
                     if let hint = hint {

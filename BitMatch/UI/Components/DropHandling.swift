@@ -130,6 +130,13 @@ struct DropValidation {
 
     static func isSystemDirectory(_ url: URL) -> Bool {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let temporaryPath = FileManager.default.temporaryDirectory
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        if path == temporaryPath || path.hasPrefix(temporaryPath + "/") {
+            return false
+        }
         return systemPrefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 

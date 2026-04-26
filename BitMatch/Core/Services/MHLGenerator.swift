@@ -83,7 +83,7 @@ final class MHLGenerator {
         
         // Save MHL file
         let mhlFileName = generateMHLFileName(for: destinationURL, jobID: jobID)
-        let mhlURL = destinationURL.appendingPathComponent(mhlFileName)
+        let mhlURL = destinationURL.appendingPathComponent(mhlFileName).nonConflictingSibling()
         
         try xmlContent.write(to: mhlURL, atomically: true, encoding: .utf8)
         
@@ -244,7 +244,7 @@ final class MHLGenerator {
         let hash = Insecure.MD5.hash(data: mhlData)
         let hashString = hash.map { String(format: "%02x", $0) }.joined()
         
-        let companionURL = mhlURL.appendingPathExtension("md5")
+        let companionURL = mhlURL.appendingPathExtension("md5").nonConflictingSibling()
         let content = "\(hashString)  \(mhlURL.lastPathComponent)\n"
         try content.write(to: companionURL, atomically: true, encoding: .utf8)
     }
