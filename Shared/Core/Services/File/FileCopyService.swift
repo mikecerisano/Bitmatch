@@ -18,7 +18,7 @@ final class FileCopyService {
                     .fileSizeKey,
                     .contentModificationDateKey,
                 ],
-                options: [.skipsHiddenFiles]
+                options: []
             )
         }
         func nextRegularFile() -> URL? {
@@ -54,12 +54,23 @@ final class FileCopyService {
         preEnumeratedFiles: [URL]? = nil,
         pauseCheck: (@Sendable () async throws -> Void)? = nil,
         onProgress: @escaping (String, Int64) async -> Void,
-        onError: @escaping (String, Error) -> Void
+        onError: @escaping (String, Error) async -> Void
     ) async throws {
         let fm = FileManager.default
-        if !fm.fileExists(atPath: dstRoot.path) {
+        var dstRootIsDirectory: ObjCBool = false
+        if fm.fileExists(atPath: dstRoot.path, isDirectory: &dstRootIsDirectory) {
+            guard dstRootIsDirectory.boolValue else {
+                throw NSError(
+                    domain: "FileCopyService",
+                    code: NSFileWriteFileExistsError,
+                    userInfo: [NSLocalizedDescriptionKey: "Destination root exists and is not a folder"]
+                )
+            }
+        } else {
             try fm.createDirectory(at: dstRoot, withIntermediateDirectories: true, attributes: nil)
         }
+
+        try await createDirectoryTreeSafely(from: src, toRoot: dstRoot, onError: onError)
 
         // Streaming copy with bounded concurrency
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -95,7 +106,7 @@ final class FileCopyService {
                         }()
                         // Security 11: reject path traversal components
                         if relPath.split(separator: "/").contains("..") {
-                            onError(relPath, NSError(
+                            await onError(relPath, NSError(
                                 domain: "FileCopyService",
                                 code: NSFileWriteNoPermissionError,
                                 userInfo: [NSLocalizedDescriptionKey: "Path contains traversal component (..)"]
@@ -106,7 +117,7 @@ final class FileCopyService {
                         let resolvedSource = fileURL.resolvingSymlinksInPath()
                         let resolvedSrcRoot = src.resolvingSymlinksInPath()
                         guard Self.pathIsWithin(resolvedSource.path, root: resolvedSrcRoot.path) else {
-                            onError(relPath, NSError(
+                            await onError(relPath, NSError(
                                 domain: "FileCopyService",
                                 code: NSFileWriteNoPermissionError,
                                 userInfo: [NSLocalizedDescriptionKey: "Source file resolves outside source directory"]
@@ -122,7 +133,7 @@ final class FileCopyService {
                             let realDstRootURL = dstRoot.standardized.resolvingSymlinksInPath()
 
                             guard Self.pathIsWithin(realParentDirURL.path, root: realDstRootURL.path) else {
-                                onError(relPath, NSError(
+                                await onError(relPath, NSError(
                                     domain: "FileCopyService",
                                     code: NSFileWriteNoPermissionError,
                                     userInfo: [NSLocalizedDescriptionKey: "Destination path escapes root directory"]
@@ -132,34 +143,27 @@ final class FileCopyService {
                             if !fm.fileExists(atPath: parentDir.path) {
                                 try fm.createDirectory(at: parentDir, withIntermediateDirectories: true, attributes: nil)
                             }
+                            let resolvedParentAfterCreate = parentDir.standardized.resolvingSymlinksInPath()
+                            guard Self.pathIsWithin(resolvedParentAfterCreate.path, root: realDstRootURL.path) else {
+                                await onError(relPath, NSError(
+                                    domain: "FileCopyService",
+                                    code: NSFileWriteNoPermissionError,
+                                    userInfo: [NSLocalizedDescriptionKey: "Destination directory changed while preparing copy"]
+                                ))
+                                continue
+                            }
                             let sourceSize = Int64(resourceValues.fileSize ?? 0)
                             if fm.fileExists(atPath: dstURL.path) {
-                                let destAttributes = try? fm.attributesOfItem(atPath: dstURL.path)
-                                let destSize = (destAttributes?[.size] as? NSNumber)?.int64Value ?? -1
-                                let destModDate = destAttributes?[.modificationDate] as? Date
-                                if destSize == sourceSize {
-                                    let sourceModDate = resourceValues.contentModificationDate
-                                    let shouldSkip: Bool
-                                    if verificationMode == .quick {
-                                        shouldSkip = Self.modificationDatesMatch(source: sourceModDate, destination: destModDate)
-                                    } else {
-                                        do {
-                                            shouldSkip = try await Self.checksumsMatch(
-                                                source: fileURL,
-                                                destination: dstURL,
-                                                verificationMode: verificationMode
-                                            )
-                                        } catch is CancellationError {
-                                            throw CancellationError()
-                                        } catch {
-                                            shouldSkip = false
-                                        }
-                                    }
-                                    if shouldSkip {
-                                        await onProgress(relPath, sourceSize)
-                                        continue
-                                    }
-                                } else {
+                                let shouldReuseExisting = try await Self.canReuseExistingDestinationFile(
+                                    source: fileURL,
+                                    destination: dstURL,
+                                    sourceSize: sourceSize,
+                                    sourceModificationDate: resourceValues.contentModificationDate,
+                                    verificationMode: verificationMode
+                                )
+                                if shouldReuseExisting {
+                                    await onProgress(relPath, sourceSize)
+                                    continue
                                 }
                             }
                             try await copyFileSecurely(from: fileURL, to: dstURL, pauseCheck: pauseCheck)
@@ -167,7 +171,7 @@ final class FileCopyService {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
-                            onError(relPath, error)
+                            await onError(relPath, error)
                         }
                     }
                 }
@@ -202,6 +206,7 @@ final class FileCopyService {
         let sourceAttributes = try fm.attributesOfItem(atPath: source.path)
         let sourceSize = (sourceAttributes[.size] as? NSNumber)?.int64Value ?? 0
         let sourceModificationDate = sourceAttributes[.modificationDate] as? Date
+        let sourceIdentity = fileIdentity(from: sourceAttributes)
         let logInterval: Int64 = 512 * 1024 * 1024
         var bytesCopied: Int64 = 0
         var nextLogMark = logInterval
@@ -269,6 +274,29 @@ final class FileCopyService {
         guard sourceSize == tempSize else {
             throw NSError(domain: "FileCopyService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Size mismatch after copy"])
         }
+
+        let finalSourceAttributes = try fm.attributesOfItem(atPath: source.path)
+        guard sourceRemainedStable(
+            initialSize: sourceSize,
+            initialModificationDate: sourceModificationDate,
+            initialIdentity: sourceIdentity,
+            finalAttributes: finalSourceAttributes
+        ) else {
+            throw NSError(
+                domain: "FileCopyService",
+                code: -4,
+                userInfo: [NSLocalizedDescriptionKey: "Source file changed during copy; destination was not modified"]
+            )
+        }
+
+        guard !fm.fileExists(atPath: destination.path) else {
+            throw NSError(
+                domain: "FileCopyService",
+                code: -5,
+                userInfo: [NSLocalizedDescriptionKey: "Destination file appeared during copy; refusing to overwrite it"]
+            )
+        }
+
         _ = try fm.replaceItemAt(destination, withItemAt: tempURL, backupItemName: nil, options: [.usingNewMetadataOnly])
         replaceSucceeded = true
 
@@ -285,6 +313,74 @@ final class FileCopyService {
 
         if shouldLog {
             Self.logMemoryUsage(context: "completed \(destination.lastPathComponent)")
+        }
+    }
+
+    private static func createDirectoryTreeSafely(
+        from sourceRoot: URL,
+        toRoot destinationRoot: URL,
+        onError: @escaping (String, Error) async -> Void
+    ) async throws {
+        let fm = FileManager.default
+        let sourceRootPath = sourceRoot.path
+        let destinationRootPath = destinationRoot.standardized.resolvingSymlinksInPath().path
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+
+        guard let enumerator = fm.enumerator(
+            at: sourceRoot,
+            includingPropertiesForKeys: keys,
+            options: []
+        ) else { return }
+
+        while let item = enumerator.nextObject() as? URL {
+            try Task.checkCancellation()
+            guard let values = try? item.resourceValues(forKeys: Set(keys)),
+                  values.isSymbolicLink != true,
+                  values.isDirectory == true else {
+                continue
+            }
+
+            let itemPath = item.path
+            let relPath: String
+            if itemPath.hasPrefix(sourceRootPath + "/") {
+                relPath = String(itemPath.dropFirst(sourceRootPath.count + 1))
+            } else {
+                relPath = item.lastPathComponent
+            }
+
+            guard !relPath.split(separator: "/").contains("..") else {
+                await onError(relPath, NSError(
+                    domain: "FileCopyService",
+                    code: NSFileWriteNoPermissionError,
+                    userInfo: [NSLocalizedDescriptionKey: "Directory path contains traversal component (..)"]
+                ))
+                continue
+            }
+
+            let destinationDirectory = destinationRoot.appendingPathComponent(relPath, isDirectory: true)
+            let resolvedDestination = destinationDirectory.standardized.resolvingSymlinksInPath()
+            guard pathIsWithin(resolvedDestination.path, root: destinationRootPath) else {
+                await onError(relPath, NSError(
+                    domain: "FileCopyService",
+                    code: NSFileWriteNoPermissionError,
+                    userInfo: [NSLocalizedDescriptionKey: "Destination directory escapes root directory"]
+                ))
+                continue
+            }
+
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: destinationDirectory.path, isDirectory: &isDirectory) {
+                if !isDirectory.boolValue {
+                    await onError(relPath, existingDestinationConflictError("Existing destination item conflicts with source directory"))
+                }
+                continue
+            }
+
+            do {
+                try fm.createDirectory(at: destinationDirectory, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                await onError(relPath, error)
+            }
         }
     }
 
@@ -307,6 +403,52 @@ final class FileCopyService {
     }
 
     private static let modificationTolerance: TimeInterval = 2.0
+
+    private static func canReuseExistingDestinationFile(
+        source: URL,
+        destination: URL,
+        sourceSize: Int64,
+        sourceModificationDate: Date?,
+        verificationMode: VerificationMode
+    ) async throws -> Bool {
+        let fm = FileManager.default
+        let destinationValues = try destination.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard destinationValues.isSymbolicLink != true, destinationValues.isRegularFile == true else {
+            throw existingDestinationConflictError("Existing destination item is not a regular file")
+        }
+
+        let destAttributes = try fm.attributesOfItem(atPath: destination.path)
+        let destSize = (destAttributes[.size] as? NSNumber)?.int64Value ?? -1
+        guard destSize == sourceSize else {
+            throw existingDestinationConflictError("Existing destination file differs in size")
+        }
+
+        if verificationMode == .quick {
+            let destModDate = destAttributes[.modificationDate] as? Date
+            guard modificationDatesMatch(source: sourceModificationDate, destination: destModDate) else {
+                throw existingDestinationConflictError("Existing destination file differs; choose an empty destination or a unique folder name")
+            }
+            return true
+        }
+
+        guard try await checksumsMatch(
+            source: source,
+            destination: destination,
+            verificationMode: verificationMode
+        ) else {
+            throw existingDestinationConflictError("Existing destination file checksum differs; refusing to overwrite it")
+        }
+
+        return true
+    }
+
+    private static func existingDestinationConflictError(_ reason: String) -> NSError {
+        NSError(
+            domain: "FileCopyService",
+            code: NSFileWriteFileExistsError,
+            userInfo: [NSLocalizedDescriptionKey: reason]
+        )
+    }
 
     /// Security: compare path-components, not raw prefixes, to avoid boundary bypasses.
     private static func pathIsWithin(_ candidatePath: String, root rootPath: String) -> Bool {
@@ -332,11 +474,13 @@ final class FileCopyService {
             let srcHash = try await SharedChecksumService.shared.generateChecksum(
                 for: source,
                 type: type,
+                useCache: false,
                 progressCallback: nil
             )
             let dstHash = try await SharedChecksumService.shared.generateChecksum(
                 for: destination,
                 type: type,
+                useCache: false,
                 progressCallback: nil
             )
             if srcHash.lowercased() != dstHash.lowercased() {
@@ -344,6 +488,33 @@ final class FileCopyService {
             }
         }
         return true
+    }
+
+    private static func fileIdentity(from attributes: [FileAttributeKey: Any]) -> (volume: UInt64?, file: UInt64?) {
+        let volume = (attributes[.systemNumber] as? NSNumber)?.uint64Value
+        let file = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        return (volume, file)
+    }
+
+    private static func sourceRemainedStable(
+        initialSize: Int64,
+        initialModificationDate: Date?,
+        initialIdentity: (volume: UInt64?, file: UInt64?),
+        finalAttributes: [FileAttributeKey: Any]
+    ) -> Bool {
+        let finalSize = (finalAttributes[.size] as? NSNumber)?.int64Value ?? -1
+        guard finalSize == initialSize else { return false }
+
+        let finalIdentity = fileIdentity(from: finalAttributes)
+        if let initialVolume = initialIdentity.volume, let finalVolume = finalIdentity.volume, initialVolume != finalVolume {
+            return false
+        }
+        if let initialFile = initialIdentity.file, let finalFile = finalIdentity.file, initialFile != finalFile {
+            return false
+        }
+
+        let finalModificationDate = finalAttributes[.modificationDate] as? Date
+        return initialModificationDate == finalModificationDate
     }
 }
 

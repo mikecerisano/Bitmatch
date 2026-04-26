@@ -180,17 +180,6 @@ final class CopyVerifyExecutor {
         config: CopyVerifyConfig,
         callbacks: CopyVerifyCallbacks
     ) async throws -> FileOperation {
-        timingService.completeOperation(success: true, message: "Operation completed successfully")
-        errorService.completeErrorTracking()
-        stateService.completeOperation()
-
-        let hasErrors = !errorService.currentErrors.isEmpty
-        let completionMessage = hasErrors ?
-            "Operation completed with \(errorService.currentErrors.count) issues" :
-            "Operation completed successfully"
-
-        callbacks.onStateChange(.completed(OperationCompletionInfo(success: !hasErrors, message: completionMessage)))
-
         // Get all results for report
         let allResults: [ResultRow]
         if let overflowService = resultsOverflowService {
@@ -208,6 +197,21 @@ final class CopyVerifyExecutor {
                 )
             }
         }
+
+        let failedResults = allResults.filter { row in
+            !(row.status.contains("✅") || row.status.contains("Match"))
+        }
+        let issueCount = failedResults.count + errorService.currentErrors.count
+        let succeeded = issueCount == 0
+        let completionMessage = succeeded ?
+            "Operation completed successfully" :
+            "Operation completed with \(issueCount) issue\(issueCount == 1 ? "" : "s")"
+
+        timingService.completeOperation(success: succeeded, message: completionMessage)
+        errorService.completeErrorTracking()
+        stateService.completeOperation()
+
+        callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
         // Generate report if enabled
         if config.reportSettings.makeReport && !allResults.isEmpty {

@@ -92,6 +92,7 @@ final class MHLOperationService {
         let checksum = try await checksumService.generateChecksum(
             for: url,
             type: algorithm,
+            useCache: false,
             progressCallback: { progress, status in
                 // Progress is handled at higher level for now
                 SharedLogger.debug("Checksum progress for \(url.lastPathComponent): \(Int(progress * 100))%", category: .transfer)

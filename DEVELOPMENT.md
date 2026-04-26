@@ -24,6 +24,13 @@
 - Resolved compilation errors from automated changes
 - Restored proper left-right layout in iPad interface
 
+#### 5. Transfer Safety Hardening
+- Made Standard SHA-256 verification the first-run default
+- Added core preflight for resolved output roots and portable source paths
+- Reworked copy behavior to avoid destructive overwrites
+- Added source-stability checks before publishing destination files
+- Ensured large result sets and reports retain the latest status for every file/destination
+
 ## Current Development Status
 
 ### ✅ Completed (Production Ready)
@@ -33,11 +40,13 @@
 - **Folder Selection**: Fixed iOS security-scoped resource handling
 - **Interface Consistency**: Both platforms feature-complete and visually consistent
 - **Compilation**: All syntax and type errors resolved
+- **Transfer Safety Core**: Conservative copy, verification, preflight, and reporting behavior for production-style offloads
 
 ### 🎯 Active Development Areas
 - **UI Polish**: Minor visual refinements and animations
 - **Testing**: Comprehensive testing of all operation flows
 - **Performance**: Optimization for large file sets
+- **Hardware Soak Testing**: Real drive/card torture testing for unplug, low-space, cancel/resume, and multi-destination workflows
 
 ### 💡 Future Enhancements
 - **Additional Camera Support**: Expand camera detection database
@@ -157,6 +166,22 @@ func updateProgress(_ progress: OperationProgress) {
 }
 ```
 
+### 4. Transfer Safety Boundary
+**Files**:
+- `Shared/Core/Services/File/SafetyValidator.swift`
+- `Shared/Core/Services/File/FileCopyService.swift`
+- `Shared/Core/Services/SharedFileOperationsService.swift`
+
+**Pattern**: Safety checks belong in shared core services, not only in views. UI readiness can explain risk, but `SharedFileOperationsService` must still reject unsafe source/destination combinations when called directly.
+
+Required behaviors:
+- do not overwrite conflicting destination files
+- copy to temporary files and promote only after flush, size check, and source-stability check
+- reject output roots that collide with source, each other, symlinks, files, or nested folders
+- include hidden files and empty folders
+- skip symlink entries instead of following them outside the selected source
+- use uncached checksums for live verification/report sealing paths
+
 ## Development Workflow
 
 ### 1. Making Changes to Shared Code
@@ -242,11 +267,20 @@ print("❌ Error: \(error)")
 - [ ] Error conditions show appropriate messages
 - [ ] UI remains responsive during operations
 - [ ] Memory usage stays reasonable for large operations
+- [ ] Existing destination files are preserved when they differ from source files
+- [ ] Hidden sidecar files and empty folders are copied
+- [ ] Source mutation during transfer fails safely and does not publish the destination file
+- [ ] Case-sensitive source path collisions are rejected before transfer
+- [ ] Reports contain one latest-status row per file/destination on large transfers
 
 ## Testing & Coverage
 
 - Run tests with coverage:
   - `xcodebuild test -scheme BitMatch -enableCodeCoverage YES -resultBundlePath coverage.xcresult`
+- Run the safety-focused unit target:
+  - `xcodebuild test -scheme BitMatch -project BitMatch.xcodeproj -configuration Debug -destination platform=macOS,arch=arm64 -only-testing:BitMatchTests`
+- Compile the iPad target after shared changes:
+  - `xcodebuild -scheme BitMatch-iPad -project BitMatch.xcodeproj -configuration Debug -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build`
 - Coverage summary:
   - `xcrun xccov view --report coverage.xcresult`
 - JSON coverage for tooling/CI:
@@ -286,6 +320,8 @@ print("❌ Error: \(error)")
 - iOS: security‑scoped URLs acquired/released appropriately
 - Progress callbacks update coordinator on main actor
 - Avoid deeply nested SwiftUI modifiers; prefer extracted subviews for complex rows
+- Transfer safety checks live in shared services and cannot be bypassed by calling the core operation API directly
+- New copy/verify behavior has tests for destructive-overwrite, source-mutation, hidden-file, symlink, and reporting edge cases
 
 ## Code Style Guidelines
 

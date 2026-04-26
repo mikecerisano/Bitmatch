@@ -410,10 +410,16 @@ final class FileSelectionViewModel: ObservableObject {
     }
     
     func validateDestinations(for source: URL) -> [URL] {
+        var seenPaths = Set<String>()
         return destinationURLs.filter { destination in
-            // Check if destination is safe (not same as source, not ancestor)
-            destination.standardizedFileURL != source.standardizedFileURL &&
-            !source.isAncestor(of: destination)
+            let path = destination.standardizedFileURL.resolvingSymlinksInPath().path
+            guard !seenPaths.contains(path),
+                  !SafetyValidator.isProtectedSystemPath(destination),
+                  SafetyValidator.destinationSafetyIssue(source: source, destination: destination) == nil else {
+                return false
+            }
+            seenPaths.insert(path)
+            return true
         }
     }
     
@@ -464,7 +470,7 @@ final class FileSelectionViewModel: ObservableObject {
                 if let enumerator = fm.enumerator(
                     at: urlToFetch,
                     includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-                    options: [.skipsHiddenFiles]
+                    options: []
                 ) {
                     while let next = (enumerator as NSEnumerator).nextObject() as? URL {
                         do {

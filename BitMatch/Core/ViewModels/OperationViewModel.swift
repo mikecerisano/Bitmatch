@@ -137,16 +137,29 @@ final class OperationViewModel: ObservableObject {
         guard let source = fileSelectionViewModel.sourceURL,
               !fileSelectionViewModel.destinationURLs.isEmpty else { return }
 
-        // Validate destinations are safe (not same as source or subdirectory of source)
+        // Validate destinations are safe before any destination folders are created.
         let validDestinations = fileSelectionViewModel.validateDestinations(for: source)
         let invalidCount = fileSelectionViewModel.destinationURLs.count - validDestinations.count
 
         if invalidCount > 0 {
-            let invalidDestinations = fileSelectionViewModel.destinationURLs.filter { dest in
-                !validDestinations.contains(dest)
+            let destinationPathCounts = Dictionary(
+                grouping: fileSelectionViewModel.destinationURLs,
+                by: { $0.standardizedFileURL.resolvingSymlinksInPath().path }
+            ).mapValues(\.count)
+            let invalidReasons = fileSelectionViewModel.destinationURLs.compactMap { dest -> String? in
+                let path = dest.standardizedFileURL.resolvingSymlinksInPath().path
+                if (destinationPathCounts[path] ?? 0) > 1 {
+                    return "\(dest.lastPathComponent): Destination is already selected"
+                }
+                if SafetyValidator.isProtectedSystemPath(dest) {
+                    return "\(dest.lastPathComponent): System folders cannot be used as destinations"
+                }
+                if let reason = SafetyValidator.destinationSafetyIssue(source: source, destination: dest) {
+                    return "\(dest.lastPathComponent): \(reason)"
+                }
+                return "\(dest.lastPathComponent): Destination is not safe for this transfer"
             }
-            let names = invalidDestinations.map { $0.lastPathComponent }.joined(separator: ", ")
-            errorMessage = "Cannot copy to \(names) - destination is same as or inside source folder"
+            errorMessage = "Cannot start transfer. \(invalidReasons.joined(separator: "; "))"
             showError = true
             return
         }

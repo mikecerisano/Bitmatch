@@ -74,7 +74,8 @@ All new architecture files compile successfully:
 - **Easy feature addition** - add once, works everywhere
 - **Unified bug fixes** - fix once, fixed everywhere
 - **Platform-specific UI** with shared business logic
- - **Shared checksum cache** and performance improvements shared across platforms
+- **Shared checksum cache** and performance improvements shared across platforms
+- **Shared transfer safety** for preflight validation, overwrite protection, verification, and reporting across platforms
 
 ## 🚀 Next Steps
 
@@ -91,6 +92,9 @@ The architecture is ready to support:
 - Cloud sync
 - Network transfers
 
+### 4. **Transfer Safety Validation**
+The shared copy/verify path now includes resolved destination-root checks, source-tree portability checks, non-destructive destination handling, hidden-file and empty-directory support, fresh live checksums, and large-result report coalescing. Future validation should focus on real hardware soak tests: SD cards, SSDs, multiple destinations, low-space destinations, cancel/resume, and disconnect scenarios.
+
 ## 🏆 Success Metrics
 
 | Metric | Before | After |
@@ -100,6 +104,7 @@ The architecture is ready to support:
 | Service Files | 6+ duplicated | 3 shared |
 | Bug Fix Locations | 2 platforms | 1 location |
 | Feature Addition Time | 2x work | 1x work |
+| Transfer Safety Rules | UI-dependent | Shared core enforcement |
 
 ## 🎉 Migration Complete!
 

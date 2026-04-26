@@ -19,7 +19,7 @@ enum FileTreeEnumerator {
         if let enumerator = fm.enumerator(
             at: base,
             includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
+            options: []
         ) {
             while let item = enumerator.nextObject() as? URL {
                 if Task.isCancelled { return entries }
@@ -47,14 +47,16 @@ enum FileTreeEnumerator {
     static func countRegularFiles(base: URL) -> Int {
         var count = 0
         let fm = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
         if let enumerator = fm.enumerator(
             at: base,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            includingPropertiesForKeys: Array(keys),
+            options: []
         ) {
             while let item = enumerator.nextObject() as? URL {
                 if Task.isCancelled { return count }
-                if let isFile = try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile == true {
+                guard let values = try? item.resourceValues(forKeys: keys) else { continue }
+                if values.isSymbolicLink != true && values.isRegularFile == true {
                     count += 1
                 }
             }

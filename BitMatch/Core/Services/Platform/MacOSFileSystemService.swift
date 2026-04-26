@@ -88,7 +88,7 @@ final class MacOSFileSystemService: FileSystemService {
         let directoryEnumerator = fileManager.enumerator(
             at: folderURL,
             includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles],
+            options: [],
             errorHandler: nil
         )
         

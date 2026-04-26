@@ -16,10 +16,18 @@
 
 #### Key Benefits
 - **Multiple Destinations**: Copy to multiple backups simultaneously
-- **Integrity Verification**: Ensure perfect file copies with checksums
+- **Integrity Verification**: Detect copy mismatches with checksum or byte-comparison verification
 - **Professional Naming**: Industry-standard folder naming conventions
 - **Real-time Progress**: Detailed progress with speed, ETA, and file counts
 - **Camera Aware**: Automatic detection and labeling of camera media
+
+#### Transfer Safety Checks
+- **No Destructive Overwrite**: Existing destination files are reused only when they are proven to match the source; conflicting files are preserved and reported as failures.
+- **Temp-Then-Promote Writes**: Files are copied into temporary files, flushed, size-checked, then promoted into place only after safety checks pass.
+- **Source Stability Checks**: The copy is rejected if the source file changes size, modification date, or file identity during transfer.
+- **Safe Destination Roots**: Final labeled output folders are validated for duplicate roots, nested roots, source/destination containment, symlinks, and file-vs-folder conflicts before transfer.
+- **Portable Path Preflight**: Unsafe relative paths and case/Unicode-normalization collisions are rejected before any writes start.
+- **Complete Tree Coverage**: Hidden files and empty directories are included, while symlink entries are skipped to avoid escaping the selected source tree.
 
 ### Operational Controls
 - **Pause/Resume**: Safely pause and resume long operations
@@ -69,9 +77,9 @@
 ## Verification Modes
 
 ### Quick Mode
-- **Method**: File size comparison only
+- **Method**: File size and modification-time checks for reuse decisions
 - **Speed**: Fastest
-- **Use Case**: Basic verification for trusted environments
+- **Use Case**: Basic smoke checks only; Standard is the recommended default for real footage
 - **Time**: ~30 seconds per 1000 files
 
 ### Standard Mode (Default)
@@ -239,6 +247,7 @@ Note: MD5 support exists for interoperability with some legacy pipelines. For in
 - **Error Log**: Any issues encountered during transfer
 - **Performance Metrics**: Speed, timing, and efficiency data
 - **Production Metadata**: Camera, project, and workflow information
+- **Large Transfer Integrity**: Disk-backed result overflow is coalesced so reports keep the latest status for each file/destination pair.
 
 ## Platform-Specific Features
 
@@ -271,8 +280,10 @@ Note: MD5 support exists for interoperability with some legacy pipelines. For in
 ### Reliability Features
 - **Resume Capability**: Resume interrupted transfers
 - **Progress Persistence**: Operation state survives app crashes
-- **Checksum Verification**: Guarantee data integrity
-- **Atomic Operations**: All-or-nothing file operations
+- **Checksum Verification**: Detect integrity mismatches after copy
+- **Atomic Publish Path**: Temp-then-promote writes avoid replacing destination files until checks pass
+- **Collision Preflight**: Rejects unsafe path collisions before writing
+- **Failure Visibility**: Per-file failures and verification mismatches make the operation complete with issues instead of false success
 
 ### Industry Compliance
 - **Netflix MHL**: Full Media Hash List standard compliance

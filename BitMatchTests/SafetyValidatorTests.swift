@@ -118,4 +118,91 @@ final class SafetyValidatorTests: XCTestCase {
         XCTAssertFalse(DropValidation.singleItem([]))
         XCTAssertFalse(DropValidation.multipleItems([]))
     }
+
+    // MARK: - Transfer Safety
+
+    func testSafetyChecksRejectDestinationInsideSource() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let destination = source.appendingPathComponent("Backup")
+
+        await assertThrowsFileOperationError(expectedMessage: "Destination is inside the source folder") {
+            try await SafetyValidator.performSafetyChecks(source: source, destinations: [destination])
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testSafetyChecksRejectDestinationContainingSource() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+
+        await assertThrowsFileOperationError(expectedMessage: "Destination contains the source folder") {
+            try await SafetyValidator.performSafetyChecks(source: source, destinations: [root])
+        }
+    }
+
+    func testSafetyChecksRejectDuplicateDestinations() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        let destination = root.appendingPathComponent("Destination")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        await assertThrowsFileOperationError(expectedMessage: "Destination folders must be unique") {
+            try await SafetyValidator.performSafetyChecks(source: source, destinations: [destination, destination])
+        }
+    }
+
+    func testPortableRelativePathValidationRejectsCaseOnlyCollisions() {
+        XCTAssertThrowsError(try SafetyValidator.validatePortableRelativePaths([
+            "A001/clip.mov",
+            "a001/CLIP.mov"
+        ])) { error in
+            guard case FileOperationError.unsafeOperation(let message) = error else {
+                return XCTFail("Expected unsafeOperation, got \(error)")
+            }
+            XCTAssertTrue(message.contains("collide on case-insensitive filesystems"))
+        }
+    }
+
+    func testPortableRelativePathValidationRejectsUnsafeComponents() {
+        XCTAssertThrowsError(try SafetyValidator.validatePortableRelativePaths([
+            "A001/../clip.mov"
+        ])) { error in
+            guard case FileOperationError.unsafeOperation(let message) = error else {
+                return XCTFail("Expected unsafeOperation, got \(error)")
+            }
+            XCTAssertTrue(message.contains("unsafe relative path"))
+        }
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func assertThrowsFileOperationError(
+        expectedMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        operation: () async throws -> Void
+    ) async {
+        do {
+            try await operation()
+            XCTFail("Expected FileOperationError.unsafeOperation", file: file, line: line)
+        } catch FileOperationError.unsafeOperation(let message) {
+            XCTAssertEqual(message, expectedMessage, file: file, line: line)
+        } catch {
+            XCTFail("Expected FileOperationError.unsafeOperation, got \(error)", file: file, line: line)
+        }
+    }
 }

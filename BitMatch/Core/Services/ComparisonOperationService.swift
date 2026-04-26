@@ -41,7 +41,7 @@ final class ComparisonOperationService {
             let enumKeys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey]
             let maxInFlightTasks = max(128, workers * 32) // bound task graph to keep memory stable
             var inFlight = 0
-            if let enumerator = fm.enumerator(at: left, includingPropertiesForKeys: enumKeys, options: [.skipsHiddenFiles]) {
+            if let enumerator = fm.enumerator(at: left, includingPropertiesForKeys: enumKeys, options: []) {
                 while let nextObj = enumerator.nextObject() as? URL {
                     do {
                         let values = try nextObj.resourceValues(forKeys: Set(enumKeys))
@@ -162,6 +162,11 @@ final class ComparisonOperationService {
             source: source,
             destinations: destinations
         )
+        try SafetyValidator.validateResolvedDestinationRoots(
+            source: source,
+            destinations: destinations,
+            settings: cameraLabelSettings
+        )
 
         // Establish file counts for progress (copy phase) without holding full list
         let perDestFileCount = FileTreeEnumerator.countRegularFiles(base: source)
@@ -173,16 +178,11 @@ final class ComparisonOperationService {
         }
 
         let destinationRootFor: (URL) -> URL = { destination in
-            let baseName = source.lastPathComponent
-            let labeledName = cameraLabelSettings.formattedFolderName(for: baseName)
-            if cameraLabelSettings.groupByCamera {
-                let raw = cameraLabelSettings.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
-                return destination.appendingPathComponent(group).appendingPathComponent(baseName)
-            } else {
-                let folderName = labeledName.isEmpty ? baseName : labeledName
-                return destination.appendingPathComponent(folderName)
-            }
+            SafetyValidator.resolvedDestinationRoot(
+                source: source,
+                destination: destination,
+                settings: cameraLabelSettings
+            )
         }
 
         // Pre-scan destinations to seed resume progress when files already exist and match size
@@ -343,9 +343,9 @@ final class ComparisonOperationService {
                     if destSize == Int64(values.fileSize ?? -2) {
                         // Optional: when checksum verification is enabled, require a quick checksum for small files
                         if verificationMode.useChecksum, let fsize = values.fileSize, fsize > 0, fsize <= 5 * 1024 * 1024 {
-                            do {
-                                let srcHash = try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: .sha256, progressCallback: nil)
-                                let dstHash = try await SharedChecksumService.shared.generateChecksum(for: destURL, type: .sha256, progressCallback: nil)
+	                            do {
+	                                let srcHash = try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: .sha256, useCache: false, progressCallback: nil)
+	                                let dstHash = try await SharedChecksumService.shared.generateChecksum(for: destURL, type: .sha256, useCache: false, progressCallback: nil)
                                 if srcHash == dstHash { count += 1 }
                             } catch {
                                 // If checksum fails, don't count as present; verify phase will catch issues

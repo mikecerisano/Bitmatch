@@ -43,6 +43,7 @@ struct SharedFileOperationsParanoidTests {
             #expect(op.results.count >= 2)
             let verifiedCount = op.results.filter { $0.verificationResult?.isValid == true }.count
             #expect(verifiedCount >= 2)
+            #expect(op.results.allSatisfy { $0.verificationResult?.sourceChecksum == "byte-comparison" })
 
             // Cleanup
             try? fm.removeItem(at: source)

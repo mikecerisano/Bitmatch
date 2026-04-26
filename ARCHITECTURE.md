@@ -67,6 +67,11 @@ class SharedAppCoordinator: ObservableObject {
 - `SharedFileOperationsService`
   - Copy to multiple destinations, pause/resume, progress callbacks
   - Verification: checksum or byte‑by‑byte (paranoid)
+- `FileCopyService`
+  - Temp-file copy, flush, source-stability check, destination conflict checks, and final promotion
+  - Reuses existing destination files only when they are proven identical
+- `SafetyValidator`
+  - Preflight source/destination containment, duplicate roots, symlinked output roots, unsafe relative paths, and case/Unicode-normalized collisions
 - `SharedChecksumCache`
   - Actor‑based persistent cache (1h TTL) keyed by path + algorithm + file size + modification time
   - Disk‑backed (Caches/com.bitmatch.app), reduces re‑verification time by orders of magnitude
@@ -82,6 +87,8 @@ class SharedAppCoordinator: ObservableObject {
   - Collects errors/warnings, summarizes, exports textual report
 - `SharedReportGenerationService`
   - Generates professional PDF and JSON reports (cross‑platform rendering helpers)
+- `ResultsOverflowService`
+  - Spills very large result sets to disk while preserving latest per-file/per-destination status for reports
 
 ### File System Services
 
@@ -92,7 +99,9 @@ protocol FileSystemService {
     func selectDestinationFolders() async -> [URL]
     func validateFileAccess(url: URL) async -> Bool
     func getFileList(from folderURL: URL) async throws -> [URL]
-    func copyFile(from sourceURL: URL, to destinationURL: URL) async throws
+    nonisolated func getFileSize(for url: URL) throws -> Int64
+    nonisolated func createDirectory(at url: URL) throws
+    nonisolated func freeSpace(at url: URL) -> Int64
 }
 ```
 
@@ -167,19 +176,26 @@ Key Components:
 
 1. UI sets `sourceURL` and `destinationURLs` on `SharedAppCoordinator`
 2. User taps Start → `startOperation()`
-3. Coordinator starts services:
+3. Coordinator runs readiness checks against the resolved final output roots
+4. Coordinator starts services:
    - `OperationTimingService.startOperation(...)`
    - `OperationStateService.startOperation(...)`
    - `ErrorReportingService.startErrorTracking(...)`
-4. `SharedFileOperationsService.performFileOperation(...)` kicks off, providing progress callbacks
-5. Progress updates → coordinator updates `progress` + timing service → UI reacts
-6. On completion: state services finalize; results mapped to `ResultRow` list
-7. If reports enabled, `SharedReportGenerationService` is invoked
+5. `SharedFileOperationsService.performFileOperation(...)` performs core preflight:
+   - source exists and is a directory
+   - destinations are unique and writable
+   - final destination roots are unique, non-nested, non-symlinked folders
+   - source tree has no unsafe relative paths or portable-name collisions
+6. `FileCopyService.copyAllSafely(...)` copies each file with temp-then-promote semantics and per-file error reporting
+7. Verification runs inline or pipelined depending on mode
+8. Progress updates → coordinator updates `progress` + timing service → UI reacts
+9. On completion: state services finalize; results mapped to `ResultRow` list
+10. If reports enabled, `SharedReportGenerationService` is invoked
 
 ### Compare Folders (basic)
 
 1. UI sets `leftURL` and `rightURL`
-2. Coordinator `compareFolders()` enumerates both via `FileSystemService.getFileList` (skips hidden)
+2. Coordinator `compareFolders()` enumerates both via `FileSystemService.getFileList` (includes hidden files, skips symlink entries)
 3. Computes set differences (only in source/destination, common)
 4. Future extension: checksum/path parity for deeper comparisons
 
@@ -249,7 +265,8 @@ await withTaskGroup(of: Result.self) { group in /* cap concurrency */ }
 
 ### Memory Management
 - Security-scoped resources properly managed with defer blocks
-- Large file lists processed incrementally
+- Large file lists processed incrementally where possible
+- Final operation results are indexed and retained for accurate completion/reporting; UI result overflow can spill to disk for large transfers
 - Progress updates throttled to prevent UI spam
 
 ### Background Processing
@@ -263,6 +280,7 @@ await withTaskGroup(of: Result.self) { group in /* cap concurrency */ }
 - Core business logic in shared services
 - Mock platform managers for testing
 - Isolated component testing
+- Safety regressions for destination conflicts, hidden files, empty folders, source mutation, portable path collisions, paranoid byte comparison, and large result retention
 
 ### Integration Testing
 - Full operation flows

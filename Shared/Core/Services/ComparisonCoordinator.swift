@@ -75,6 +75,7 @@ final class ComparisonCoordinator {
                         sourceURL: src.url,
                         destinationURL: dst.url,
                         type: type,
+                        useCache: false,
                         progressCallback: nil
                     )
                     if !result.matches {

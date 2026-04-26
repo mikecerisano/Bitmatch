@@ -13,7 +13,7 @@ enum PreScanService {
         if let enumerator = fm.enumerator(
             at: sourceBase,
             includingPropertiesForKeys: keys,
-            options: [.skipsHiddenFiles]
+            options: []
         ) {
             while let fileURL = enumerator.nextObject() as? URL {
                 guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
@@ -119,11 +119,13 @@ enum PreScanService {
             let srcHash = try await SharedChecksumService.shared.generateChecksum(
                 for: source,
                 type: type,
+                useCache: false,
                 progressCallback: nil
             )
             let dstHash = try await SharedChecksumService.shared.generateChecksum(
                 for: destination,
                 type: type,
+                useCache: false,
                 progressCallback: nil
             )
             if srcHash.lowercased() != dstHash.lowercased() {

@@ -68,7 +68,7 @@ class IOSFileSystemService: NSObject, FileSystemService {
         let enumerator = FileManager.default.enumerator(
             at: folderURL,
             includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles]
+            options: []
         )
 
         var fileURLs: [URL] = []

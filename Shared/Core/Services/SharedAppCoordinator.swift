@@ -94,12 +94,12 @@ class SharedAppCoordinator: ObservableObject {
     init(platformManager: PlatformManager) {
         self.platformManager = platformManager
         setupBindings()
-        // Default verification mode to Quick on first launch; honor last-picked thereafter
+        // Default first launch to checksum verification; honor last-picked thereafter.
         if let saved = UserDefaults.standard.string(forKey: "lastVerificationMode"),
            let mode = VerificationMode.allCases.first(where: { $0.rawValue == saved }) {
             verificationMode = mode
         } else {
-            verificationMode = .quick
+            verificationMode = .standard
         }
     }
     
@@ -238,6 +238,11 @@ class SharedAppCoordinator: ObservableObject {
         // Validates: source exists, not copying to self/subdirectory, symlink loops, sufficient space
         do {
             try await SafetyValidator.performSafetyChecks(source: sourceURL, destinations: destinationURLs)
+            try SafetyValidator.validateResolvedDestinationRoots(
+                source: sourceURL,
+                destinations: destinationURLs,
+                settings: cameraLabelSettings
+            )
         } catch {
             await platformManager.presentError(error)
             return
@@ -495,7 +500,7 @@ class SharedAppCoordinator: ObservableObject {
     var canStartOperation: Bool {
         switch currentMode {
         case .copyAndVerify:
-            return sourceURL != nil && !destinationURLs.isEmpty && !isOperationInProgress
+            return operationReadinessAssessment.isReady && !isOperationInProgress
         case .compareFolders:
             return leftURL != nil && rightURL != nil && !isOperationInProgress
         case .masterReport:
@@ -700,7 +705,7 @@ class SharedAppCoordinator: ObservableObject {
     
     /// Get operation readiness assessment
     var operationReadinessAssessment: OperationReadinessAssessment {
-        guard let sourceInfo = sourceFolderInfo else {
+        guard let sourceURL else {
             return OperationReadinessAssessment(
                 isReady: false,
                 issues: ["No source folder selected"],
@@ -716,22 +721,52 @@ class SharedAppCoordinator: ObservableObject {
         if destinationURLs.isEmpty {
             issues.append("No destination folders selected")
         }
+
+        let uniqueDestinationPaths = Set(destinationURLs.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        if uniqueDestinationPaths.count != destinationURLs.count {
+            issues.append("Destination folders must be unique")
+        }
+
+        for destinationURL in destinationURLs {
+            if SafetyValidator.isProtectedSystemPath(destinationURL) {
+                issues.append("\(destinationURL.lastPathComponent): System folders cannot be used as destinations")
+            } else if let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destinationURL) {
+                issues.append("\(destinationURL.lastPathComponent): \(issue)")
+            }
+        }
+
+        do {
+            try SafetyValidator.validateResolvedDestinationRoots(
+                source: sourceURL,
+                destinations: destinationURLs,
+                settings: cameraLabelSettings
+            )
+        } catch {
+            issues.append(error.localizedDescription)
+        }
+
+        if verificationMode == .quick {
+            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
+        }
         
         // Check available space
-        for destinationURL in destinationURLs {
-            if let _ = destinationFolderInfos[destinationURL],
-               let available = getDriveCapacity(for: destinationURL) {
-                let ratio = Double(sourceInfo.totalSize) / Double(available)
-                if ratio > 0.9 {
-                    issues.append("Insufficient space on \(destinationURL.lastPathComponent)")
-                } else if ratio > 0.7 {
-                    warnings.append("Limited space on \(destinationURL.lastPathComponent)")
+        if let sourceInfo = sourceFolderInfo {
+            for destinationURL in destinationURLs {
+                if let _ = destinationFolderInfos[destinationURL],
+                   let available = getDriveCapacity(for: destinationURL),
+                   available > 0 {
+                    let ratio = Double(sourceInfo.totalSize) / Double(available)
+                    if ratio > 0.9 {
+                        issues.append("Insufficient space on \(destinationURL.lastPathComponent)")
+                    } else if ratio > 0.7 {
+                        warnings.append("Limited space on \(destinationURL.lastPathComponent)")
+                    }
                 }
             }
         }
         
         // Estimate duration
-        let estimatedMinutes = verificationMode.estimatedTime(fileCount: sourceInfo.fileCount)
+        let estimatedMinutes = sourceFolderInfo.map { verificationMode.estimatedTime(fileCount: $0.fileCount) }
         
         return OperationReadinessAssessment(
             isReady: issues.isEmpty,

@@ -39,8 +39,11 @@ This is **not** for:
 
 - 🚫 No cloud, no servers, no uploads
 - 🔒 All verification happens locally on your machine
-- ✅ Source and destination are never modified after copy
-- 🔢 Checksums are industry-standard (SHA-256), not proprietary
+- ✅ The source card is never modified
+- 🛑 Existing destination files are not overwritten unless BitMatch proves they already match the source
+- 🔢 Standard mode uses fresh SHA-256 checksum verification by default
+- 📁 Hidden files and empty folders are included, because camera cards often contain important sidecar data
+- 🧾 Reports keep the latest verified status for every file/destination, even on very large transfers
 
 ## Why Open Source?
 
@@ -72,8 +75,11 @@ That last one... look, I can't legally stop you, but it's stupid and rude. If yo
 ### Copy & Verify
 Copy files from a source (camera card, SSD, whatever) to multiple destinations simultaneously. Verify they copied correctly using checksums. Know your footage is safe.
 
+### Transfer Safety Model
+BitMatch copies into temporary files first, flushes data to disk, checks that the source file did not change during the copy, then promotes the finished file into place. If a destination file already exists and does not match the source, BitMatch reports a failure instead of replacing it. It also preflights unsafe source/destination relationships, duplicate destinations, symlinked output roots, nested output folders, and path collisions that could break on case-insensitive volumes.
+
 ### Verification Modes
-- **Quick**: Just checks file sizes match (fast, good enough for most situations)
+- **Quick**: File-size/mtime reuse checks only. Fast, but not recommended for irreplaceable footage.
 - **Standard**: SHA-256 checksums (the default, what you probably want)
 - **Thorough**: Multiple checksum algorithms
 - **Paranoid**: Byte-by-byte comparison + multiple checksums + MHL files (for when you really, really need to be sure or you wanna pretend youre gonna be on netflix)
@@ -146,15 +152,16 @@ If you're going to contribute, build both the macOS and iPad schemes before subm
 ## Running Tests
 
 ```bash
-xcodebuild test -scheme BitMatch -enableCodeCoverage YES
+xcodebuild test -scheme BitMatch -project BitMatch.xcodeproj -configuration Debug -destination platform=macOS,arch=arm64 -only-testing:BitMatchTests
+xcodebuild -scheme BitMatch-iPad -project BitMatch.xcodeproj -configuration Debug -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build
 ```
 
 Or just run `bash test.sh` from the repo root.
 
 ## Known Issues
 
-- There's a Swift 6 concurrency warning about actor isolation. It works fine, it's just the compiler being pedantic about future compatibility.
 - iPad can't see some external drives until you explicitly grant access through the Files app first.
+- UI automation can be sensitive to local Xcode/device state. The unit target is the reliable safety regression suite.
 
 ## Credits
 

@@ -109,4 +109,246 @@ struct SharedFileOperationsEdgeCaseTests {
             #endif
         }
     }
+
+    @Test
+    func testCopyDoesNotOverwriteExistingConflictingDestinationFile() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory
+            let source = tmp.appendingPathComponent("bitmatch_conflict_src_\(UUID().uuidString)")
+            let dest = tmp.appendingPathComponent("bitmatch_conflict_dst_\(UUID().uuidString)")
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+            try Data("source-version".utf8).write(to: source.appendingPathComponent("clip.txt"), options: .atomic)
+
+            let settings = CameraLabelSettings()
+            let outputRoot = SafetyValidator.resolvedDestinationRoot(source: source, destination: dest, settings: settings)
+            try fm.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+            let existingDestination = outputRoot.appendingPathComponent("clip.txt")
+            try Data("do-not-overwrite".utf8).write(to: existingDestination, options: .atomic)
+
+            let sut = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: SharedChecksumService.shared
+            )
+
+            let op = try await sut.performFileOperation(
+                sourceURL: source,
+                destinationURLs: [dest],
+                verificationMode: .standard,
+                settings: settings,
+                estimatedTotalBytes: nil,
+                progressCallback: { _ in },
+                onFileResult: { _ in }
+            )
+
+            let destinationContents = try String(contentsOf: existingDestination, encoding: .utf8)
+            #expect(destinationContents == "do-not-overwrite")
+            #expect(op.results.contains { !$0.success && $0.sourceURL.lastPathComponent == "clip.txt" })
+
+            try? fm.removeItem(at: source)
+            try? fm.removeItem(at: dest)
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
+    func testCopyIncludesHiddenFilesAndEmptyDirectories() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory
+            let source = tmp.appendingPathComponent("bitmatch_hidden_src_\(UUID().uuidString)")
+            let dest = tmp.appendingPathComponent("bitmatch_hidden_dst_\(UUID().uuidString)")
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+            try Data("hidden-sidecar".utf8).write(to: source.appendingPathComponent(".metadata"), options: .atomic)
+            try fm.createDirectory(at: source.appendingPathComponent("EMPTY_DIR"), withIntermediateDirectories: true)
+
+            let settings = CameraLabelSettings()
+            let sut = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: SharedChecksumService.shared
+            )
+
+            _ = try await sut.performFileOperation(
+                sourceURL: source,
+                destinationURLs: [dest],
+                verificationMode: .quick,
+                settings: settings,
+                estimatedTotalBytes: nil,
+                progressCallback: { _ in },
+                onFileResult: { _ in }
+            )
+
+            let outputRoot = SafetyValidator.resolvedDestinationRoot(source: source, destination: dest, settings: settings)
+            #expect(fm.fileExists(atPath: outputRoot.appendingPathComponent(".metadata").path))
+
+            var isDirectory: ObjCBool = false
+            let emptyDirExists = fm.fileExists(
+                atPath: outputRoot.appendingPathComponent("EMPTY_DIR").path,
+                isDirectory: &isDirectory
+            )
+            #expect(emptyDirExists && isDirectory.boolValue)
+
+            try? fm.removeItem(at: source)
+            try? fm.removeItem(at: dest)
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
+    func testSourceMutationDuringCopyDoesNotPublishDestinationFile() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory
+            let source = tmp.appendingPathComponent("bitmatch_mutation_src_\(UUID().uuidString)")
+            let dest = tmp.appendingPathComponent("bitmatch_mutation_dst_\(UUID().uuidString)")
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+            let sourceFile = source.appendingPathComponent("large.bin")
+            try Data(repeating: 0x41, count: 6 * 1024 * 1024).write(to: sourceFile, options: .atomic)
+
+            let mutator = SourceMutationTrigger(sourceFile: sourceFile)
+            let errors = AsyncErrorCollector()
+
+            try await FileCopyService.copyAllSafely(
+                from: source,
+                toRoot: dest,
+                verificationMode: .quick,
+                workers: 1,
+                pauseCheck: {
+                    try await mutator.tick()
+                },
+                onProgress: { _, _ in },
+                onError: { _, error in
+                    await errors.append(error.localizedDescription)
+                }
+            )
+
+            let capturedErrors = await errors.messages
+            #expect(capturedErrors.contains { $0.contains("Source file changed during copy") })
+            #expect(!fm.fileExists(atPath: dest.appendingPathComponent("large.bin").path))
+
+            try? fm.removeItem(at: source)
+            try? fm.removeItem(at: dest)
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
+    func testResultStoreRetainsLargeResultSetAndUpserts() async throws {
+        let store = ResultStore()
+        let baseSource = URL(fileURLWithPath: "/tmp/bitmatch-result-store-source")
+        let baseDest = URL(fileURLWithPath: "/tmp/bitmatch-result-store-dest")
+
+        for index in 0..<12_000 {
+            let result = FileOperationResult(
+                sourceURL: baseSource.appendingPathComponent("file-\(index).mov"),
+                destinationURL: baseDest.appendingPathComponent("file-\(index).mov"),
+                success: true,
+                error: nil,
+                fileSize: Int64(index),
+                verificationResult: nil,
+                processingTime: 0
+            )
+            await store.upsert(result)
+        }
+
+        let updated = FileOperationResult(
+            sourceURL: baseSource.appendingPathComponent("file-42.mov"),
+            destinationURL: baseDest.appendingPathComponent("file-42.mov"),
+            success: false,
+            error: NSError(domain: "BitMatchTests", code: 42),
+            fileSize: 42,
+            verificationResult: nil,
+            processingTime: 0
+        )
+        await store.upsert(updated)
+
+        let snapshot = await store.snapshot()
+        #expect(snapshot.count == 12_000)
+        #expect(snapshot.filter { $0.sourceURL.lastPathComponent == "file-42.mov" }.count == 1)
+        #expect(snapshot.first { $0.sourceURL.lastPathComponent == "file-42.mov" }?.success == false)
+    }
+
+    @Test
+    func testOverflowResultsCoalesceSpilledCopyRowsWithLatestVerifyRows() async throws {
+        let service = ResultsOverflowService(operationId: UUID(), maxInMemoryResults: 1)
+        let firstCopy = ResultRow(
+            path: "/source/file-1.mov",
+            status: "✅ Copied",
+            size: 10,
+            checksum: nil,
+            destination: "RAID",
+            destinationPath: "/dest/file-1.mov"
+        )
+        let secondCopy = ResultRow(
+            path: "/source/file-2.mov",
+            status: "✅ Copied",
+            size: 20,
+            checksum: nil,
+            destination: "RAID",
+            destinationPath: "/dest/file-2.mov"
+        )
+        let firstVerified = ResultRow(
+            path: "/source/file-1.mov",
+            status: "✅ Verified",
+            size: 10,
+            checksum: "abc123",
+            destination: "RAID",
+            destinationPath: "/dest/file-1.mov"
+        )
+
+        await service.addResult(firstCopy)
+        await service.addResult(secondCopy)
+        let updatedInMemory = await service.updateResult(
+            matching: firstCopy.path,
+            destination: firstCopy.destination ?? "",
+            with: firstVerified
+        )
+        #expect(updatedInMemory == false)
+        await service.addResult(firstVerified)
+
+        let results = await service.getAllResults()
+        #expect(results.count == 2)
+        #expect(results.first { $0.path == firstCopy.path }?.status == "✅ Verified")
+        #expect(results.first { $0.path == firstCopy.path }?.checksum == "abc123")
+        await service.clear()
+    }
+}
+
+private actor SourceMutationTrigger {
+    private let sourceFile: URL
+    private var tickCount = 0
+
+    init(sourceFile: URL) {
+        self.sourceFile = sourceFile
+    }
+
+    func tick() async throws {
+        tickCount += 1
+        if tickCount == 2 {
+            try Data("changed".utf8).write(to: sourceFile, options: .atomic)
+        }
+    }
+}
+
+private actor AsyncErrorCollector {
+    private(set) var messages: [String] = []
+
+    func append(_ message: String) {
+        messages.append(message)
+    }
 }

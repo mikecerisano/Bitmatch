@@ -175,7 +175,7 @@ final class FolderInfoService: ObservableObject {
             guard let enumerator = FileManager.default.enumerator(
                 at: url,
                 includingPropertiesForKeys: fastKeys,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                options: []
             ) else { return nil }
 
             while let file = enumerator.nextObject() {
@@ -224,7 +224,7 @@ final class FolderInfoService: ObservableObject {
             guard let enumerator = FileManager.default.enumerator(
                 at: url,
                 includingPropertiesForKeys: fileEnumKeys,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                options: []
             ) else {
                 return nil
             }

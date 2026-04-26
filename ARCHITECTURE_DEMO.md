@@ -94,6 +94,10 @@ The `SharedAppCoordinator` automatically handles the new mode because it works w
 - **Before**: Fix in iPad → manually port to Mac → test both
 - **After**: Fix once in shared code → automatically works everywhere
 
+### Transfer Safety
+- **Before**: UI checks could drift from direct service behavior
+- **After**: Source/destination safety, overwrite protection, and verification behavior live in shared core services used by both platforms
+
 ### New Features
 - **Before**: Design twice, implement twice, test twice
 - **After**: Design once, implement core once, add platform UI
@@ -123,6 +127,12 @@ The new architecture has been validated:
 # Performance additions (shared)
 ✅ SharedChecksumCache (persistent, 1h TTL)
 ✅ Off‑main folder analysis with conservative parallelism
+
+# Safety additions (shared)
+✅ SafetyValidator resolved-root and portable-path preflight
+✅ FileCopyService temp-then-promote copy path
+✅ Hidden file and empty directory preservation
+✅ Large-result retention and report coalescing
 ```
 
 ## ✅ Status Update
@@ -133,10 +143,12 @@ The demo architecture has been implemented in the main codebase:
 - Xcode targets include shared models and services
 - iPad and macOS apps run on the shared architecture (mac uses SharedAppCoordinator by default)
 - Master Report generation is unified via SharedReportGenerationService on both platforms
+- Copy/verify safety checks now live in the shared core and apply consistently on macOS and iPad
 
 ### Next Steps
 - Add comprehensive tests for shared business logic
 - Continue expanding camera detection coverage and report features
+- Run hardware soak tests with real cards, multiple destination drives, low-space destinations, cancel/resume, and disconnect scenarios
 
 ## 🚀 Future Development Workflow
 

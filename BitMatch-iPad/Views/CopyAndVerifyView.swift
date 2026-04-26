@@ -781,8 +781,7 @@ struct StartTransferButtonView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     
     private var canStartTransfer: Bool {
-        coordinator.sourceURL != nil && 
-        !coordinator.destinationURLs.isEmpty && 
+        coordinator.operationReadinessAssessment.isReady &&
         !coordinator.isOperationInProgress
     }
     
@@ -800,6 +799,10 @@ struct StartTransferButtonView: View {
     
     var body: some View {
         VStack(spacing: 12) {
+            if coordinator.sourceURL != nil || !coordinator.destinationURLs.isEmpty {
+                ReadinessBannerView(assessment: coordinator.operationReadinessAssessment)
+            }
+
             // Transfer summary when ready
             if canStartTransfer, let sourceInfo = coordinator.sourceFolderInfo {
                 HStack {
@@ -850,6 +853,47 @@ struct StartTransferButtonView: View {
             .disabled(!canStartTransfer)
             .buttonStyle(.plain)
         }
+    }
+}
+
+struct ReadinessBannerView: View {
+    let assessment: OperationReadinessAssessment
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: assessment.statusIcon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(assessment.statusColor)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(assessment.isReady ? "Ready Check" : "Needs Attention")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+
+                Text(assessment.statusMessage)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.68))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let duration = assessment.estimatedDuration, assessment.isReady {
+                    Text("Estimated duration \(duration)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(assessment.statusColor.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(assessment.statusColor.opacity(0.18), lineWidth: 1)
+                )
+        )
     }
 }
 

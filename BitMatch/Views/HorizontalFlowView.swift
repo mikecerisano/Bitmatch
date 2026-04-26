@@ -383,22 +383,12 @@ struct HorizontalFlowView: View {
     // MARK: - Drag & Drop Handling
     private func handleDestinationDrop(providers: [NSItemProvider], targetIndex: Int) -> Bool {
         guard !isOperationActive else { return false }
-        
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, error in
-                DispatchQueue.main.async {
-                    guard let url = url, error == nil else { return }
-                    
-                    // Check if it's a directory
-                    var isDirectory: ObjCBool = false
-                    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                        // Replace the destination at the target index
-                        if targetIndex < fileSelection.destinationURLs.count {
-                            fileSelection.destinationURLs[targetIndex] = url
-                            refreshID = UUID()
-                        }
-                    }
-                }
+        loadDroppedDirectories(providers: providers, allowMultiple: false) { urls in
+            guard let url = urls.first else { return }
+            guard validateDestination(url, replacingIndex: targetIndex) else { return }
+            if targetIndex < fileSelection.destinationURLs.count {
+                fileSelection.destinationURLs[targetIndex] = url
+                refreshID = UUID()
             }
         }
         return true
@@ -406,42 +396,130 @@ struct HorizontalFlowView: View {
     
     private func handleSourceDrop(providers: [NSItemProvider]) -> Bool {
         guard !isOperationActive else { return false }
-        
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, error in
-                DispatchQueue.main.async {
-                    guard let url = url, error == nil else { return }
-                    
-                    // Check if it's a directory
-                    var isDirectory: ObjCBool = false
-                    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                        fileSelection.sourceURL = url
-                        refreshID = UUID()
-                    }
-                }
-            }
+        loadDroppedDirectories(providers: providers, allowMultiple: false) { urls in
+            guard let url = urls.first else { return }
+            setSourceURL(url)
         }
         return true
     }
     
     private func handleAddDestinationDrop(providers: [NSItemProvider]) -> Bool {
         guard !isOperationActive else { return false }
-        
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, error in
-                DispatchQueue.main.async {
-                    guard let url = url, error == nil else { return }
-                    
-                    // Check if it's a directory
-                    var isDirectory: ObjCBool = false
-                    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
-                        fileSelection.addDestination(url)
-                        refreshID = UUID()
-                    }
-                }
-            }
+        loadDroppedDirectories(providers: providers, allowMultiple: true) { urls in
+            addDestinationURLs(urls)
         }
         return true
+    }
+
+    private func loadDroppedDirectories(
+        providers: [NSItemProvider],
+        allowMultiple: Bool,
+        completion: @escaping ([URL]) -> Void
+    ) {
+        guard allowMultiple || providers.count == 1 else {
+            rejectDrop("Drop one source folder at a time")
+            return
+        }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+
+        for provider in providers {
+            group.enter()
+            _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
+                defer { group.leave() }
+                guard let nsURL = object as? NSURL else {
+                    return
+                }
+                let url = nsURL as URL
+                lock.lock()
+                urls.append(url)
+                lock.unlock()
+            }
+        }
+
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else {
+                rejectDrop("Could not read dropped folder")
+                return
+            }
+            guard allowMultiple || urls.count == 1 else {
+                rejectDrop("Drop one source folder at a time")
+                return
+            }
+            guard DropValidation.directoriesOnly(urls) else {
+                rejectDrop(dropRejectionReason(for: urls))
+                return
+            }
+            completion(urls)
+        }
+    }
+
+    private func setSourceURL(_ url: URL) {
+        guard DropValidation.directoriesOnly([url]) else {
+            rejectDrop(dropRejectionReason(for: [url]))
+            return
+        }
+        if let conflict = fileSelection.destinationURLs.first(where: {
+            SafetyValidator.destinationSafetyIssue(source: url, destination: $0) != nil
+        }) {
+            rejectDrop("Source conflicts with destination \(conflict.lastPathComponent)")
+            return
+        }
+        fileSelection.sourceURL = url
+        refreshID = UUID()
+    }
+
+    private func addDestinationURLs(_ urls: [URL]) {
+        for url in urls where validateDestination(url, replacingIndex: nil) {
+            fileSelection.addDestination(url)
+        }
+        refreshID = UUID()
+    }
+
+    private func validateDestination(_ url: URL, replacingIndex: Int?) -> Bool {
+        guard DropValidation.directoriesOnly([url]) else {
+            rejectDrop(dropRejectionReason(for: [url]))
+            return false
+        }
+
+        let existingDestinations = fileSelection.destinationURLs.enumerated()
+            .filter { replacingIndex == nil || $0.offset != replacingIndex }
+            .map(\.element)
+
+        if existingDestinations.contains(where: { sameLocation($0, url) }) {
+            rejectDrop("\(url.lastPathComponent) is already selected")
+            return false
+        }
+
+        if let sourceURL = fileSelection.sourceURL,
+           let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: url) {
+            rejectDrop(issue)
+            return false
+        }
+
+        return true
+    }
+
+    private func sameLocation(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.resolvingSymlinksInPath().path ==
+            rhs.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func dropRejectionReason(for urls: [URL]) -> String {
+        if urls.contains(where: { DropValidation.isSystemDirectory($0) }) {
+            return "System directories cannot be used"
+        }
+        return "Only folders can be used here"
+    }
+
+    private func rejectDrop(_ reason: String) {
+        NotificationCenter.default.post(
+            name: .dropRejected,
+            object: nil,
+            userInfo: ["reason": reason]
+        )
     }
     
     // MARK: - Actions
@@ -451,9 +529,8 @@ struct HorizontalFlowView: View {
         panel.canChooseDirectories = true
         panel.prompt = "Select Source"
         
-        if panel.runModal() == .OK {
-            fileSelection.sourceURL = panel.url
-            refreshID = UUID()
+        if panel.runModal() == .OK, let url = panel.url {
+            setSourceURL(url)
         }
     }
     
@@ -461,11 +538,11 @@ struct HorizontalFlowView: View {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
         panel.prompt = "Select Destination"
         
-        if panel.runModal() == .OK, let url = panel.url {
-            fileSelection.addDestination(url)
-            refreshID = UUID()
+        if panel.runModal() == .OK {
+            addDestinationURLs(panel.urls)
         }
     }
     

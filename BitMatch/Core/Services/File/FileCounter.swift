@@ -24,7 +24,7 @@ final class FileCounter {
         if let enumerator = fm.enumerator(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: []
         ) {
             for case let fileURL as URL in enumerator {
                 let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey])

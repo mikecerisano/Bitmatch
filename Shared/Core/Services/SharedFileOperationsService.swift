@@ -2,22 +2,28 @@
 // Uses shared AsyncSemaphore from AsyncSemaphore.swift
 import Foundation
 
-// Thread-safe accumulator for results coalescing (copy → verified)
+private struct FileResultKey: Hashable {
+    let sourcePath: String
+    let destinationPath: String
+
+    init(sourceURL: URL, destinationURL: URL) {
+        self.sourcePath = sourceURL.standardizedFileURL.path
+        self.destinationPath = destinationURL.standardizedFileURL.path
+    }
+}
+
+// Thread-safe accumulator for results coalescing (copy -> verified)
 actor ResultStore {
     private var list: [FileOperationResult] = []
-    // Bound memory: keep only the most recent N results
-    private let maxCapacity: Int
-    init(maxCapacity: Int = 10_000) { self.maxCapacity = max(1, maxCapacity) }
+    private var indexByKey: [FileResultKey: Int] = [:]
 
     func upsert(_ r: FileOperationResult) {
-        if let idx = list.lastIndex(where: { $0.sourceURL == r.sourceURL && $0.destinationURL == r.destinationURL }) {
+        let key = FileResultKey(sourceURL: r.sourceURL, destinationURL: r.destinationURL)
+        if let idx = indexByKey[key] {
             list[idx] = r
         } else {
+            indexByKey[key] = list.count
             list.append(r)
-            if list.count > maxCapacity {
-                let overflow = list.count - maxCapacity
-                list.removeFirst(overflow)
-            }
         }
     }
     func snapshot() -> [FileOperationResult] { list }
@@ -267,6 +273,17 @@ class SharedFileOperationsService: FileOperationsService {
                 throw BitMatchError.fileAccessDenied(destinationURL)
             }
         }
+
+        try SafetyValidator.validateResolvedDestinationRoots(
+            source: operation.sourceURL,
+            destinations: operation.destinationURLs,
+            settings: operation.settings
+        )
+
+        try await SafetyValidator.performSafetyChecks(
+            source: operation.sourceURL,
+            destinations: operation.destinationURLs
+        )
         
         // Step 2: Determine file counts without materializing full lists (streaming enumeration)
         SharedLogger.debug("Prep: counting files at \(operation.sourceURL.path)", category: .transfer)
@@ -290,7 +307,7 @@ class SharedFileOperationsService: FileOperationsService {
             if let enumerator = FileManager.default.enumerator(
                 at: operation.sourceURL,
                 includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
+                options: []
             ) {
                 let anyEnum: NSEnumerator = enumerator
                 while let fileURL = anyEnum.nextObject() as? URL {
@@ -315,7 +332,7 @@ class SharedFileOperationsService: FileOperationsService {
                 throw BitMatchError.insufficientStorage(totalSizeBytes, available)
             }
         }
-        
+
         // Step 3: Copy files to each destination
         let startTime = Date()
         // Perf 5: pipelined verification on by default for checksum/byte-compare modes; user can disable
@@ -336,18 +353,11 @@ class SharedFileOperationsService: FileOperationsService {
 
         for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
             // Compute destination root folder, honoring camera grouping settings
-            let cardName = operation.sourceURL.lastPathComponent
-            let labeledCardName = operation.settings.formattedFolderName(for: cardName)
-            let destFolder: URL = {
-                if operation.settings.groupByCamera {
-                    let raw = operation.settings.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
-                    return destinationURL.appendingPathComponent(group).appendingPathComponent(cardName)
-                } else {
-                    let folderName = labeledCardName.isEmpty ? cardName : labeledCardName
-                    return destinationURL.appendingPathComponent(folderName)
-                }
-            }()
+            let destFolder = SafetyValidator.resolvedDestinationRoot(
+                source: operation.sourceURL,
+                destination: destinationURL,
+                settings: operation.settings
+            )
             try fileSystem.createDirectory(at: destFolder)
 
             SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
@@ -407,7 +417,21 @@ class SharedFileOperationsService: FileOperationsService {
                                     try Task.checkCancellation()
                                     try await self.waitIfPaused()
                                     var verificationResult: VerificationResult?
-                                    if mode == .thorough {
+                                    if mode == .paranoid {
+                                        let matches = try await self.checksumService.performByteComparison(
+                                            sourceURL: srcURL,
+                                            destinationURL: dstURL,
+                                            progressCallback: nil
+                                        )
+                                        verificationResult = VerificationResult(
+                                            sourceChecksum: "byte-comparison",
+                                            destinationChecksum: "byte-comparison",
+                                            matches: matches,
+                                            checksumType: .sha256,
+                                            processingTime: 0,
+                                            fileSize: max(0, fileSize)
+                                        )
+                                    } else if mode == .thorough {
                                         var combinedMatches = true
                                         var primaryResult: VerificationResult?
                                         var totalProcessing: TimeInterval = 0
@@ -416,6 +440,7 @@ class SharedFileOperationsService: FileOperationsService {
                                                 sourceURL: srcURL,
                                                 destinationURL: dstURL,
                                                 type: type,
+                                                useCache: false,
                                                 progressCallback: nil
                                             )
                                             combinedMatches = combinedMatches && res.matches
@@ -437,6 +462,7 @@ class SharedFileOperationsService: FileOperationsService {
                                                 sourceURL: srcURL,
                                                 destinationURL: dstURL,
                                                 type: firstType,
+                                                useCache: false,
                                                 progressCallback: nil
                                             )
                                         }
@@ -446,13 +472,14 @@ class SharedFileOperationsService: FileOperationsService {
                                             sourceURL: srcURL,
                                             destinationURL: dstURL,
                                             type: t,
+                                            useCache: false,
                                             progressCallback: nil
                                         )
                                     }
                                     let verified = FileOperationResult(
                                         sourceURL: srcURL,
                                         destinationURL: dstURL,
-                                        success: true,
+                                        success: verificationResult?.matches ?? true,
                                         error: nil,
                                         fileSize: max(0, fileSize),
                                         verificationResult: verificationResult,
@@ -576,12 +603,10 @@ class SharedFileOperationsService: FileOperationsService {
                         verificationResult: nil,
                         processingTime: 0
                     )
-                    Task {
-                        _ = await progressState.recordCopyError()
-                        await destProgress.increment(destIndex: destIndex)
-                        await resultStore.upsert(result)
-                        onFileResult?(result)
-                    }
+                    _ = await progressState.recordCopyError()
+                    await destProgress.increment(destIndex: destIndex)
+                    await resultStore.upsert(result)
+                    onFileResult?(result)
                 }
             )
 
@@ -705,6 +730,7 @@ class SharedFileOperationsService: FileOperationsService {
                                             sourceURL: fileURL,
                                             destinationURL: destinationFileURL,
                                             type: type,
+                                            useCache: false,
                                             progressCallback: nil
                                         )
                                         combinedMatches = combinedMatches && res.matches
@@ -727,6 +753,7 @@ class SharedFileOperationsService: FileOperationsService {
                                             sourceURL: fileURL,
                                             destinationURL: destinationFileURL,
                                             type: firstType,
+                                            useCache: false,
                                             progressCallback: nil
                                         )
                                     }
@@ -736,6 +763,7 @@ class SharedFileOperationsService: FileOperationsService {
                                         sourceURL: fileURL,
                                         destinationURL: destinationFileURL,
                                         type: checksumType,
+                                        useCache: false,
                                         progressCallback: nil
                                     )
                                 }
@@ -745,7 +773,7 @@ class SharedFileOperationsService: FileOperationsService {
                             let result = FileOperationResult(
                                 sourceURL: fileURL,
                                 destinationURL: destinationFileURL,
-                                success: true,
+                                success: verificationResult?.matches ?? true,
                                 error: nil,
                                 fileSize: fileSize,
                                 verificationResult: verificationResult,

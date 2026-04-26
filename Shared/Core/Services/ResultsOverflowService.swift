@@ -84,7 +84,14 @@ actor ResultsOverflowService {
         // Then append in-memory results (these are the most recent)
         allResults.append(contentsOf: inMemoryResults)
 
-        return allResults
+        let coalescedResults = coalesceLatestRows(allResults)
+        if coalescedResults.count != allResults.count {
+            SharedLogger.debug(
+                "Coalesced \(allResults.count) raw result rows into \(coalescedResults.count) latest rows",
+                category: .transfer
+            )
+        }
+        return coalescedResults
     }
 
     /// Clear all results and delete overflow file
@@ -169,6 +176,26 @@ actor ResultsOverflowService {
             SharedLogger.error("Failed to read overflow file: \(error)", category: .transfer)
             return nil
         }
+    }
+
+    private func coalesceLatestRows(_ rows: [ResultRow]) -> [ResultRow] {
+        var orderedKeys: [String] = []
+        var latestByKey: [String: ResultRow] = [:]
+
+        for row in rows {
+            let key = resultKey(row)
+            if latestByKey[key] == nil {
+                orderedKeys.append(key)
+            }
+            latestByKey[key] = row
+        }
+
+        return orderedKeys.compactMap { latestByKey[$0] }
+    }
+
+    private func resultKey(_ row: ResultRow) -> String {
+        let destinationIdentity = row.destinationPath ?? row.destination ?? ""
+        return "\(row.path)\u{1F}\(destinationIdentity)"
     }
 
     private func deleteOverflowFile() {

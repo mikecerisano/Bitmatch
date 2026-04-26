@@ -22,9 +22,25 @@ protocol FileSystemService {
 protocol ChecksumService {
     typealias ProgressCallback = (Double, String?) -> Void
     
-    func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String
-    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult
+    func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, useCache: Bool, progressCallback: ProgressCallback?) async throws -> String
+    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, useCache: Bool, progressCallback: ProgressCallback?) async throws -> VerificationResult
     func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool
+}
+
+extension ChecksumService {
+    func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String {
+        try await generateChecksum(for: fileURL, type: type, useCache: true, progressCallback: progressCallback)
+    }
+
+    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult {
+        try await verifyFileIntegrity(
+            sourceURL: sourceURL,
+            destinationURL: destinationURL,
+            type: type,
+            useCache: true,
+            progressCallback: progressCallback
+        )
+    }
 }
 
 // MARK: - File Operations Service Protocol
@@ -100,10 +116,10 @@ struct FileOperationResult {
     let processingTime: TimeInterval
     
     var statusDescription: String {
+        if let verification = verificationResult {
+            return verification.isValid ? "✅ Verified" : "⚠️ Checksum Mismatch"
+        }
         if success {
-            if let verification = verificationResult {
-                return verification.isValid ? "✅ Verified" : "⚠️ Checksum Mismatch"
-            }
             return "✅ Copied"
         } else {
             return "❌ Failed"

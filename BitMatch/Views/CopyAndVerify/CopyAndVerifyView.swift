@@ -34,6 +34,73 @@ struct CopyAndVerifyView: View {
     private var timeRemaining: String? {
         progress.formattedTimeRemaining
     }
+
+    private var readinessIssues: [String] {
+        guard let sourceURL = fileSelection.sourceURL else {
+            return fileSelection.destinationURLs.isEmpty ? [] : ["Select a source folder"]
+        }
+
+        var issues: [String] = []
+        if fileSelection.destinationURLs.isEmpty {
+            issues.append("Add at least one destination")
+        }
+
+        let uniquePaths = Set(fileSelection.destinationURLs.map {
+            $0.standardizedFileURL.resolvingSymlinksInPath().path
+        })
+        if uniquePaths.count != fileSelection.destinationURLs.count {
+            issues.append("Remove duplicate destinations")
+        }
+
+        for destination in fileSelection.destinationURLs {
+            if SafetyValidator.isProtectedSystemPath(destination) {
+                issues.append("\(destination.lastPathComponent) is a system folder")
+            } else if let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destination) {
+                issues.append("\(destination.lastPathComponent): \(issue)")
+            } else if let sourceSize = fileSelection.sourceFolderInfo?.totalSize,
+                      let available = availableSpace(for: destination),
+                      available < sourceSize + Int64(100 * 1024 * 1024) {
+                issues.append("Not enough space on \(destination.lastPathComponent)")
+            }
+        }
+
+        do {
+            try SafetyValidator.validateResolvedDestinationRoots(
+                source: sourceURL,
+                destinations: fileSelection.destinationURLs,
+                settings: coordinator.cameraLabelViewModel.destinationLabelSettings
+            )
+        } catch {
+            issues.append(error.localizedDescription)
+        }
+
+        return issues
+    }
+
+    private var readinessWarnings: [String] {
+        var warnings: [String] = []
+        if coordinator.verificationMode == .quick {
+            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
+        }
+
+        if let sourceSize = fileSelection.sourceFolderInfo?.totalSize {
+            warnings.append(contentsOf: fileSelection.destinationURLs.compactMap { destination in
+                guard let available = availableSpace(for: destination), available > 0 else { return nil }
+                let ratio = Double(sourceSize) / Double(available)
+                return ratio > 0.7 ? "Limited space on \(destination.lastPathComponent)" : nil
+            })
+        }
+
+        return warnings
+    }
+
+    private var canStartCopy: Bool {
+        coordinator.canStartOperation && readinessIssues.isEmpty
+    }
+
+    private var shouldShowReadiness: Bool {
+        fileSelection.sourceURL != nil || !fileSelection.destinationURLs.isEmpty
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -211,6 +278,13 @@ struct CopyAndVerifyView: View {
                 
                 Divider()
                     .overlay(Color.white.opacity(0.1))
+
+                if shouldShowReadiness {
+                    readinessSection
+
+                    Divider()
+                        .overlay(Color.white.opacity(0.1))
+                }
                 
                 // Action buttons
                 actionSection
@@ -442,6 +516,45 @@ struct CopyAndVerifyView: View {
     }
     
     @ViewBuilder
+    private var readinessSection: some View {
+        let issues = readinessIssues
+        let warnings = readinessWarnings
+        let hasIssues = !issues.isEmpty
+        let hasWarnings = !warnings.isEmpty
+        let tint: Color = hasIssues ? .red : (hasWarnings ? .orange : .green)
+
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: hasIssues ? "exclamationmark.triangle.fill" : (hasWarnings ? "exclamationmark.triangle" : "checkmark.circle.fill"))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(tint)
+                .frame(width: 18, height: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(readinessTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
+
+                Text(readinessDetail(issues: issues, warnings: warnings))
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.58))
+                    .lineLimit(2)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(tint.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(tint.opacity(0.18), lineWidth: 0.5)
+                )
+        )
+    }
+
+    @ViewBuilder
     private var actionSection: some View {
         HStack {
             // Report toggle
@@ -475,17 +588,51 @@ struct CopyAndVerifyView: View {
             } label: {
                 Label("Copy & Verify", systemImage: "arrow.right.doc.on.clipboard")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(canStartCopy ? .black : .white.opacity(0.45))
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.green)
+                            .fill(canStartCopy ? Color.green : Color.white.opacity(0.1))
                     )
             }
             .buttonStyle(.plain)
-            .disabled(!coordinator.canStartOperation)
+            .disabled(!canStartCopy)
         }
+    }
+
+    private var readinessTitle: String {
+        if !readinessIssues.isEmpty {
+            return "Needs attention"
+        }
+        if !readinessWarnings.isEmpty {
+            return "Ready with warnings"
+        }
+        return "Ready to transfer"
+    }
+
+    private func readinessDetail(issues: [String], warnings: [String]) -> String {
+        if let issue = issues.first {
+            return issue
+        }
+        if let warning = warnings.first {
+            return warning
+        }
+        guard let info = fileSelection.sourceFolderInfo else {
+            return "Source and destination folders are selected."
+        }
+        let destinationText = "\(fileSelection.destinationURLs.count) destination\(fileSelection.destinationURLs.count == 1 ? "" : "s")"
+        return "\(info.formattedFileCount) files, \(info.formattedSize), \(destinationText)"
+    }
+
+    private func availableSpace(for url: URL) -> Int64? {
+        do {
+            let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+            if let capacity = values.volumeAvailableCapacity {
+                return Int64(capacity)
+            }
+        } catch { }
+        return nil
     }
     
     // MARK: - Time Estimation

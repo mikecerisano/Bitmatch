@@ -16,7 +16,7 @@ func makeBoundedFileURLStream(at rootURL: URL, capacity: Int = 512) -> BoundedUR
             guard let en = fm.enumerator(
                 at: rootURL,
                 includingPropertiesForKeys: keys,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+                options: []
             ) else { continuation.finish(); return }
 
             // Use ObjC-style iteration to avoid Swift 6 Sequence bridging issues.

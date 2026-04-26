@@ -21,6 +21,13 @@ final class SafetyValidator {
             throw FileOperationError.sourceNotDirectory(source.path)
         }
 
+        try validateSourceTreeForCopy(source: source)
+
+        let uniqueDestinationPaths = Set(destinations.map { canonicalPath($0) })
+        guard uniqueDestinationPaths.count == destinations.count else {
+            throw FileOperationError.unsafeOperation("Destination folders must be unique")
+        }
+
         // Check each destination
         for destination in destinations {
             try await validateDestination(destination, source: source)
@@ -54,8 +61,17 @@ final class SafetyValidator {
     }
 
     private static func validateDestination(_ destination: URL, source: URL) async throws {
-        // Create destination directory if it doesn't exist
         let fm = FileManager.default
+
+        if isProtectedSystemPath(destination) {
+            throw FileOperationError.unsafeOperation("System folders cannot be used as destinations")
+        }
+
+        if let safetyIssue = destinationSafetyIssue(source: source, destination: destination) {
+            throw FileOperationError.unsafeOperation(safetyIssue)
+        }
+
+        // Create destination directory if it doesn't exist, after validating the intended path.
         if !fm.fileExists(atPath: destination.path) {
             try fm.createDirectory(at: destination, withIntermediateDirectories: true, attributes: nil)
         }
@@ -63,11 +79,6 @@ final class SafetyValidator {
         // Verify it's accessible
         guard fm.isWritableFile(atPath: destination.path) else {
             throw FileOperationError.destinationNotWritable(destination.path)
-        }
-
-        // Check for dangerous operations
-        guard !isUnsafePath(source: source, destination: destination) else {
-            throw FileOperationError.unsafeOperation("Cannot copy source to itself or subdirectory")
         }
 
         // Check for symlink loops
@@ -134,21 +145,130 @@ final class SafetyValidator {
 
     // MARK: - Path Safety
 
-    private static func isUnsafePath(source: URL, destination: URL) -> Bool {
-        let sourcePath = source.standardized.path
-        let destPath = destination.standardized.path
+    static func destinationSafetyIssue(source: URL, destination: URL) -> String? {
+        let sourcePath = canonicalPath(source)
+        let destPath = canonicalPath(destination)
 
         // Don't copy to self
         if sourcePath == destPath {
-            return true
+            return "Destination is the source folder"
         }
 
-        // Don't copy to subdirectory of itself
-        if destPath.hasPrefix(sourcePath + "/") {
-            return true
+        // Don't copy into the source tree. This can recursively grow the transfer.
+        if pathIsWithin(destPath, root: sourcePath) {
+            return "Destination is inside the source folder"
         }
 
-        return false
+        // Don't use a parent of the source as the destination root. BitMatch writes
+        // into destination/sourceName, which can collide with the original source.
+        if pathIsWithin(sourcePath, root: destPath) {
+            return "Destination contains the source folder"
+        }
+
+        return nil
+    }
+
+    static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
+        let cardName = source.lastPathComponent
+        let labeledCardName = settings.formattedFolderName(for: cardName)
+
+        if settings.groupByCamera {
+            let raw = settings.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
+            return destination.appendingPathComponent(group).appendingPathComponent(cardName)
+        }
+
+        let folderName = labeledCardName.isEmpty ? cardName : labeledCardName
+        return destination.appendingPathComponent(folderName)
+    }
+
+    static func validateResolvedDestinationRoots(source: URL, destinations: [URL], settings: CameraLabelSettings) throws {
+        let roots = destinations.map { resolvedDestinationRoot(source: source, destination: $0, settings: settings) }
+        let rootPaths = roots.map { canonicalPath($0) }
+
+        guard Set(rootPaths).count == rootPaths.count else {
+            throw FileOperationError.unsafeOperation("Resolved destination folders must be unique")
+        }
+
+        for root in roots {
+            if let issue = destinationSafetyIssue(source: source, destination: root) {
+                throw FileOperationError.unsafeOperation("\(root.lastPathComponent): \(issue)")
+            }
+
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+                throw FileOperationError.unsafeOperation("\(root.lastPathComponent) already exists and is not a folder")
+            }
+
+            if (try? root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                throw FileOperationError.unsafeOperation("\(root.lastPathComponent) is a symbolic link")
+            }
+        }
+
+        for (index, path) in rootPaths.enumerated() {
+            for (otherIndex, otherPath) in rootPaths.enumerated() where index != otherIndex {
+                if pathIsWithin(path, root: otherPath) {
+                    throw FileOperationError.unsafeOperation("Resolved destination folders cannot be nested inside each other")
+                }
+            }
+        }
+    }
+
+    static func validateSourceTreeForCopy(source: URL) throws {
+        let fm = FileManager.default
+        let basePath = source.path
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]
+        var relativePaths: [String] = []
+
+        guard let enumerator = fm.enumerator(
+            at: source,
+            includingPropertiesForKeys: Array(keys),
+            options: []
+        ) else { return }
+
+        while let item = enumerator.nextObject() as? URL {
+            let values = try item.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true {
+                continue
+            }
+            guard values.isRegularFile == true || values.isDirectory == true else {
+                continue
+            }
+
+            let itemPath = item.path
+            let relativePath: String
+            if itemPath.hasPrefix(basePath + "/") {
+                relativePath = String(itemPath.dropFirst(basePath.count + 1))
+            } else {
+                relativePath = item.lastPathComponent
+            }
+            relativePaths.append(relativePath)
+        }
+
+        try validatePortableRelativePaths(relativePaths)
+    }
+
+    static func validatePortableRelativePaths(_ relativePaths: [String]) throws {
+        let locale = Locale(identifier: "en_US_POSIX")
+        var seen: [String: String] = [:]
+
+        for relativePath in relativePaths {
+            let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+            if components.contains(where: { $0 == "." || $0 == ".." || $0.isEmpty }) {
+                throw FileOperationError.unsafeOperation("Source contains an unsafe relative path: \(relativePath)")
+            }
+
+            let portableKey = relativePath
+                .precomposedStringWithCanonicalMapping
+                .lowercased(with: locale)
+
+            if let original = seen[portableKey], original != relativePath {
+                throw FileOperationError.unsafeOperation(
+                    "Source contains paths that collide on case-insensitive filesystems: \(original) and \(relativePath)"
+                )
+            }
+            seen[portableKey] = relativePath
+        }
     }
 
     // MARK: - Utility Functions
@@ -159,12 +279,12 @@ final class SafetyValidator {
 
         if let enumerator = fm.enumerator(
             at: url,
-            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: []
         ) {
             for case let fileURL as URL in enumerator {
-                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
-                if resourceValues.isDirectory != true {
+                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+                if resourceValues.isSymbolicLink != true && resourceValues.isRegularFile == true {
                     totalSize += Int64(resourceValues.fileSize ?? 0)
                 }
             }
@@ -180,6 +300,31 @@ final class SafetyValidator {
         } catch {
             return 0
         }
+    }
+
+    private static let protectedSystemPrefixes: [String] = [
+        "/System", "/Library", "/usr", "/bin", "/sbin", "/private", "/var"
+    ]
+
+    static func isProtectedSystemPath(_ url: URL) -> Bool {
+        let path = canonicalPath(url)
+        let temporaryPath = canonicalPath(FileManager.default.temporaryDirectory)
+        if pathIsWithin(path, root: temporaryPath) {
+            return false
+        }
+        return protectedSystemPrefixes.contains { path == $0 || pathIsWithin(path, root: $0) }
+    }
+
+    private static func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// Compare path-components, not raw prefixes, to avoid boundary bypasses.
+    private static func pathIsWithin(_ candidatePath: String, root rootPath: String) -> Bool {
+        let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
+        let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
+        guard candidateComponents.count >= rootComponents.count else { return false }
+        return zip(rootComponents, candidateComponents).allSatisfy(==)
     }
 }
 

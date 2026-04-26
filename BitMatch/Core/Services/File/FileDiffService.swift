@@ -13,7 +13,7 @@ enum FileDiffService {
         // Walk destination and find extras
         var extraRows: [ResultRow] = []
         let fm = FileManager.default
-        if let enumerator = fm.enumerator(at: destination, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+        if let enumerator = fm.enumerator(at: destination, includingPropertiesForKeys: [.isRegularFileKey], options: []) {
             while let url = enumerator.nextObject() as? URL {
                 do {
                     if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
@@ -44,7 +44,7 @@ enum FileTreeEnumeratorPaths {
             Task.detached(priority: .utility) {
                 var paths = Set<String>()
                 let fm = FileManager.default
-                if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+                if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: []) {
                     while let u = enumerator.nextObject() as? URL {
                         if let isFile = try? u.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile, isFile == true {
                             let rel = String(u.path.dropFirst(base.path.count + 1))

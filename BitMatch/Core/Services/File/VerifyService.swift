@@ -20,8 +20,8 @@ enum VerifyService {
                     let checksumService = SharedChecksumService.shared
                     let checksumAlgorithm = verificationMode.checksumTypes.first ?? .sha256
 
-                    let leftChecksum = try await checksumService.generateChecksum(for: leftURL, type: checksumAlgorithm, progressCallback: nil)
-                    let rightChecksum = try await checksumService.generateChecksum(for: rightURL, type: checksumAlgorithm, progressCallback: nil)
+                    let leftChecksum = try await checksumService.generateChecksum(for: leftURL, type: checksumAlgorithm, useCache: false, progressCallback: nil)
+                    let rightChecksum = try await checksumService.generateChecksum(for: rightURL, type: checksumAlgorithm, useCache: false, progressCallback: nil)
 
                     let checksumMatch = leftChecksum == rightChecksum
                     let status = checksumMatch ? "✅ Verified Match" : "❌ Checksum Mismatch"
