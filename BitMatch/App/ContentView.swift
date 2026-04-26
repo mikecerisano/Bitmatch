@@ -633,10 +633,6 @@ struct ContentView: View {
                 DevModeManager.shared.addFakeQueueItem(coordinator: coordinator)
             }
             // Legacy stress notification removed; use preset-specific hooks below
-#endif
-            .onReceive(NotificationCenter.default.publisher(for: .clearTestData)) { _ in
-                coordinator.resetForNewOperation()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .runStressTestSmall)) { _ in
                 DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .small)
             }
@@ -645,6 +641,10 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .runStressTestLarge)) { _ in
                 DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .large)
+            }
+#endif
+            .onReceive(NotificationCenter.default.publisher(for: .clearTestData)) { _ in
+                coordinator.resetForNewOperation()
             }
     }
 }

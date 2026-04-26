@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- Privacy: Remove opt-in network analytics sharing and community baseline fetching so BitMatch has no app analytics upload path.
+- Release: Guard debug-only stress-test and fake-transfer UI call sites so the Release configuration compiles.
 - Safety: Make first-run verification default to Standard SHA-256 instead of Quick mode.
 - Safety: Add shared-core validation for final resolved destination roots, including duplicates, nesting, source containment, symlinked roots, and file-vs-folder conflicts.
 - Safety: Add source-tree preflight for unsafe relative paths and case/Unicode-normalized filename collisions before any copy writes begin.

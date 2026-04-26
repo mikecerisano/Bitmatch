@@ -50,8 +50,7 @@
 
 ### 💡 Future Enhancements
 - **Additional Camera Support**: Expand camera detection database
-- **Advanced Reporting**: Enhanced analytics and visualization
-- **Cloud Integration**: Support for cloud storage destinations
+- **Advanced Reporting**: Enhanced local transfer history and visualization
 - **Batch Operations**: Multiple transfer queue management
 
 ## Key Technical Decisions

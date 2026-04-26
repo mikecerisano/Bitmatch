@@ -50,9 +50,11 @@ struct TransferQueueView: View {
                     }
                     
                     // Add new transfer section (dev mode only)
+                    #if DEBUG
                     if DevModeManager.shared.isDevModeEnabled && coordinator.isOperationInProgress {
                         addNewTransferSection
                     }
+                    #endif
                     
                     // Empty state when no transfers
                     if activeTransfer == nil && queuedTransfers.isEmpty && completedTransfers.isEmpty && !coordinator.isOperationInProgress {
@@ -66,9 +68,11 @@ struct TransferQueueView: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: queuedTransfers.count)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: completedTransfers.count)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.isOperationInProgress)
+            #if DEBUG
             .onReceive(NotificationCenter.default.publisher(for: .addFakeQueueItem)) { _ in
                 addFakeQueueItem()
             }
+            #endif
             
             // Top-level popup overlay
             if showingDestinationPopup, let destination = selectedDestination {
@@ -296,6 +300,7 @@ struct TransferQueueView: View {
     
     // MARK: - Helper Views
     
+    #if DEBUG
     @ViewBuilder
     private var addNewTransferSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -343,6 +348,7 @@ struct TransferQueueView: View {
             .buttonStyle(.plain)
         }
     }
+    #endif
     
     @ViewBuilder
     private var emptyQueueState: some View {
@@ -355,6 +361,7 @@ struct TransferQueueView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.white.opacity(0.5))
             
+            #if DEBUG
             if DevModeManager.shared.isDevModeEnabled {
                 Button {
                     DevModeManager.shared.startFakeTransfer(coordinator: coordinator)
@@ -375,6 +382,7 @@ struct TransferQueueView: View {
                 }
                 .buttonStyle(.plain)
             }
+            #endif
         }
         .frame(height: 80)
     }
@@ -418,6 +426,7 @@ struct TransferQueueView: View {
         }
     }
     
+    #if DEBUG
     private func addFakeQueueItem() {
         let (fakeSource, fakeSourceInfo) = DevModeManager.shared.generateFakeSource()
         let fakeDestinations = DevModeManager.shared.generateFakeDestinations()
@@ -464,4 +473,5 @@ struct TransferQueueView: View {
             }
         }
     }
+    #endif
 }

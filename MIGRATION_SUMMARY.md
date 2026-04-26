@@ -89,8 +89,7 @@ Legacy duplicates have been removed. A minimal macOS platform shim remains under
 The architecture is ready to support:
 - Backup validation
 - Advanced reporting
-- Cloud sync
-- Network transfers
+- Mounted network-volume destinations without app-hosted uploads
 
 ### 4. **Transfer Safety Validation**
 The shared copy/verify path now includes resolved destination-root checks, source-tree portability checks, non-destructive destination handling, hidden-file and empty-directory support, fresh live checksums, and large-result report coalescing. Future validation should focus on real hardware soak tests: SD cards, SSDs, multiple destinations, low-space destinations, cancel/resume, and disconnect scenarios.

@@ -32,10 +32,6 @@ class AppConfiguration: ObservableObject {
         didSet { UserDefaults.standard.set(bufferSize, forKey: Keys.bufferSize) }
     }
     
-    @Published var enableAnalytics: Bool = false {
-        didSet { UserDefaults.standard.set(enableAnalytics, forKey: Keys.enableAnalytics) }
-    }
-
     // MARK: - iOS Background Behavior
     @Published var preventAutoLockDuringTransfer: Bool = true {
         didSet { UserDefaults.standard.set(preventAutoLockDuringTransfer, forKey: Keys.preventAutoLockDuringTransfer) }
@@ -65,7 +61,6 @@ class AppConfiguration: ObservableObject {
         static let showDetailedProgress = "ShowDetailedProgress"
         static let autoCloseOnComplete = "AutoCloseOnComplete"
         static let bufferSize = "BufferSize"
-        static let enableAnalytics = "EnableAnalytics"
         static let preventAutoLockDuringTransfer = "PreventAutoLockDuringTransfer"
         static let dimScreenWhileAwake = "DimScreenWhileAwake"
     }
@@ -92,8 +87,6 @@ class AppConfiguration: ObservableObject {
         bufferSize = UserDefaults.standard.integer(forKey: Keys.bufferSize) != 0 
             ? UserDefaults.standard.integer(forKey: Keys.bufferSize) : 1_048_576
         
-        enableAnalytics = UserDefaults.standard.bool(forKey: Keys.enableAnalytics)
-
         // Background behavior (defaults true/true for first run)
         if UserDefaults.standard.object(forKey: Keys.preventAutoLockDuringTransfer) == nil {
             preventAutoLockDuringTransfer = true
@@ -114,7 +107,6 @@ class AppConfiguration: ObservableObject {
         showDetailedProgress = true
         autoCloseOnComplete = false
         bufferSize = 1_048_576
-        enableAnalytics = false
         preventAutoLockDuringTransfer = true
         dimScreenWhileAwake = true
         
