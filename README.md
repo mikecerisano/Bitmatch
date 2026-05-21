@@ -1,6 +1,11 @@
 # BitMatch
 
-A video file transfer and verification app for macOS and iPad. Copy camera cards to multiple backup drives, verify everything arrived intact, generate reports. The stuff you need on set.
+**A free, open-source alternative to ShotPut Pro, Silverstack, and Hedge.** Offload camera cards to multiple backup drives, verify every byte with SHA-256, and generate reports. Built for indie filmmakers, YouTubers, and small productions who don't want a $300/year subscription to copy files.
+
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20iPadOS-blue)](https://github.com/mikecerisano/Bitmatch)
+[![Swift](https://img.shields.io/badge/Swift-5.9-orange)](https://swift.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/mikecerisano/Bitmatch?include_prereleases)](https://github.com/mikecerisano/Bitmatch/releases)
 
 ![BitMatch macOS app](screenshot.png)
 
@@ -162,6 +167,29 @@ Or just run `bash test.sh` from the repo root.
 
 - iPad can't see some external drives until you explicitly grant access through the Files app first.
 - UI automation can be sensitive to local Xcode/device state. The unit target is the reliable safety regression suite.
+
+## FAQ
+
+**Is this really a ShotPut Pro / Silverstack / Hedge alternative?**
+For most indie use cases, yes. It does multi-destination copy, SHA-256 verification, camera card detection, MHL generation, and PDF reports. It does not yet do LTO archiving, network-distributed offload, or studio-grade asset management. If you're on a Netflix show, stick with the paid tools.
+
+**Does it generate MHL files?**
+Yes, in Paranoid mode. MHL (Media Hash List) files are written alongside transfers for downstream verification.
+
+**Does it support RED, ARRI, Blackmagic, Sony, Canon?**
+Yes — camera-card detection covers Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM. It names backup folders based on the detected camera.
+
+**Does it work on iPad?**
+Yes. The iPad app works with external SSDs through the Files app — useful when you're shooting run-and-gun and don't have a laptop.
+
+**Is the source card safe?**
+Yes. BitMatch never modifies the source. It copies into temp files, verifies, then promotes into place. Existing destination files are never overwritten unless BitMatch proves they already match the source.
+
+**Why open source?**
+Trust. Nobody should hand their irreplaceable footage to a closed-source app from a random developer. The code is here — read it, test it, then decide.
+
+**Is there a paid version?**
+Possibly a future App Store build for the price of a coffee, with a notarized installer and updates. The source will always be here, MIT licensed, free.
 
 ## Credits
 
