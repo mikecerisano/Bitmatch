@@ -286,6 +286,30 @@ print("❌ Error: \(error)")
   - `xcrun xccov view --report --json coverage.xcresult`
 - Convenience: `bash test.sh`
 
+## macOS Release
+
+Prerequisites:
+- A valid Developer ID Application certificate for the release team.
+- A stored notarytool profile named `bitmatch-notary`.
+
+Create the notary profile once on the release machine:
+```bash
+xcrun notarytool store-credentials bitmatch-notary \
+  --apple-id "APPLE_ID_EMAIL" \
+  --team-id "AUJW7AGG26" \
+  --password "APP_SPECIFIC_PASSWORD"
+```
+
+Build, sign, notarize, staple, and checksum the macOS artifact:
+```bash
+Scripts/release_mac.sh 0.1.1
+```
+
+The script writes `dist/BitMatch-0.1.1-macOS.zip` and a matching `.sha256` file. To validate signing without submitting to Apple, run:
+```bash
+SKIP_NOTARIZE=1 Scripts/release_mac.sh 0.1.1
+```
+
 ## Swift 6 Concurrency Notes (Updates)
 
 - Do not call actor‑isolated methods from nonisolated initializers; perform synchronous file reads directly in init when needed.

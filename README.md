@@ -32,7 +32,7 @@ Plug in your card and drives. BitMatch figures out which is which (1TB+ are dest
 ## What It Does
 
 - **Multi destination copy** with SHA-256 verification
-- **Four verification modes**: Quick (size and mtime), Standard (SHA-256, the default), Thorough (multiple checksums), Paranoid (byte by byte plus MHL files)
+- **Four verification modes**: Quick (copy only, no checksum verification), Standard (SHA-256, the default), Thorough (multiple checksums), Paranoid (byte by byte plus MHL files)
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, generic DCIM. Names backup folders after the camera. Autosorts A/B/C
 - **Folder compare** for stuff you already copied
 - **PDF reports** for producers who want documentation

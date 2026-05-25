@@ -6,6 +6,7 @@
 .swiftpm/
 *.log
 *.bak
+dist/
 *.moved-aside
 *.xccheckout
 *.xcresult

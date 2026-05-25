@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-05-25
 - Safety: Quick mode no longer reuses or pre-counts existing destination files because size and mtime alone cannot prove equality.
 - Docs: Update README safety wording to distinguish checksum-verified reuse from Quick mode.
 - Development: Make `test.sh` run the contributor-friendly macOS unit target with explicit project, destination, and unsigned build settings.
