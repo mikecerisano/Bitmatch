@@ -13,7 +13,7 @@
 
 Signed and notarized macOS build on the [Releases page](https://github.com/mikecerisano/Bitmatch/releases).
 
-For iPad, build from source (see below).
+Requires macOS 15.5 or newer. For iPad, build from source (see below).
 
 ## How It Works
 
@@ -65,7 +65,7 @@ I might eventually put a compiled version on the App Store for the price of a co
 
 ## Building
 
-Requirements: Xcode 15+, macOS 14+.
+Requirements: Xcode 16+, macOS 15.5+ for the Mac app. The iPad target currently builds for iPadOS 18.5+.
 
 1. Open `BitMatch.xcodeproj`
 2. Pick the `BitMatch` scheme for Mac or `BitMatch-iPad` for iOS
