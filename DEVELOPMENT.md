@@ -305,7 +305,7 @@ Build, sign, notarize, staple, and checksum the macOS artifact:
 Scripts/release_mac.sh 0.1.1
 ```
 
-The script writes `dist/BitMatch-0.1.1-macOS.zip` and a matching `.sha256` file. To validate signing without submitting to Apple, run:
+The script writes `dist/BitMatch-0.1.1.dmg` and a matching `.sha256` file. To validate signing and DMG creation without submitting to Apple, run:
 ```bash
 SKIP_NOTARIZE=1 Scripts/release_mac.sh 0.1.1
 ```
