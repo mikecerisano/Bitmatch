@@ -7,9 +7,11 @@ enum PreScanService {
         destRoot: URL,
         verificationMode: VerificationMode
     ) async -> Int {
+        guard verificationMode != .quick else { return 0 }
+
         let fm = FileManager.default
         var count = 0
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
         if let enumerator = fm.enumerator(
             at: sourceBase,
             includingPropertiesForKeys: keys,
@@ -25,27 +27,18 @@ enum PreScanService {
                     let destSize = (destAttributes?[.size] as? NSNumber)?.int64Value ?? -1
                     let sourceSize = Int64(values.fileSize ?? -2)
                     if destSize == sourceSize {
-                        if verificationMode == .quick {
-                            if modificationDatesMatch(
-                                source: values.contentModificationDate,
-                                destination: destAttributes?[.modificationDate] as? Date
+                        do {
+                            if try await checksumsMatch(
+                                source: fileURL,
+                                destination: destURL,
+                                verificationMode: verificationMode
                             ) {
                                 count += 1
                             }
-                        } else {
-                            do {
-                                if try await checksumsMatch(
-                                    source: fileURL,
-                                    destination: destURL,
-                                    verificationMode: verificationMode
-                                ) {
-                                    count += 1
-                                }
-                            } catch is CancellationError {
-                                return count
-                            } catch {
-                                SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
-                            }
+                        } catch is CancellationError {
+                            return count
+                        } catch {
+                            SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
                         }
                     }
                 }
@@ -59,38 +52,31 @@ enum PreScanService {
         destRoot: URL,
         verificationMode: VerificationMode
     ) async -> Int {
+        guard verificationMode != .quick else { return 0 }
+
         let fm = FileManager.default
         var count = 0
         for fileURL in sourceFiles {
             do {
-                let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
                 let relative = String(fileURL.path.dropFirst(sourceBase.path.count + 1))
                 let destURL = destRoot.appendingPathComponent(relative)
                 if (try? destURL.checkResourceIsReachable()) == true {
                     let destAttributes = try fm.attributesOfItem(atPath: destURL.path)
                     let destSize = (destAttributes[.size] as? NSNumber)?.int64Value ?? -1
                     if destSize == Int64(values.fileSize ?? -2) {
-                        if verificationMode == .quick {
-                            if modificationDatesMatch(
-                                source: values.contentModificationDate,
-                                destination: destAttributes[.modificationDate] as? Date
+                        do {
+                            if try await checksumsMatch(
+                                source: fileURL,
+                                destination: destURL,
+                                verificationMode: verificationMode
                             ) {
                                 count += 1
                             }
-                        } else {
-                            do {
-                                if try await checksumsMatch(
-                                    source: fileURL,
-                                    destination: destURL,
-                                    verificationMode: verificationMode
-                                ) {
-                                    count += 1
-                                }
-                            } catch is CancellationError {
-                                return count
-                            } catch {
-                                SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
-                            }
+                        } catch is CancellationError {
+                            return count
+                        } catch {
+                            SharedLogger.warning("Pre-scan checksum check failed for \(fileURL.path): \(error)", category: .transfer)
                         }
                     }
                 }
@@ -99,13 +85,6 @@ enum PreScanService {
             }
         }
         return count
-    }
-
-    private static let modificationTolerance: TimeInterval = 2.0
-
-    private static func modificationDatesMatch(source: Date?, destination: Date?) -> Bool {
-        guard let source, let destination else { return false }
-        return abs(source.timeIntervalSince(destination)) <= modificationTolerance
     }
 
     private static func checksumsMatch(

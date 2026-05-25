@@ -52,4 +52,67 @@ struct SharedFileOperationsQuickModeTests {
             #endif
         }
     }
+
+    @Test
+    func testQuickModeDoesNotReuseExistingDestinationFile() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory
+            let source = tmp.appendingPathComponent("bitmatch_quick_conflict_src_\(UUID().uuidString)")
+            let dest = tmp.appendingPathComponent("bitmatch_quick_conflict_dst_\(UUID().uuidString)")
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+
+            let sourceFile = source.appendingPathComponent("clip.mov")
+            try Data("same-size-source".utf8).write(to: sourceFile, options: .atomic)
+
+            let settings = CameraLabelSettings()
+            let outputRoot = SafetyValidator.resolvedDestinationRoot(source: source, destination: dest, settings: settings)
+            try fm.createDirectory(at: outputRoot, withIntermediateDirectories: true)
+            let existingDestination = outputRoot.appendingPathComponent("clip.mov")
+            try Data("same-size-target".utf8).write(to: existingDestination, options: .atomic)
+
+            let sharedDate = Date(timeIntervalSince1970: 1_700_000_000)
+            try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: sourceFile.path)
+            try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: existingDestination.path)
+
+            let quickPreScanCount = await PreScanService.countAlreadyPresent(
+                sourceFiles: [sourceFile],
+                sourceBase: source,
+                destRoot: outputRoot,
+                verificationMode: .quick
+            )
+            #expect(quickPreScanCount == 0)
+
+            let sut = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: SharedChecksumService.shared
+            )
+
+            let op = try await sut.performFileOperation(
+                sourceURL: source,
+                destinationURLs: [dest],
+                verificationMode: .quick,
+                settings: settings,
+                estimatedTotalBytes: nil,
+                progressCallback: { _ in },
+                onFileResult: { _ in }
+            )
+
+            let destinationContents = try String(contentsOf: existingDestination, encoding: .utf8)
+            #expect(destinationContents == "same-size-target")
+            #expect(op.results.contains { result in
+                !result.success
+                    && result.sourceURL.lastPathComponent == "clip.mov"
+                    && result.error?.localizedDescription.contains("Quick mode cannot prove") == true
+            })
+
+            try? fm.removeItem(at: source)
+            try? fm.removeItem(at: dest)
+            #else
+            #expect(true)
+            #endif
+        }
+    }
 }

@@ -2,18 +2,15 @@
 set -euo pipefail
 
 SCHEME=${1:-BitMatch}
-OUT=${2:-coverage.xcresult}
+DESTINATION=${DESTINATION:-platform=macOS}
 
-echo "Running tests with coverage for scheme: $SCHEME"
+echo "Running unit tests for scheme: $SCHEME"
 xcodebuild test \
+  -project BitMatch.xcodeproj \
   -scheme "$SCHEME" \
-  -enableCodeCoverage YES \
-  -resultBundlePath "$OUT"
+  -destination "$DESTINATION" \
+  CODE_SIGNING_ALLOWED=NO \
+  -only-testing:BitMatchTests
 
-echo "\nCoverage summary (human readable):"
-xcrun xccov view --report "$OUT" || true
-
-echo "\nCoverage JSON (for tooling):"
-xcrun xccov view --report --json "$OUT" || true
-
-echo "\nDone. Result bundle: $OUT"
+echo
+echo "Done."

@@ -255,7 +255,7 @@ final class OperationViewModel: ObservableObject {
             reason: .userRequested
         ))
 
-        // Cancel current tasks; resume will restart and skip completed via size/resume logic
+        // Cancel current tasks; resume will restart and reuse only files that can be verified.
         operationTask?.cancel()
         operationTask = nil
         // Resume paused continuation if any to unblock waits

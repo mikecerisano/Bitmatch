@@ -148,7 +148,11 @@ final class IOSBackgroundTaskService: ObservableObject {
             content.body = "Return to BitMatch to continue transfer."
             content.sound = .default
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+            } catch {
+                SharedLogger.warning("Failed to schedule background warning notification: \(error)", category: .transfer)
+            }
         }
     }
 

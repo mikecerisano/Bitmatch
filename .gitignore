@@ -5,12 +5,14 @@
 .LSOverride
 .swiftpm/
 *.log
+*.bak
 *.moved-aside
 *.xccheckout
 *.xcresult
 *.xcresult/
 *.xcscmblueprint
 *.xcuserdata/
+*.xcuserdatad/
 *.xcuserstate
 # CocoaPods
 # Logs and local artifacts

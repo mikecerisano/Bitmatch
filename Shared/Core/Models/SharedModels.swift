@@ -137,7 +137,7 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     
     var description: String {
         switch self {
-        case .quick: return "File size comparison only"
+        case .quick: return "Copy only, no checksum verification"
         case .standard: return "Basic checksum verification"
         case .thorough: return "Multiple checksum algorithms"
         case .paranoid: return "Byte-by-byte comparison + checksums"

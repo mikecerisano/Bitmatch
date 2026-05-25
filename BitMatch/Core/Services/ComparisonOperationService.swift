@@ -186,7 +186,7 @@ final class ComparisonOperationService {
             )
         }
 
-        // Pre-scan destinations to seed resume progress when files already exist and match size
+        // Pre-scan destinations to seed resume progress only when existing files can be verified.
         let alreadyPresentPerDestination: [Int] = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
             for destination in destinations {
                 group.addTask {
@@ -323,44 +323,6 @@ final class ComparisonOperationService {
                 }
             }
         }
-    }
-
-    // Count how many files already exist at destination with matching size (resume heuristic)
-    private static func countAlreadyPresentFiles(
-        sourceFiles: [URL],
-        sourceBase: URL,
-        destRoot: URL,
-        verificationMode: VerificationMode
-    ) async -> Int {
-        let fm = FileManager.default
-        var count = 0
-        for fileURL in sourceFiles {
-            do {
-                let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
-                let relative = String(fileURL.path.dropFirst(sourceBase.path.count + 1))
-                let destURL = destRoot.appendingPathComponent(relative)
-                if fm.fileExists(atPath: destURL.path) {
-                    let destSize = (try fm.attributesOfItem(atPath: destURL.path)[.size] as? NSNumber)?.int64Value ?? -1
-                    if destSize == Int64(values.fileSize ?? -2) {
-                        // Optional: when checksum verification is enabled, require a quick checksum for small files
-                        if verificationMode.useChecksum, let fsize = values.fileSize, fsize > 0, fsize <= 5 * 1024 * 1024 {
-	                            do {
-	                                let srcHash = try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: .sha256, useCache: false, progressCallback: nil)
-	                                let dstHash = try await SharedChecksumService.shared.generateChecksum(for: destURL, type: .sha256, useCache: false, progressCallback: nil)
-                                if srcHash == dstHash { count += 1 }
-                            } catch {
-                                // If checksum fails, don't count as present; verify phase will catch issues
-                            }
-                        } else {
-                            count += 1
-                        }
-                    }
-                }
-            } catch {
-                continue
-            }
-        }
-        return count
     }
 
     // No persistent state; helpers only

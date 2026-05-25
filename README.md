@@ -36,14 +36,14 @@ Plug in your card and drives. BitMatch figures out which is which (1TB+ are dest
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, generic DCIM. Names backup folders after the camera. Autosorts A/B/C
 - **Folder compare** for stuff you already copied
 - **PDF reports** for producers who want documentation
-- **Safe by default**: never modifies the source, never overwrites mismatched files, copies through temp files and promotes only after verify
+- **Safe by default**: never modifies the source, never overwrites destination conflicts, copies through temp files and verifies by default with SHA-256
 
 ## Why It's Safe (probably)
 
 - 🚫 No cloud, no servers, no uploads
 - 🔒 Verification happens locally
 - ✅ Source card is never modified
-- 🛑 Existing destination files are never overwritten unless BitMatch proves they already match the source
+- 🛑 Existing destination files are never overwritten. In checksum modes, matching files can be reused only after local verification
 - 📁 Hidden files and empty folders included (camera sidecar data matters)
 
 **Heads up though.** I think it's safe. I've used it on my own jobs. But I haven't shot every camera on every drive on every macOS version, and this is a one person project. It's open source so you can read the code and decide for yourself. **Test it on throwaway files first. Don't trust irreplaceable footage to it until you've shaken it out on a few jobs.**

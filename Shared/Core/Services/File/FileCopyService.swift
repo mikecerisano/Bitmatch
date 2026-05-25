@@ -158,7 +158,6 @@ final class FileCopyService {
                                     source: fileURL,
                                     destination: dstURL,
                                     sourceSize: sourceSize,
-                                    sourceModificationDate: resourceValues.contentModificationDate,
                                     verificationMode: verificationMode
                                 )
                                 if shouldReuseExisting {
@@ -405,13 +404,10 @@ final class FileCopyService {
         }
     }
 
-    private static let modificationTolerance: TimeInterval = 2.0
-
     private static func canReuseExistingDestinationFile(
         source: URL,
         destination: URL,
         sourceSize: Int64,
-        sourceModificationDate: Date?,
         verificationMode: VerificationMode
     ) async throws -> Bool {
         let fm = FileManager.default
@@ -427,11 +423,9 @@ final class FileCopyService {
         }
 
         if verificationMode == .quick {
-            let destModDate = destAttributes[.modificationDate] as? Date
-            guard modificationDatesMatch(source: sourceModificationDate, destination: destModDate) else {
-                throw existingDestinationConflictError("Existing destination file differs; choose an empty destination or a unique folder name")
-            }
-            return true
+            throw existingDestinationConflictError(
+                "Quick mode cannot prove an existing destination file matches; choose Standard verification or an empty destination"
+            )
         }
 
         guard try await checksumsMatch(
@@ -459,11 +453,6 @@ final class FileCopyService {
         let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
         guard candidateComponents.count >= rootComponents.count else { return false }
         return zip(rootComponents, candidateComponents).allSatisfy(==)
-    }
-
-    private static func modificationDatesMatch(source: Date?, destination: Date?) -> Bool {
-        guard let source, let destination else { return false }
-        return abs(source.timeIntervalSince(destination)) <= modificationTolerance
     }
 
     private static func checksumsMatch(
