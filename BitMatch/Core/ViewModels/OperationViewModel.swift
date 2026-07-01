@@ -242,7 +242,8 @@ final class OperationViewModel: ObservableObject {
         OperationStateManager.createCheckpoint(
             for: jobID,
             filesProcessed: filesProcessed,
-            lastFile: lastFile
+            lastFile: lastFile,
+            totalCount: totalFiles
         )
 
         // Transition to paused state for UI
@@ -374,9 +375,12 @@ final class OperationViewModel: ObservableObject {
             success: !hasIssues,
             message: message
         ))
+        // The operation finished; without this, the state file lingers and
+        // (with resume detection working) would resurface as "interrupted".
+        OperationStateManager.clearState(for: jobID)
         sendCompletionNotification(success: !hasIssues, message: message)
     }
-    
+
     private func handleOperationError(_ error: Error) async {
         // Treat cancellation as a non-error and return to idle without showing a failure page
         if error is CancellationError {
@@ -584,7 +588,8 @@ final class OperationViewModel: ObservableObject {
         OperationStateManager.createCheckpoint(
             for: jobID,
             filesProcessed: results.count,
-            lastFile: results.last?.path ?? "unknown"
+            lastFile: results.last?.path ?? "unknown",
+            totalCount: max(progressViewModel.fileCountTotal, results.count)
         )
     }
 

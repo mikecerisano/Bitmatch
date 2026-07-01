@@ -76,8 +76,12 @@ final class OperationStateManager {
                                                                    includingPropertiesForKeys: [.creationDateKey])
             
             for file in files where file.pathExtension == "json" {
+                // Must match saveState's ISO-8601 date encoding; a default
+                // decoder fails on every file and resume silently never fires.
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
                 if let data = try? Data(contentsOf: file),
-                   let operation = try? JSONDecoder().decode(PersistedOperation.self, from: data) {
+                   let operation = try? decoder.decode(PersistedOperation.self, from: data) {
                     
                     // Consider operations older than 1 hour as potentially interrupted
                     let age = Date().timeIntervalSince(operation.startTime)
@@ -125,22 +129,22 @@ final class OperationStateManager {
     }
     
     // MARK: - Create Checkpoint
-    static func createCheckpoint(for operationID: UUID, filesProcessed: Int, lastFile: String) {
+    static func createCheckpoint(for operationID: UUID, filesProcessed: Int, lastFile: String, totalCount: Int? = nil) {
         if let operation = loadState(for: operationID) {
             let checkpoint = PersistedOperation.Checkpoint(
                 timestamp: Date(),
                 processedCount: filesProcessed,
                 lastFile: lastFile
             )
-            
+
             var checkpoints = operation.checkpoints
             checkpoints.append(checkpoint)
-            
+
             // Keep only last 10 checkpoints
             if checkpoints.count > 10 {
                 checkpoints = Array(checkpoints.suffix(10))
             }
-            
+
             let updated = PersistedOperation(
                 id: operation.id,
                 startTime: operation.startTime,
@@ -150,10 +154,10 @@ final class OperationStateManager {
                 verificationMode: operation.verificationMode,
                 lastProcessedFile: lastFile,
                 processedCount: filesProcessed,
-                totalCount: operation.totalCount,
+                totalCount: totalCount ?? operation.totalCount,
                 checkpoints: checkpoints
             )
-            
+
             saveState(updated)
         }
     }
