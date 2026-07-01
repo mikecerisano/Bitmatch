@@ -46,8 +46,8 @@ struct TransferCard: Identifiable {
     
     var verified: Bool {
         switch state {
-        case .completed:
-            return true
+        case .completed(let info):
+            return info.success
         default:
             return false
         }

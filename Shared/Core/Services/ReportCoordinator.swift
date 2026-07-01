@@ -19,7 +19,8 @@ final class ReportCoordinator {
         detectedCamera: CameraCard?,
         timingService: OperationTimingService,
         verificationMode: VerificationMode,
-        cameraLabelSettings: CameraLabelSettings
+        cameraLabelSettings: CameraLabelSettings,
+        operationState: OperationState
     ) async throws {
         // Build a minimal TransferCard from current state
         let srcInfo: FolderInfo = try {
@@ -55,7 +56,7 @@ final class ReportCoordinator {
                 cameraSettings: cameraLabelSettings
             ),
             progress: 1.0,
-            state: .completed(OperationCompletionInfo(success: true, message: ""))
+            state: operationState
         )
 
         let config = SharedReportGenerationService.ReportConfiguration.default()

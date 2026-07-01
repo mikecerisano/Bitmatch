@@ -409,7 +409,17 @@ class SharedAppCoordinator: ObservableObject {
             )
             self.lastCompareStats = stats
             isOperationInProgress = false
-            operationState = .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully"))
+            let message: String
+            if stats.isClean {
+                message = "Folders match"
+            } else {
+                var issues: [String] = []
+                if stats.mismatchedCount > 0 { issues.append("\(stats.mismatchedCount) mismatched") }
+                if stats.onlyInLeftCount > 0 { issues.append("\(stats.onlyInLeftCount) only in source") }
+                if stats.onlyInRightCount > 0 { issues.append("\(stats.onlyInRightCount) only in destination") }
+                message = "Comparison found differences: \(issues.joined(separator: ", "))"
+            }
+            operationState = .completed(OperationCompletionInfo(success: stats.isClean, message: message))
             return
         } catch is CancellationError {
             isOperationInProgress = false
@@ -443,7 +453,8 @@ class SharedAppCoordinator: ObservableObject {
                 detectedCamera: detectedCamera,
                 timingService: timingService,
                 verificationMode: verificationMode,
-                cameraLabelSettings: cameraLabelSettings
+                cameraLabelSettings: cameraLabelSettings,
+                operationState: operationState
             )
         } catch {
             await platformManager.presentError(error)
@@ -798,6 +809,11 @@ struct CompareStats: Equatable {
     let onlyInRightCount: Int
     let commonCount: Int
     let mismatchedCount: Int
+
+    /// True only when both folders contain the same files with matching content.
+    var isClean: Bool {
+        onlyInLeftCount == 0 && onlyInRightCount == 0 && mismatchedCount == 0
+    }
 }
 
 // MARK: - Supporting Types for Enhanced Folder Display
