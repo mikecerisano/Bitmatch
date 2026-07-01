@@ -159,27 +159,37 @@ class SharedChecksumService: ChecksumService {
         
         let chunkSize = 64 * 1024 // 64KB chunks
         var bytesProcessed: Int64 = 0
-        
+
         while bytesProcessed < sourceSize {
             await Task.yield()
             try Task.checkCancellation()
             if let pauseCheck = Self.pauseCheck {
                 try await pauseCheck()
             }
-            let sourceData = sourceHandle.readData(ofLength: chunkSize)
-            let destinationData = destinationHandle.readData(ofLength: chunkSize)
-            
+            let sourceData = try sourceHandle.read(upToCount: chunkSize) ?? Data()
+            let destinationData = try destinationHandle.read(upToCount: chunkSize) ?? Data()
+
+            // EOF before the expected size means a file shrank mid-compare;
+            // surface it instead of returning a verdict (or looping forever).
+            if sourceData.isEmpty || destinationData.isEmpty {
+                throw Self.truncatedReadError(
+                    for: sourceData.isEmpty ? sourceURL : destinationURL,
+                    expected: sourceSize,
+                    actual: bytesProcessed
+                )
+            }
+
             if sourceData != destinationData {
                 return false
             }
-            
+
             bytesProcessed += Int64(sourceData.count)
-            
+
             // Update progress
             let progress = Double(bytesProcessed) / Double(sourceSize)
             progressCallback?(progress, "Comparing bytes...")
         }
-        
+
         return true
     }
     
@@ -207,14 +217,14 @@ class SharedChecksumService: ChecksumService {
         var hasher = Insecure.MD5()
         let chunkSize = 64 * 1024
         var bytesProcessed: Int64 = 0
-        
+
         while bytesProcessed < fileSize {
             await Task.yield()
             try Task.checkCancellation()
             if let pauseCheck = Self.pauseCheck {
                 try await pauseCheck()
             }
-            let data = fileHandle.readData(ofLength: chunkSize)
+            let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
             autoreleasepool {
                 hasher.update(data: data)
@@ -223,7 +233,8 @@ class SharedChecksumService: ChecksumService {
             let progress = Double(bytesProcessed) / Double(fileSize)
             progressCallback?(progress, "Computing MD5 (legacy)...")
         }
-        
+        try Self.ensureCompleteRead(of: fileURL, expected: fileSize, actual: bytesProcessed)
+
         let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
@@ -245,26 +256,27 @@ class SharedChecksumService: ChecksumService {
         var hasher = SHA256()
         let chunkSize = 64 * 1024 // 64KB chunks
         var bytesProcessed: Int64 = 0
-        
+
         while bytesProcessed < fileSize {
             await Task.yield()
             try Task.checkCancellation()
             if let pauseCheck = Self.pauseCheck {
                 try await pauseCheck()
             }
-            let data = fileHandle.readData(ofLength: chunkSize)
+            let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
-            
+
             autoreleasepool {
                 hasher.update(data: data)
             }
             bytesProcessed += Int64(data.count)
-            
+
             // Update progress
             let progress = Double(bytesProcessed) / Double(fileSize)
             progressCallback?(progress, "Computing SHA-256...")
         }
-        
+        try Self.ensureCompleteRead(of: fileURL, expected: fileSize, actual: bytesProcessed)
+
         let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
@@ -293,7 +305,7 @@ class SharedChecksumService: ChecksumService {
             if let pauseCheck = Self.pauseCheck {
                 try await pauseCheck()
             }
-            let data = fileHandle.readData(ofLength: chunkSize)
+            let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
 
             autoreleasepool {
@@ -306,9 +318,29 @@ class SharedChecksumService: ChecksumService {
             let progress = Double(bytesProcessed) / Double(fileSize)
             progressCallback?(progress, "Computing SHA-1...")
         }
+        try Self.ensureCompleteRead(of: fileURL, expected: fileSize, actual: bytesProcessed)
 
         let digest = hasher.finalize()
         return digest.map { String(format: "%02hhx", $0) }.joined()
+    }
+
+    /// A checksum computed over fewer bytes than the file's reported size is
+    /// not a checksum of the file; it must never be returned as one.
+    private static func ensureCompleteRead(of url: URL, expected: Int64, actual: Int64) throws {
+        guard actual == expected else {
+            throw truncatedReadError(for: url, expected: expected, actual: actual)
+        }
+    }
+
+    private static func truncatedReadError(for url: URL, expected: Int64, actual: Int64) -> Error {
+        NSError(
+            domain: "SharedChecksumService",
+            code: -10,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "File changed while reading \(url.lastPathComponent): expected \(expected) bytes, read \(actual)"
+            ]
+        )
     }
 
     private func mapFileOpenError(_ error: Error, for url: URL) -> Error {
