@@ -840,8 +840,7 @@ final class ReportExporter {
     }
     
     private static func isMatchStatus(_ status: String) -> Bool {
-        let lowercased = status.lowercased()
-        return status.contains("✅") || lowercased.contains("match") || lowercased.contains("verified")
+        ResultRow.isSuccessStatus(status)
     }
     
     private static func normalizedStatus(_ status: String) -> String {

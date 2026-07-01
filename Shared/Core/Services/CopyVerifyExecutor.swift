@@ -199,7 +199,7 @@ final class CopyVerifyExecutor {
         }
 
         let failedResults = allResults.filter { row in
-            !(row.status.contains("✅") || row.status.contains("Match"))
+            !row.isSuccessStatus
         }
         let issueCount = failedResults.count + errorService.currentErrors.count
         let succeeded = issueCount == 0
@@ -262,7 +262,7 @@ final class CopyVerifyExecutor {
         results: [ResultRow],
         config: CopyVerifyConfig
     ) async {
-        let matchCount = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
+        let matchCount = results.filter { $0.isSuccessStatus }.count
         let totalBytesProcessed = config.estimatedBytes
         let fileCount = results.count
         let workers = max(1, ProcessInfo.processInfo.activeProcessorCount)

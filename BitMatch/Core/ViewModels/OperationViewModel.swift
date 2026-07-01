@@ -335,14 +335,14 @@ final class OperationViewModel: ObservableObject {
         await cleanupAfterOperation()
 
         // Determine completion status
-        let hasIssues = results.contains { !($0.status.contains("✅") || $0.status.contains("Match")) }
+        let hasIssues = results.contains { !$0.isSuccessStatus }
         var message = hasIssues ? "Completed with issues" : "All files verified successfully"
         let reused = progressViewModel.reusedFileCopies
         if reused > 0 {
             message += " (Reused \(reused) copies)"
         }
-        let _ = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
-        let _ = results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
+        let _ = results.filter { $0.isSuccessStatus }.count
+        let _ = results.filter { !$0.isSuccessStatus }.count
         let _ = Date().timeIntervalSince(jobStart)
 
         // Stop progress interpolation timer
@@ -386,8 +386,8 @@ final class OperationViewModel: ObservableObject {
             return
         }
         await cleanupAfterOperation()
-        let _ = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
-        let _ = results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
+        let _ = results.filter { $0.isSuccessStatus }.count
+        let _ = results.filter { !$0.isSuccessStatus }.count
         let _ = Date().timeIntervalSince(jobStart)
 
         // Stop progress interpolation timer on error
@@ -476,7 +476,7 @@ final class OperationViewModel: ObservableObject {
         
         guard let resolvedSource = sourceURL, !destinations.isEmpty else { return nil }
         
-        let matchCount = resultsSnapshot.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
+        let matchCount = resultsSnapshot.filter { $0.isSuccessStatus }.count
         let prefsSnapshot = settingsViewModel.prefs
         let totalBytes = progressViewModel.getTotalBytesProcessed()
         let fileCount = resultsSnapshot.count
@@ -570,10 +570,10 @@ final class OperationViewModel: ObservableObject {
 
     private func addResults(_ newResults: [ResultRow]) {
         if results.count + newResults.count > maxResultsInMemory {
-            let errors = results.filter { !$0.status.contains("✅") && !$0.status.contains("Match") }
+            let errors = results.filter { !$0.isSuccessStatus }
             let keepCount = maxResultsInMemory / 2
             let matchesToKeep = max(0, keepCount - errors.count)
-            let matches = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }.suffix(matchesToKeep)
+            let matches = results.filter { $0.isSuccessStatus }.suffix(matchesToKeep)
             results = Array(errors + matches)
         }
         results.append(contentsOf: newResults)

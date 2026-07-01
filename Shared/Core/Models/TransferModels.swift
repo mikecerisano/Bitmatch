@@ -95,9 +95,25 @@ struct ResultRow: Identifiable {
     var fileName: String {
         URL(fileURLWithPath: path).lastPathComponent
     }
-    
+
     var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+    }
+
+    var isSuccessStatus: Bool {
+        Self.isSuccessStatus(status)
+    }
+
+    /// Single source of truth for whether a result row represents a verified
+    /// success. Fail-safe: a status must positively signal success ("✅") and
+    /// carry no failure marker; anything unrecognized counts as an issue.
+    /// Substring checks like `lowercased().contains("match")` are forbidden
+    /// here — "Checksum Mismatch" contains "match".
+    static func isSuccessStatus(_ status: String) -> Bool {
+        guard status.contains("✅") else { return false }
+        let lowercased = status.lowercased()
+        let failureMarkers = ["❌", "⚠️", "mismatch", "fail", "error", "missing"]
+        return !failureMarkers.contains { lowercased.contains($0) }
     }
 }
 
