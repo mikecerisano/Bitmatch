@@ -59,6 +59,32 @@ actor ResultsOverflowService {
         return false
     }
 
+    /// Atomically add or replace the row for this (path, destination).
+    /// A provisional copy-stage row must never replace a verify-stage or
+    /// failure row: copy and verify rows for the same file can arrive out of
+    /// order, and a "✅ Copied" row landing late would otherwise erase a
+    /// checksum mismatch from the report.
+    func upsert(_ result: ResultRow) {
+        let key = resultKey(result)
+        if let idx = inMemoryResults.firstIndex(where: { resultKey($0) == key }) {
+            if Self.canReplace(existing: inMemoryResults[idx], with: result) {
+                inMemoryResults[idx] = result
+            }
+            return
+        }
+        // Not in memory; may exist in the overflow file, which is append-only.
+        // getAllResults resolves duplicates with the same supersede rule.
+        addResult(result)
+    }
+
+    private static func isProvisionalCopyRow(_ row: ResultRow) -> Bool {
+        row.status == "✅ Copied"
+    }
+
+    private static func canReplace(existing: ResultRow, with incoming: ResultRow) -> Bool {
+        !(isProvisionalCopyRow(incoming) && !isProvisionalCopyRow(existing))
+    }
+
     /// Get current in-memory results (for UI display)
     var currentResults: [ResultRow] {
         return inMemoryResults
@@ -184,10 +210,14 @@ actor ResultsOverflowService {
 
         for row in rows {
             let key = resultKey(row)
-            if latestByKey[key] == nil {
+            if let existing = latestByKey[key] {
+                if Self.canReplace(existing: existing, with: row) {
+                    latestByKey[key] = row
+                }
+            } else {
                 orderedKeys.append(key)
+                latestByKey[key] = row
             }
-            latestByKey[key] = row
         }
 
         return orderedKeys.compactMap { latestByKey[$0] }

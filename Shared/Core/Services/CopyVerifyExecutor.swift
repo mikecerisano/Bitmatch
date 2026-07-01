@@ -162,12 +162,11 @@ final class CopyVerifyExecutor {
             destinationPath: fileResult.destinationURL.path
         )
 
-        // Use overflow service for large transfers
+        // Use overflow service for large transfers. Single atomic call:
+        // copy and verify rows can arrive out of order, and the store
+        // refuses to let a copy row replace a verify result.
         if let overflowService = resultsOverflowService {
-            let didUpdate = await overflowService.updateResult(matching: keyPath, destination: destName, with: resultRow)
-            if !didUpdate {
-                await overflowService.addResult(resultRow)
-            }
+            await overflowService.upsert(resultRow)
         }
 
         callbacks.onResult(resultRow)
