@@ -3,6 +3,11 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+- Safety: Fix exported PDF/CSV/JSON reports counting "Checksum Mismatch" and "Size Mismatch" rows as verified matches; status classification now has a single fail-safe rule (`ResultRow.isSuccessStatus`) used by reports, the executor, and view models.
+- Safety: Master reports no longer mark transfers "verified" when they completed with failures; Compare mode completes with success only when both folders truly match.
+- Safety: Fix a race where an out-of-order "Copied" row could replace a checksum-mismatch row in the results store; result rows now upsert atomically and copy-stage rows can never supersede verify results.
+- Safety: Checksum reads now use throwing file reads (a failing card surfaces as a per-file error instead of crashing), refuse to return a checksum when the file shrank mid-read, and Paranoid byte comparison errors promptly instead of hanging on truncated files.
+- Tests: Add regressions for status classification, master-report verified flags, out-of-order result rows, and mid-read file truncation.
 
 ## [0.1.1] - 2026-05-25
 - Safety: Quick mode no longer reuses or pre-counts existing destination files because size and mtime alone cannot prove equality.
