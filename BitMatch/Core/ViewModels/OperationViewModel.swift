@@ -512,13 +512,14 @@ final class OperationViewModel: ObservableObject {
         isGeneratingMHL = true
         
         let sourceURL = fileSelectionViewModel.leftURL ?? fileSelectionViewModel.sourceURL ?? URL(fileURLWithPath: "/")
-        let destinationURL = fileSelectionViewModel.rightURL ?? fileSelectionViewModel.destinationURLs.first ?? URL(fileURLWithPath: "/")
+        let destinationURLs = fileSelectionViewModel.rightURL.map { [$0] }
+            ?? (activeDestinations.isEmpty ? fileSelectionViewModel.destinationURLs : activeDestinations)
         
         do {
-            let (success, filename) = try await MHLOperationService.generateMHLFile(
+            let (success, filenames) = try await MHLOperationService.generateMHLFiles(
                 from: mhlEntries,
                 source: sourceURL,
-                destination: destinationURL,
+                destinations: destinationURLs,
                 algorithm: settingsViewModel.prefs.checksumAlgorithm,
                 jobID: jobID,
                 jobStart: jobStart,
@@ -531,7 +532,7 @@ final class OperationViewModel: ObservableObject {
             )
             
             mhlGenerated = success
-            mhlFilePath = filename
+            mhlFilePath = filenames.joined(separator: ", ")
             
         } catch {
             SharedLogger.error("Failed to generate MHL: \(error)", category: .transfer)

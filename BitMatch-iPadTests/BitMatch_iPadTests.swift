@@ -14,4 +14,15 @@ struct BitMatch_iPadTests {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.
     }
 
+    @Test @MainActor func drivePickerDelegateIsRetainedWhilePresented() async throws {
+        #if os(iOS)
+        IOSDriverScanner.clearRetainedDrivePickerDelegateForTesting()
+        _ = IOSDriverScanner.makeDrivePickerForTesting { _ in }
+        #expect(IOSDriverScanner.hasRetainedDrivePickerDelegateForTesting)
+        IOSDriverScanner.clearRetainedDrivePickerDelegateForTesting()
+        #else
+        #expect(true)
+        #endif
+    }
+
 }

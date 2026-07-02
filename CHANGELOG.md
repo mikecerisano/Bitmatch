@@ -7,7 +7,12 @@ All notable changes to this project will be documented in this file.
 - Safety: Master reports no longer mark transfers "verified" when they completed with failures; Compare mode completes with success only when both folders truly match.
 - Safety: Fix a race where an out-of-order "Copied" row could replace a checksum-mismatch row in the results store; result rows now upsert atomically and copy-stage rows can never supersede verify results.
 - Safety: Checksum reads now use throwing file reads (a failing card surfaces as a per-file error instead of crashing), refuse to return a checksum when the file shrank mid-read, and Paranoid byte comparison errors promptly instead of hanging on truncated files.
-- Tests: Add regressions for status classification, master-report verified flags, out-of-order result rows, and mid-read file truncation.
+- Recovery: Crash-resume detection now decodes its persisted timestamps correctly, records total counts in checkpoints, and clears completed operation state.
+- Stability: Starting a new copy/verify operation clears any stale pause flag so a previously paused run cannot block the next transfer.
+- iOS: Compare mode now keeps security-scoped access alive across folder enumeration, size reads, and checksum/byte verification.
+- iOS: Retain the Master Report drive picker delegate until selection or cancellation so the document picker continuation cannot be stranded.
+- MHL: Remove the uncalled results-to-MHL path that could emit placeholder checksums, reject entries outside the destination manifest, and generate per-destination MHL files for multi-destination transfers.
+- Tests: Add regressions for status classification, master-report verified flags, out-of-order result rows, mid-read file truncation, crash-resume detection, stale pause flags, Compare security-scope lifetime, iOS picker delegate retention, and MHL destination integrity.
 
 ## [0.1.1] - 2026-05-25
 - Safety: Quick mode no longer reuses or pre-counts existing destination files because size and mtime alone cannot prove equality.

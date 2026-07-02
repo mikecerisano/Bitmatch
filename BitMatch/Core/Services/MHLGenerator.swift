@@ -50,6 +50,16 @@ final class MHLGenerator {
         startTime: Date,
         productionInfo: MHLFile.ProductionInfo? = nil
     ) throws -> URL {
+        if let invalidFile = verifiedFiles.first(where: { !destinationURL.isAncestor(of: $0.url) }) {
+            throw NSError(
+                domain: "MHLGenerator",
+                code: -1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Cannot write MHL for \(destinationURL.lastPathComponent): \(invalidFile.url.lastPathComponent) is outside that destination"
+                ]
+            )
+        }
         
         // Create MHL entries from verified files
         let entries = verifiedFiles.map { file in
@@ -91,58 +101,6 @@ final class MHLGenerator {
         try generateCompanionChecksum(for: mhlURL)
         
         return mhlURL
-    }
-    
-    // MARK: - Generate MHL from existing results
-    static func generateMHLFromResults(
-        results: [ResultRow],
-        sourceURL: URL,
-        destinationURL: URL,
-        algorithm: ChecksumAlgorithm,
-        jobID: UUID,
-        startTime: Date,
-        prefs: ReportPrefs
-    ) async throws -> URL {
-        
-        // Filter for matched files only
-        let matchedResults = results.filter { $0.status.contains("✅") || $0.status.contains("Match") }
-        
-        // Collect checksums for matched files
-        var verifiedFiles: [(url: URL, hash: String, size: Int64)] = []
-        
-        for result in matchedResults {
-            let fileURL = URL(fileURLWithPath: result.path)
-            
-            // Get file size
-            let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            
-            // Calculate checksum using result data or placeholder
-            let hash = result.checksum ?? "pending_checksum"
-            
-            verifiedFiles.append((url: fileURL, hash: hash, size: Int64(size)))
-        }
-        
-        // Create production info if available
-        let productionInfo: MHLFile.ProductionInfo? = {
-            if !prefs.projectName.isEmpty || !prefs.clientName.isEmpty {
-                return MHLFile.ProductionInfo(
-                    title: prefs.projectName,
-                    client: prefs.clientName,
-                    company: prefs.clientName // Use clientName for company as well
-                )
-            }
-            return nil
-        }()
-        
-        return try generateMHL(
-            for: verifiedFiles,
-            sourceURL: sourceURL,
-            destinationURL: destinationURL,
-            algorithm: algorithm,
-            jobID: jobID,
-            startTime: startTime,
-            productionInfo: productionInfo
-        )
     }
     
     // MARK: - XML Generation
@@ -278,28 +236,6 @@ final class MHLGenerator {
         // This would parse an existing MHL file - useful for re-verification
         // For now, returning nil as full parsing isn't needed yet
         return nil
-    }
-}
-
-// MARK: - Integration with File Operations
-extension MHLGenerator {
-    
-    /// Collects checksums during verification for MHL generation
-    struct MHLCollector {
-        private var entries: [(url: URL, hash: String, size: Int64)] = []
-        private let lock = NSLock()
-        
-        mutating func addEntry(url: URL, hash: String, size: Int64) {
-            lock.lock()
-            defer { lock.unlock() }
-            entries.append((url: url, hash: hash, size: size))
-        }
-        
-        func getEntries() -> [(url: URL, hash: String, size: Int64)] {
-            lock.lock()
-            defer { lock.unlock() }
-            return entries
-        }
     }
 }
 

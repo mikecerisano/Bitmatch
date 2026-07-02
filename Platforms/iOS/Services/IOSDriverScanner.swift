@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 class IOSDriverScanner: NSObject {
+    private static var currentDrivePickerDelegate: DrivePickerDelegate?
     
     // MARK: - Drive Selection and Scanning
     
@@ -177,14 +178,9 @@ class IOSDriverScanner: NSObject {
     
     private static func presentDriveSelector() async -> URL? {
         return await withCheckedContinuation { continuation in
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-            picker.allowsMultipleSelection = false
-            picker.shouldShowFileExtensions = true
-            
-            let delegate = DrivePickerDelegate { url in
+            let picker = makeDrivePicker { url in
                 continuation.resume(returning: url)
             }
-            picker.delegate = delegate
             
             // Present the picker
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -197,10 +193,39 @@ class IOSDriverScanner: NSObject {
                 
                 rootViewController.present(picker, animated: true)
             } else {
+                currentDrivePickerDelegate = nil
                 continuation.resume(returning: nil)
             }
         }
     }
+
+    private static func makeDrivePicker(completion: @escaping (URL?) -> Void) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+
+        let delegate = DrivePickerDelegate { url in
+            currentDrivePickerDelegate = nil
+            completion(url)
+        }
+        currentDrivePickerDelegate = delegate
+        picker.delegate = delegate
+        return picker
+    }
+
+    #if DEBUG
+    static var hasRetainedDrivePickerDelegateForTesting: Bool {
+        currentDrivePickerDelegate != nil
+    }
+
+    static func clearRetainedDrivePickerDelegateForTesting() {
+        currentDrivePickerDelegate = nil
+    }
+
+    static func makeDrivePickerForTesting(completion: @escaping (URL?) -> Void) -> UIDocumentPickerViewController {
+        makeDrivePicker(completion: completion)
+    }
+    #endif
     
     private static func parseReportToTransferCard(data: Data, reportURL: URL) throws -> TransferCard? {
         // Try parsing as EnhancedJSONReport first (current format)

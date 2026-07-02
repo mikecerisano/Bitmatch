@@ -73,6 +73,53 @@ final class MHLOperationService {
         
         return (success: true, filename: mhlURL.lastPathComponent)
     }
+
+    @MainActor
+    static func generateMHLFiles(
+        from collector: [(url: URL, hash: String, size: Int64)],
+        source: URL,
+        destinations: [URL],
+        algorithm: ChecksumAlgorithm,
+        jobID: UUID,
+        jobStart: Date,
+        settingsViewModel: SettingsViewModel,
+        onProgress: @escaping (String) -> Void
+    ) async throws -> (success: Bool, filenames: [String]) {
+        var filenames: [String] = []
+
+        for destination in destinations {
+            let destinationEntries = collector.filter { entry in
+                destination.isAncestor(of: entry.url)
+            }
+            guard !destinationEntries.isEmpty else { continue }
+
+            let (_, filename) = try await generateMHLFile(
+                from: destinationEntries,
+                source: source,
+                destination: destination,
+                algorithm: algorithm,
+                jobID: jobID,
+                jobStart: jobStart,
+                settingsViewModel: settingsViewModel,
+                onProgress: onProgress
+            )
+            if let filename {
+                filenames.append(filename)
+            }
+        }
+
+        if filenames.isEmpty {
+            throw NSError(
+                domain: "MHLOperationService",
+                code: -1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "No verified files belonged to the selected MHL destinations"
+                ]
+            )
+        }
+
+        return (success: true, filenames: filenames)
+    }
     
     // MARK: - Helper Methods
     

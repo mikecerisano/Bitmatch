@@ -52,4 +52,196 @@ struct SharedCompareFlowTests {
         #expect(true)
         #endif
     }
+
+    @Test
+    func testCompareKeepsFolderScopesOpenThroughVerification() async throws {
+        let left = URL(fileURLWithPath: "/scoped/left")
+        let right = URL(fileURLWithPath: "/scoped/right")
+        let fileSystem = ScopeTrackingFileSystem(left: left, right: right)
+        let platform = ScopeTrackingPlatformManager(fileSystem: fileSystem)
+        let coordinator = await MainActor.run { ComparisonCoordinator(platformManager: platform) }
+
+        let stats = try await coordinator.compareFolders(
+            left: left,
+            right: right,
+            verificationMode: .quick,
+            onProgress: { _ in }
+        )
+
+        #expect(stats.commonCount == 1)
+        #expect(fileSystem.didReadSizesWhileScoped)
+        #expect(fileSystem.activeScopeCount(for: left) == 0)
+        #expect(fileSystem.activeScopeCount(for: right) == 0)
+    }
+}
+
+private enum ScopeTrackingError: Error {
+    case missingScope(String)
+}
+
+private final class ScopeTrackingFileSystem: FileSystemService {
+    private let left: URL
+    private let right: URL
+    private let leftFile: URL
+    private let rightFile: URL
+    private let lock = NSLock()
+    private var activeScopes: [String: Int] = [:]
+    private(set) var didReadSizesWhileScoped = false
+
+    init(left: URL, right: URL) {
+        self.left = left
+        self.right = right
+        self.leftFile = left.appendingPathComponent("clip.mov")
+        self.rightFile = right.appendingPathComponent("clip.mov")
+    }
+
+    func selectSourceFolder() async -> URL? { nil }
+    func selectDestinationFolders() async -> [URL] { [] }
+    func selectLeftFolder() async -> URL? { left }
+    func selectRightFolder() async -> URL? { right }
+    func validateFileAccess(url: URL) async -> Bool { true }
+
+    func startAccessing(url: URL) -> Bool {
+        lock.lock()
+        activeScopes[url.path, default: 0] += 1
+        lock.unlock()
+        return true
+    }
+
+    func stopAccessing(url: URL) {
+        lock.lock()
+        activeScopes[url.path, default: 0] = max(0, activeScopes[url.path, default: 0] - 1)
+        lock.unlock()
+    }
+
+    func getFileList(from folderURL: URL) async throws -> [URL] {
+        guard activeScopeCount(for: folderURL) > 0 else {
+            throw ScopeTrackingError.missingScope("enumerating \(folderURL.path)")
+        }
+        if folderURL == left { return [leftFile] }
+        if folderURL == right { return [rightFile] }
+        return []
+    }
+
+    nonisolated func getFileSize(for url: URL) throws -> Int64 {
+        guard let base = baseURL(containing: url), activeScopeCount(for: base) > 0 else {
+            throw ScopeTrackingError.missingScope("sizing \(url.path)")
+        }
+        lock.lock()
+        didReadSizesWhileScoped = true
+        lock.unlock()
+        return 10
+    }
+
+    nonisolated func createDirectory(at url: URL) throws {}
+    nonisolated func freeSpace(at url: URL) -> Int64 { 1_000_000_000 }
+
+    nonisolated func activeScopeCount(for url: URL) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeScopes[url.path, default: 0]
+    }
+
+    private nonisolated func baseURL(containing url: URL) -> URL? {
+        if url.path.hasPrefix(left.path + "/") { return left }
+        if url.path.hasPrefix(right.path + "/") { return right }
+        return nil
+    }
+}
+
+private final class ScopeTrackingChecksumService: ChecksumService {
+    func generateChecksum(
+        for fileURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> String {
+        "hash"
+    }
+
+    func verifyFileIntegrity(
+        sourceURL: URL,
+        destinationURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> VerificationResult {
+        VerificationResult(
+            sourceChecksum: "hash",
+            destinationChecksum: "hash",
+            matches: true,
+            checksumType: type,
+            processingTime: 0,
+            fileSize: 10
+        )
+    }
+
+    func performByteComparison(
+        sourceURL: URL,
+        destinationURL: URL,
+        progressCallback: ProgressCallback?
+    ) async throws -> Bool {
+        true
+    }
+}
+
+private final class ScopeTrackingFileOperationsService: FileOperationsService {
+    func performFileOperation(
+        sourceURL: URL,
+        destinationURLs: [URL],
+        verificationMode: VerificationMode,
+        settings: CameraLabelSettings,
+        estimatedTotalBytes: Int64?,
+        progressCallback: @escaping ProgressCallback,
+        onFileResult: ((FileOperationResult) -> Void)?
+    ) async throws -> FileOperation {
+        FileOperation(
+            sourceURL: sourceURL,
+            destinationURLs: destinationURLs,
+            startTime: Date(),
+            endTime: Date(),
+            results: [],
+            verificationMode: verificationMode,
+            settings: settings,
+            estimatedTotalBytes: estimatedTotalBytes
+        )
+    }
+
+    func cancelOperation() {}
+    func pauseOperation() async {}
+    func resumeOperation() async {}
+}
+
+private final class ScopeTrackingCameraDetectionService: CameraDetectionService {
+    func detectCamera(from folderURL: URL) async -> CameraDetectionResult {
+        CameraDetectionResult(
+            cameraCard: nil,
+            confidence: 0,
+            metadata: [:],
+            detectionMethod: "test",
+            processingTime: 0
+        )
+    }
+
+    func analyzeFolderStructure(at url: URL) async throws -> [String: Any] { [:] }
+    func extractVideoMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
+    func parseXMLMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
+}
+
+private final class ScopeTrackingPlatformManager: PlatformManager {
+    nonisolated let fileSystem: FileSystemService
+    nonisolated let checksum: ChecksumService = ScopeTrackingChecksumService()
+    nonisolated let fileOperations: FileOperationsService = ScopeTrackingFileOperationsService()
+    nonisolated let cameraDetection: CameraDetectionService = ScopeTrackingCameraDetectionService()
+    nonisolated let supportsDragAndDrop = false
+
+    init(fileSystem: FileSystemService) {
+        self.fileSystem = fileSystem
+    }
+
+    func presentAlert(title: String, message: String) async {}
+    func presentError(_ error: Error) async {}
+    func openURL(_ url: URL) async -> Bool { false }
+    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int { 0 }
+    func endBackgroundTask(_ id: Int) {}
 }

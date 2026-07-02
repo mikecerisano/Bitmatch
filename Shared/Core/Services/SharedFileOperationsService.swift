@@ -182,6 +182,7 @@ class SharedFileOperationsService: FileOperationsService {
         
         // Cancel any existing operation
         cancelOperation()
+        await pauseState.resume()
         
         let operation = FileOperation(
             sourceURL: sourceURL,

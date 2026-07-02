@@ -24,6 +24,17 @@ final class ComparisonCoordinator {
     ) async throws -> CompareStats {
         cancellationRequested = false
 
+        let didStartLeftScope = platformManager.fileSystem.startAccessing(url: left)
+        let didStartRightScope = platformManager.fileSystem.startAccessing(url: right)
+        defer {
+            if didStartLeftScope {
+                platformManager.fileSystem.stopAccessing(url: left)
+            }
+            if didStartRightScope {
+                platformManager.fileSystem.stopAccessing(url: right)
+            }
+        }
+
         let sourceFiles = try await platformManager.fileSystem.getFileList(from: left)
         let destFiles = try await platformManager.fileSystem.getFileList(from: right)
 
