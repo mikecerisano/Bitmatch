@@ -3,6 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
+
+## [0.1.2] - 2026-07-01
 - Safety: Fix exported PDF/CSV/JSON reports counting "Checksum Mismatch" and "Size Mismatch" rows as verified matches; status classification now has a single fail-safe rule (`ResultRow.isSuccessStatus`) used by reports, the executor, and view models.
 - Safety: Master reports no longer mark transfers "verified" when they completed with failures; Compare mode completes with success only when both folders truly match.
 - Safety: Fix a race where an out-of-order "Copied" row could replace a checksum-mismatch row in the results store; result rows now upsert atomically and copy-stage rows can never supersede verify results.

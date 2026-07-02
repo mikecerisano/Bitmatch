@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=${1:-0.1.1}
+VERSION=${1:-0.1.2}
 PROJECT=${PROJECT:-BitMatch.xcodeproj}
 SCHEME=${SCHEME:-BitMatch}
 CONFIGURATION=${CONFIGURATION:-Release}
