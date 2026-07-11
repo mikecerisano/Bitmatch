@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+jobs:
+  mac-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version
+      - run: bash test.sh mac-test
+        env:
+          DERIVED_DATA_ROOT: ${{ runner.temp }}/bitmatch-derived-data
+
+  ipad-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version
+      - run: bash test.sh ipad-build
+        env:
+          DERIVED_DATA_ROOT: ${{ runner.temp }}/bitmatch-derived-data
