@@ -1,6 +1,7 @@
 
 .AppleDouble
 .build/
+.derived-data/
 .DS_Store
 .LSOverride
 .swiftpm/
