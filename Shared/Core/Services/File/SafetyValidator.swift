@@ -295,11 +295,24 @@ final class SafetyValidator {
 
     private static func getAvailableSpace(at url: URL) -> Int64 {
         do {
-            let resourceValues = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            return resourceValues.volumeAvailableCapacityForImportantUsage ?? 0
+            let resourceValues = try url.resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey,
+                .volumeAvailableCapacityKey,
+            ])
+            return resolvedAvailableSpace(
+                importantUsage: resourceValues.volumeAvailableCapacityForImportantUsage,
+                standardCapacity: resourceValues.volumeAvailableCapacity
+            )
         } catch {
             return 0
         }
+    }
+
+    static func resolvedAvailableSpace(
+        importantUsage: Int64?,
+        standardCapacity: Int?
+    ) -> Int64 {
+        importantUsage ?? Int64(standardCapacity ?? 0)
     }
 
     private static let protectedSystemPrefixes: [String] = [

@@ -4,6 +4,23 @@ import XCTest
 
 final class SafetyValidatorTests: XCTestCase {
 
+    func testAvailableSpaceFallsBackWhenImportantUsageCapacityIsUnavailable() {
+        XCTAssertEqual(
+            SafetyValidator.resolvedAvailableSpace(
+                importantUsage: nil,
+                standardCapacity: 2_000_000_000
+            ),
+            2_000_000_000
+        )
+        XCTAssertEqual(
+            SafetyValidator.resolvedAvailableSpace(
+                importantUsage: 1_500_000_000,
+                standardCapacity: 2_000_000_000
+            ),
+            1_500_000_000
+        )
+    }
+
     // MARK: - System Directory Rejection
 
     func testRejectsSystemDirectories() {

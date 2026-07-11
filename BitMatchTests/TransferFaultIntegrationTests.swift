@@ -106,6 +106,7 @@ final class TransferFaultIntegrationTests: XCTestCase {
             let source = canonicalFileURL(fixture.source)
             let service = makeService()
             let cancellation = OneShot()
+            let successfulResult = CapturedSuccessfulResult()
 
             do {
                 _ = try await service.performFileOperation(
@@ -116,6 +117,9 @@ final class TransferFaultIntegrationTests: XCTestCase {
                     estimatedTotalBytes: nil,
                     progressCallback: { _ in },
                     onFileResult: { result in
+                        if result.success {
+                            successfulResult.capture(result)
+                        }
                         if result.success, cancellation.take() {
                             service.cancelOperation()
                         }
@@ -125,6 +129,16 @@ final class TransferFaultIntegrationTests: XCTestCase {
             } catch is CancellationError {
                 // Expected.
             }
+
+            let publishedResult = try XCTUnwrap(
+                successfulResult.value,
+                "Cancellation did not retain a known successful output"
+            )
+            try await assertOutputHash(
+                for: publishedResult,
+                source: source,
+                manifest: fixture.manifest
+            )
 
             let temporaryFiles = recursivelyEnumeratedPaths(at: fixture.destinations[0]).filter {
                 $0.lastPathComponent.hasPrefix(".bitmatch.tmp.")
@@ -147,12 +161,15 @@ final class TransferFaultIntegrationTests: XCTestCase {
                 settings: settings
             )
             try FileManager.default.createDirectory(at: inaccessibleRoot, withIntermediateDirectories: true)
-            try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: inaccessibleRoot.path)
+            let faultFileSystem = FaultInjectingFileSystemService(
+                faultDestination: faultDestination,
+                inaccessibleRoot: inaccessibleRoot
+            )
             defer {
                 try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inaccessibleRoot.path)
             }
 
-            let operation = try await makeService().performFileOperation(
+            let operation = try await makeService(fileSystem: faultFileSystem).performFileOperation(
                 sourceURL: source,
                 destinationURLs: [goodDestination, faultDestination],
                 verificationMode: .standard,
@@ -172,6 +189,7 @@ final class TransferFaultIntegrationTests: XCTestCase {
                 $0.destinationURL.path.hasPrefix(inaccessibleRoot.path + "/")
                     && manifestRelativePath(for: $0, source: source, manifest: fixture.manifest) != nil
             }
+            XCTAssertTrue(faultFileSystem.didInjectFault, "Fault filesystem did not make destination inaccessible")
             XCTAssertEqual(goodResults.count, fixture.manifest.count, describe(operation.results))
             XCTAssertTrue(goodResults.allSatisfy(\.success), describe(operation.results))
             XCTAssertEqual(faultResults.count, fixture.manifest.count, describe(operation.results))
@@ -210,9 +228,11 @@ private func describe(_ results: [FileOperationResult]) -> String {
     }.joined(separator: " | ")
 }
 
-private func makeService() -> SharedFileOperationsService {
+private func makeService(
+    fileSystem: FileSystemService = MacOSFileSystemService.shared
+) -> SharedFileOperationsService {
     SharedFileOperationsService(
-        fileSystem: MacOSFileSystemService.shared,
+        fileSystem: fileSystem,
         checksum: SharedChecksumService.shared
     )
 }
@@ -234,7 +254,12 @@ private func assertSuccessfulOutputHashes(
     file: StaticString = #filePath,
     line: UInt = #line
 ) async throws {
-    for result in operation.results where result.success {
+    let successfulResults = operation.results.filter(\.success)
+    guard !successfulResults.isEmpty else {
+        XCTFail("Expected at least one successful output", file: file, line: line)
+        return
+    }
+    for result in successfulResults {
         let sourcePrefix = operation.sourceURL.path + "/"
         guard result.sourceURL.path.hasPrefix(sourcePrefix) else {
             XCTFail("Result source escaped fixture", file: file, line: line)
@@ -250,6 +275,32 @@ private func assertSuccessfulOutputHashes(
         )
         XCTAssertEqual(actual, expected, "Unexpected hash for \(relativePath)", file: file, line: line)
     }
+}
+
+private func assertOutputHash(
+    for result: FileOperationResult,
+    source: URL,
+    manifest: [String: String],
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async throws {
+    let sourcePrefix = source.path + "/"
+    let relativePath = try XCTUnwrap(
+        result.sourceURL.path.hasPrefix(sourcePrefix)
+            ? String(result.sourceURL.path.dropFirst(sourcePrefix.count))
+            : nil,
+        "Successful result source escaped fixture",
+        file: file,
+        line: line
+    )
+    let expected = try XCTUnwrap(manifest[relativePath], file: file, line: line)
+    let actual = try await SharedChecksumService.shared.generateChecksum(
+        for: result.destinationURL,
+        type: .sha256,
+        useCache: false,
+        progressCallback: nil
+    )
+    XCTAssertEqual(actual, expected, "Unexpected hash for \(relativePath)", file: file, line: line)
 }
 
 private func recursivelyEnumeratedPaths(at root: URL) -> [URL] {
@@ -281,6 +332,76 @@ private final class OneShot: @unchecked Sendable {
         guard available else { return false }
         available = false
         return true
+    }
+}
+
+private final class CapturedSuccessfulResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var captured: FileOperationResult?
+
+    var value: FileOperationResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        return captured
+    }
+
+    func capture(_ result: FileOperationResult) {
+        lock.lock()
+        defer { lock.unlock() }
+        if captured == nil {
+            captured = result
+        }
+    }
+}
+
+private final class FaultInjectingFileSystemService: FileSystemService, @unchecked Sendable {
+    private let delegate = MacOSFileSystemService.shared
+    private let faultDestination: URL
+    private let inaccessibleRoot: URL
+    private let lock = NSLock()
+    private var injected = false
+
+    init(faultDestination: URL, inaccessibleRoot: URL) {
+        self.faultDestination = faultDestination.standardizedFileURL
+        self.inaccessibleRoot = inaccessibleRoot
+    }
+
+    var didInjectFault: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return injected
+    }
+
+    func selectSourceFolder() async -> URL? { await delegate.selectSourceFolder() }
+    func selectDestinationFolders() async -> [URL] { await delegate.selectDestinationFolders() }
+    func selectLeftFolder() async -> URL? { await delegate.selectLeftFolder() }
+    func selectRightFolder() async -> URL? { await delegate.selectRightFolder() }
+    func validateFileAccess(url: URL) async -> Bool { await delegate.validateFileAccess(url: url) }
+    func startAccessing(url: URL) -> Bool { delegate.startAccessing(url: url) }
+    func stopAccessing(url: URL) { delegate.stopAccessing(url: url) }
+    func getFileList(from folderURL: URL) async throws -> [URL] {
+        try await delegate.getFileList(from: folderURL)
+    }
+    nonisolated func getFileSize(for url: URL) throws -> Int64 { try delegate.getFileSize(for: url) }
+    nonisolated func createDirectory(at url: URL) throws { try delegate.createDirectory(at: url) }
+
+    nonisolated func freeSpace(at url: URL) -> Int64 {
+        let available = delegate.freeSpace(at: url)
+        guard url.standardizedFileURL == faultDestination else { return available }
+
+        lock.lock()
+        defer { lock.unlock() }
+        guard !injected else { return available }
+        do {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o000],
+                ofItemAtPath: inaccessibleRoot.path
+            )
+            injected = true
+        } catch {
+            injected = false
+        }
+        return available
     }
 }
 

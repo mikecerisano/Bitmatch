@@ -44,8 +44,16 @@ final class TransferSoakTests: XCTestCase {
                 )
 
                 let expectedResultCount = fixture.manifest.count * fixture.destinations.count
-                XCTAssertEqual(operation.results.count, expectedResultCount)
-                XCTAssertTrue(operation.results.allSatisfy(\.success), describeSoakResults(operation.results))
+                guard operation.results.count == expectedResultCount else {
+                    throw SoakVerificationError.unexpectedResultCount(
+                        expected: expectedResultCount,
+                        actual: operation.results.count,
+                        details: describeSoakResults(operation.results)
+                    )
+                }
+                guard operation.results.allSatisfy(\.success) else {
+                    throw SoakVerificationError.failedOperationResults(describeSoakResults(operation.results))
+                }
 
                 var verifiedOutputs = 0
                 for result in operation.results {
@@ -57,7 +65,13 @@ final class TransferSoakTests: XCTestCase {
                         useCache: false,
                         progressCallback: nil
                     )
-                    XCTAssertEqual(actualHash, expectedHash, "Hash mismatch for \(relativePath)")
+                    guard actualHash == expectedHash else {
+                        throw SoakVerificationError.hashMismatch(
+                            relativePath: relativePath,
+                            expected: expectedHash,
+                            actual: actualHash
+                        )
+                    }
                     verifiedOutputs += 1
                 }
 
@@ -125,6 +139,23 @@ private enum SoakConfigurationError: LocalizedError {
         switch self {
         case let .invalidValue(name, value):
             return "\(name) has invalid value: \(value)"
+        }
+    }
+}
+
+private enum SoakVerificationError: LocalizedError {
+    case unexpectedResultCount(expected: Int, actual: Int, details: String)
+    case failedOperationResults(String)
+    case hashMismatch(relativePath: String, expected: String, actual: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .unexpectedResultCount(expected, actual, details):
+            return "Expected \(expected) soak results, received \(actual): \(details)"
+        case let .failedOperationResults(details):
+            return "Soak operation contained failed results: \(details)"
+        case let .hashMismatch(relativePath, expected, actual):
+            return "SHA-256 mismatch for \(relativePath): expected \(expected), received \(actual)"
         }
     }
 }

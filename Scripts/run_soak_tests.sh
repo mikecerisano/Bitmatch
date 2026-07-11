@@ -39,10 +39,10 @@ xcodebuild -quiet \
 XCTESTRUN=$(find "$DERIVED_DATA" -name '*.xctestrun' -print -quit)
 [[ -n "$XCTESTRUN" ]] || { echo "Unable to locate generated xctestrun file" >&2; exit 1; }
 ENVIRONMENT_PATH=':TestConfigurations:0:TestTargets:1:EnvironmentVariables'
-/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_RUN_SOAK string 1" "$XCTESTRUN"
-/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_SEED string $BITMATCH_SOAK_SEED" "$XCTESTRUN"
-/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_ITERATIONS string $BITMATCH_SOAK_ITERATIONS" "$XCTESTRUN"
-/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_RESULT string $RESULT" "$XCTESTRUN"
+/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_RUN_SOAK string '1'" "$XCTESTRUN"
+/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_SEED string '$BITMATCH_SOAK_SEED'" "$XCTESTRUN"
+/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_ITERATIONS string '$BITMATCH_SOAK_ITERATIONS'" "$XCTESTRUN"
+/usr/libexec/PlistBuddy -c "Add $ENVIRONMENT_PATH:BITMATCH_SOAK_RESULT string '$RESULT'" "$XCTESTRUN"
 
 xcodebuild -quiet \
   test-without-building \
