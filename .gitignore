@@ -22,4 +22,6 @@ dist/
 build/
 DerivedData/
 mac-build.log
+.superpowers/
+.worktrees/
 Pods/
