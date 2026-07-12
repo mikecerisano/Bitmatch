@@ -122,6 +122,10 @@ struct ProfessionalSourceCard: View {
                             .foregroundColor(.red.opacity(0.7))
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Clear source folder \(coordinator.sourceURL?.lastPathComponent ?? "")")
+                    .accessibilityHint("Removes the selected source folder from this transfer.")
                 }
             }
             
@@ -333,6 +337,10 @@ struct EnhancedDestinationCard: View {
                             .foregroundColor(.red.opacity(0.6))
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("Remove destination \(url.lastPathComponent)")
+                    .accessibilityHint("Removes \(url.lastPathComponent) from the backup destinations.")
                 }
             }
             .frame(height: 14)
@@ -406,6 +414,10 @@ struct CompactDestinationCard: View {
                         .foregroundColor(.red.opacity(0.6))
                 }
                 .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Remove destination \(url.lastPathComponent)")
+                .accessibilityHint("Removes \(url.lastPathComponent) from the backup destinations.")
             }
         }
         .padding(.horizontal, 10)
@@ -859,6 +871,24 @@ struct StartTransferButtonView: View {
 struct ReadinessBannerView: View {
     let assessment: OperationReadinessAssessment
 
+    private var title: String {
+        assessment.isReady ? "Ready Check" : "Needs Attention"
+    }
+
+    private var accessibilitySummary: String {
+        var parts = [title]
+        if !assessment.issues.isEmpty {
+            parts.append("Issues: \(assessment.issues.joined(separator: ". "))")
+        }
+        if !assessment.warnings.isEmpty {
+            parts.append("Warnings: \(assessment.warnings.joined(separator: ". "))")
+        }
+        if let duration = assessment.estimatedDuration, assessment.isReady {
+            parts.append("Estimated duration \(duration)")
+        }
+        return parts.joined(separator: ". ")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: assessment.statusIcon)
@@ -867,14 +897,24 @@ struct ReadinessBannerView: View {
                 .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(assessment.isReady ? "Ready Check" : "Needs Attention")
+                Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
 
-                Text(assessment.statusMessage)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.68))
-                    .fixedSize(horizontal: false, vertical: true)
+                if !assessment.issues.isEmpty {
+                    readinessMessages(assessment.issues, tint: .red)
+                }
+
+                if !assessment.warnings.isEmpty {
+                    readinessMessages(assessment.warnings, tint: .orange)
+                }
+
+                if assessment.issues.isEmpty && assessment.warnings.isEmpty {
+                    Text(assessment.statusMessage)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if let duration = assessment.estimatedDuration, assessment.isReady {
                     Text("Estimated duration \(duration)")
@@ -894,6 +934,26 @@ struct ReadinessBannerView: View {
                         .stroke(assessment.statusColor.opacity(0.18), lineWidth: 1)
                 )
         )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private func readinessMessages(_ messages: [String], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 4))
+                        .foregroundColor(tint)
+                        .padding(.top, 5)
+
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 
