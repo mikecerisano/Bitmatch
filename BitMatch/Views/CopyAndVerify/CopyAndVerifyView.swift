@@ -93,7 +93,7 @@ struct CopyAndVerifyView: View {
                 )
             }
         }
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.45, dampingFraction: 0.84), value: coordinator.isOperationInProgress)
+        .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.84), value: coordinator.isOperationInProgress)
     }
 
     private var compactOperationView: some View {
@@ -105,6 +105,16 @@ struct CopyAndVerifyView: View {
                 Label("\(fileSelection.destinationURLs.count) destinations", systemImage: "externaldrive.fill")
                     .foregroundColor(.blue)
                 Spacer()
+                if coordinator.canPause || coordinator.canResume {
+                    Button { coordinator.togglePause() } label: {
+                        Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(coordinator.isPaused ? .green : .white.opacity(0.8))
+                    .accessibilityLabel(coordinator.isPaused ? "Resume transfer" : "Pause transfer")
+                    .accessibilityHint(coordinator.isPaused ? "Resumes the current transfer" : "Pauses the current transfer")
+                    .help(coordinator.isPaused ? "Resume transfer" : "Pause transfer")
+                }
                 Button { coordinator.cancelOperation() } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain).foregroundColor(.red)
                     .accessibilityLabel("Cancel transfer")

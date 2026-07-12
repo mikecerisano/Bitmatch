@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var showCancelNotice = false
     @State private var showDropRejection = false
     @State private var dropRejectionMessage = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     
     // Calculate ideal window height based on content and current mode
     private var idealWindowHeight: CGFloat {
@@ -112,9 +113,9 @@ struct ContentView: View {
     private var styledMainContentView: some View {
         mainContentView
             .preferredColorScheme(.dark)
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.completionState)
-            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.isOperationInProgress)
-            .animation(.spring(response: 0.35, dampingFraction: 0.9), value: coordinator.currentMode)
+            .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: coordinator.completionState)
+            .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: coordinator.isOperationInProgress)
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: coordinator.currentMode)
     }
     
     @ViewBuilder
