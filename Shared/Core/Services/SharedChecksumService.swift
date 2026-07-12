@@ -77,6 +77,15 @@ class SharedChecksumService: ChecksumService {
         useCache: Bool,
         progressCallback: ProgressCallback? = nil
     ) async throws -> VerificationResult {
+        // Keep pair-wide snapshots inside the same security scopes as the hashes.
+        #if os(iOS)
+        let didStartSource = sourceURL.startAccessingSecurityScopedResource()
+        let didStartDest = destinationURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartSource { sourceURL.stopAccessingSecurityScopedResource() }
+            if didStartDest { destinationURL.stopAccessingSecurityScopedResource() }
+        }
+        #endif
         
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -94,18 +103,8 @@ class SharedChecksumService: ChecksumService {
             progressCallback?(0.5 + progress * 0.5, "Calculating destination checksum...")
         }
 
-        try validateStableRead(
-            of: sourceURL,
-            initial: sourceInitial,
-            bytesRead: sourceInitial.size,
-            trailingData: Data()
-        )
-        try validateStableRead(
-            of: destinationURL,
-            initial: destinationInitial,
-            bytesRead: destinationInitial.size,
-            trailingData: Data()
-        )
+        try validateUnchangedSnapshot(of: sourceURL, initial: sourceInitial)
+        try validateUnchangedSnapshot(of: destinationURL, initial: destinationInitial)
         
         let processingTime = CFAbsoluteTimeGetCurrent() - startTime
         let fileSize = sourceInitial.size
@@ -202,6 +201,8 @@ class SharedChecksumService: ChecksumService {
             }
 
             if sourceData != destinationData {
+                try validateUnchangedSnapshot(of: sourceURL, initial: sourceInitial)
+                try validateUnchangedSnapshot(of: destinationURL, initial: destinationInitial)
                 return false
             }
 
@@ -247,8 +248,21 @@ class SharedChecksumService: ChecksumService {
         bytesRead: Int64,
         trailingData: Data
     ) throws {
-        let final = try captureSnapshot(for: url)
-        guard bytesRead == initial.size, trailingData.isEmpty, final == initial else {
+        guard bytesRead == initial.size, trailingData.isEmpty else {
+            throw NSError(
+                domain: "SharedChecksumService",
+                code: -11,
+                userInfo: [NSLocalizedDescriptionKey: "File changed while reading \(url.lastPathComponent)"]
+            )
+        }
+        try validateUnchangedSnapshot(of: url, initial: initial)
+    }
+
+    private func validateUnchangedSnapshot(
+        of url: URL,
+        initial: FileReadSnapshot
+    ) throws {
+        guard try captureSnapshot(for: url) == initial else {
             throw NSError(
                 domain: "SharedChecksumService",
                 code: -11,
