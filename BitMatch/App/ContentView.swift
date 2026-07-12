@@ -20,7 +20,7 @@ struct ContentView: View {
     @State private var preferencesWindowController: PreferencesWindowController?
     
     // Dynamic window height management
-    @State private var cameraLabelExpanded = false
+    @State private var transferOptionsExpanded = false
     @State private var verificationModeExpanded = false
     @State private var showCancelNotice = false
     @State private var showDropRejection = false
@@ -46,13 +46,7 @@ struct ContentView: View {
             
             totalHeight += sourceDestinationHeight + controlPanelBaseHeight
             
-            // Add height for expanded sections
-            if cameraLabelExpanded {
-                totalHeight += 280  // Camera labeling section height
-            }
-            if verificationModeExpanded {
-                totalHeight += 150  // Verification mode section height
-            }
+            if transferOptionsExpanded { totalHeight += 330 }
             
         case .compareFolders:
             let foldersHeight: CGFloat = 180  // Both folder panels (matches the fixed height in CompareFoldersView)
@@ -250,8 +244,7 @@ struct ContentView: View {
                 CopyAndVerifyView(
                     coordinator: coordinator,
                     showReportSettings: .constant(false),
-                    cameraLabelExpanded: $cameraLabelExpanded,
-                    verificationModeExpanded: $verificationModeExpanded
+                    optionsExpanded: $transferOptionsExpanded
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -573,7 +566,7 @@ struct ContentView: View {
                     updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
                 }
             }
-            .onChange(of: cameraLabelExpanded) { _, _ in
+            .onChange(of: transferOptionsExpanded) { _, _ in
                 if !coordinator.isOperationInProgress {
                     updateWindowHeight(to: idealWindowHeight)
                 }
