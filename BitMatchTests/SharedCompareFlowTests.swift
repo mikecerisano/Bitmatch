@@ -242,6 +242,4 @@ private final class ScopeTrackingPlatformManager: PlatformManager {
     func presentAlert(title: String, message: String) async {}
     func presentError(_ error: Error) async {}
     func openURL(_ url: URL) async -> Bool { false }
-    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int { 0 }
-    func endBackgroundTask(_ id: Int) {}
 }
