@@ -12,6 +12,7 @@ enum FileTreeEnumerator {
     /// Pass result to both copy and verify phases to eliminate triple filesystem walk.
     /// ~20 bytes per entry overhead for 100K files ≈ 20MB - acceptable.
     static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
+        try Task.checkCancellation()
         let fileManager = FileManager.default
         let basePath = base.path
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
@@ -57,6 +58,7 @@ enum FileTreeEnumerator {
             ))
         }
         if let traversalError { throw traversalError }
+        try Task.checkCancellation()
         return entries
     }
 }

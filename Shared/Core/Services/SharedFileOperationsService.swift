@@ -279,6 +279,17 @@ class SharedFileOperationsService: FileOperationsService {
             }
         }
 
+        // Step 2: Build one fail-closed source manifest before safety validation.
+        SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
+        let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let manifestBytes = try sourceManifest.reduce(Int64(0)) { total, entry in
+            let (sum, overflow) = total.addingReportingOverflow(max(0, entry.size))
+            guard !overflow else {
+                throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
+            }
+            return sum
+        }
+
         try SafetyValidator.validateResolvedDestinationRoots(
             source: operation.sourceURL,
             destinations: operation.destinationURLs,
@@ -287,20 +298,11 @@ class SharedFileOperationsService: FileOperationsService {
 
         try await SafetyValidator.performSafetyChecks(
             source: operation.sourceURL,
-            destinations: operation.destinationURLs
+            destinations: operation.destinationURLs,
+            sourceSizeBytes: manifestBytes
         )
-        
-        // Step 2: Build one fail-closed source manifest for copy and verification.
-        SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
-        let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+
         let perSourceFileCount = sourceManifest.count
-        let manifestBytes = try sourceManifest.reduce(Int64(0)) { total, entry in
-            let (sum, overflow) = total.addingReportingOverflow(max(0, entry.size))
-            guard !overflow else {
-                throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
-            }
-            return sum
-        }
         let totalSizeBytes = operation.estimatedTotalBytes ?? manifestBytes
         let totalFiles = perSourceFileCount * operation.destinationURLs.count
         SharedLogger.debug("Prep: source files=\(perSourceFileCount), destinations=\(operation.destinationURLs.count), planned total rows=\(totalFiles)", category: .transfer)
@@ -315,7 +317,11 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.debug("Storage check dest #\(index+1): need \(totalSizeBytes), have \(available)", category: .transfer)
             
             // Add 100MB buffer for overhead/filesystem structures
-            if available < (totalSizeBytes + 100 * 1024 * 1024) {
+            let requiredSizeBytes = try SafetyValidator.checkedRequiredSpace(
+                sourceBytes: totalSizeBytes,
+                headroomBytes: 100 * 1024 * 1024
+            )
+            if available < requiredSizeBytes {
                 throw BitMatchError.insufficientStorage(totalSizeBytes, available)
             }
         }
