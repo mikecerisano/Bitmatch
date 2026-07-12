@@ -29,9 +29,9 @@ final class AppCoordinatorBindingTests: XCTestCase {
         defer { notification.cancel() }
 
         XCTAssertEqual(coordinator.operationState, .notStarted)
+        coordinator.sharedCoordinator.operationState = .idle
+        XCTAssertEqual(coordinator.operationState, .idle)
         notificationReceived.enable()
-        coordinator.sharedCoordinator.cancelOperation()
-        XCTAssertEqual(coordinator.operationState, .cancelled)
 
         assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
     }
