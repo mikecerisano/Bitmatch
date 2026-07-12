@@ -87,44 +87,4 @@ class IOSPlatformManager: PlatformManager {
         return true
     }
     
-    // MARK: - Background Tasks
-    
-    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int {
-        final class TaskIDBox { var id: UIBackgroundTaskIdentifier = .invalid }
-        let box = TaskIDBox()
-
-        let register: () -> Void = {
-            box.id = UIApplication.shared.beginBackgroundTask(withName: name) {
-                expirationHandler?()
-                let current = box.id
-                if current != .invalid {
-                    UIApplication.shared.endBackgroundTask(current)
-                    box.id = .invalid
-                }
-            }
-        }
-
-        if Thread.isMainThread {
-            register()
-        } else {
-            DispatchQueue.main.sync(execute: register)
-        }
-
-        return box.id.rawValue
-    }
-    
-    func endBackgroundTask(_ id: Int) {
-        let endTask: () -> Void = {
-            let identifier = UIBackgroundTaskIdentifier(rawValue: id)
-            if identifier != .invalid {
-                UIApplication.shared.endBackgroundTask(identifier)
-            }
-        }
-
-        if Thread.isMainThread {
-            endTask()
-        } else {
-            DispatchQueue.main.sync(execute: endTask)
-        }
-    }
 }

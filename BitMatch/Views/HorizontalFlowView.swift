@@ -138,6 +138,8 @@ struct HorizontalFlowView: View {
                     .foregroundColor(.red.opacity(0.7))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove source folder")
+            .accessibilityHint("Clears the selected source")
         }
     }
     
@@ -184,6 +186,8 @@ struct HorizontalFlowView: View {
             }
             .buttonStyle(CustomButtonStyle())
             .scaleEffect(0.9)
+            .accessibilityLabel("Choose source folder")
+            .accessibilityHint("Opens a folder picker for the source")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -229,6 +233,8 @@ struct HorizontalFlowView: View {
                     }
                     .buttonStyle(CustomButtonStyle())
                     .scaleEffect(0.9)
+                    .accessibilityLabel("Add backup destinations")
+                    .accessibilityHint("Opens a folder picker for one or more backups")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
@@ -290,6 +296,8 @@ struct HorizontalFlowView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Add backup destination")
+                        .accessibilityHint("Opens a folder picker for another backup")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -322,6 +330,8 @@ struct HorizontalFlowView: View {
                             .foregroundColor(.red.opacity(0.6))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove backup \(url.lastPathComponent)")
+                    .accessibilityHint("Removes this backup destination")
                 }
             }
             

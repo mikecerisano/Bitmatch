@@ -51,7 +51,7 @@ struct BackgroundTask {
     static func execute<T: Sendable>(
         priority: TaskPriority = .utility,
         work: @Sendable @escaping () async throws -> T,
-        completion: @MainActor @escaping (Result<T, Error>) -> Void = { _ in }
+        completion: @MainActor @Sendable @escaping (Result<T, Error>) -> Void = { _ in }
     ) -> Task<Void, Never> {
         return Task(priority: priority) {
             do {

@@ -120,9 +120,9 @@ final class IOSBackgroundTaskService: ObservableObject {
     private func startBackgroundTimeMonitor() {
         stopBackgroundTimeMonitor()
         backgroundTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let remaining = UIApplication.shared.backgroundTimeRemaining
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let remaining = UIApplication.shared.backgroundTimeRemaining
                 self.backgroundTimeRemainingSeconds = remaining
                 self.isInBackground = UIApplication.shared.applicationState != .active
                 if remaining.isFinite && remaining > 0 && remaining < 60 && !self.warnedLowBackgroundTime {

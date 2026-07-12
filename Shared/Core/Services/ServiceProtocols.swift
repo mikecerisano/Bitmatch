@@ -82,9 +82,6 @@ protocol PlatformManager {
     func presentError(_ error: Error) async
     func openURL(_ url: URL) async -> Bool
     
-    // Background Task Management
-    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int
-    func endBackgroundTask(_ id: Int)
 }
 
 // MARK: - Shared Result Types

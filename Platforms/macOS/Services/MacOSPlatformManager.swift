@@ -73,16 +73,5 @@ class MacOSPlatformManager: PlatformManager {
         return true
     }
     
-    // MARK: - Background Tasks
-    
-    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int {
-        // macOS doesn't use UIKit background tasks in the same way; returning a dummy ID.
-        // Use ProcessInfo.processInfo.beginActivity(options:reason:) if preventing sleep is needed.
-        return 0
-    }
-    
-    func endBackgroundTask(_ id: Int) {
-        // No-op
-    }
 }
 #endif

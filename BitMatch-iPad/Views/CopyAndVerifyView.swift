@@ -5,6 +5,30 @@ struct CopyAndVerifyView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var cameraLabelExpanded = false
     @State private var verificationModeExpanded = false
+    @State private var optionsExpanded = false
+
+    private var plan: TransferPlanPresentation {
+        let readiness = coordinator.operationReadinessAssessment
+        var blockingIssues = readiness.issues
+        if coordinator.sourceURL == nil || coordinator.destinationURLs.isEmpty {
+            // TransferPlanPresentation renders missing locations as setup states.
+            // Preserve only actual validation findings as blocked states.
+            blockingIssues.removeAll {
+                $0 == "No source folder selected" || $0 == "No destination folders selected"
+            }
+        }
+        return TransferPlanPresentation.make(
+            sourceURL: coordinator.sourceURL,
+            sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
+            destinationURLs: coordinator.destinationURLs,
+            verificationMode: coordinator.verificationMode,
+            cameraSettings: coordinator.cameraLabelSettings,
+            reportSettings: coordinator.reportSettings,
+            isAnalyzing: coordinator.sourceURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
+            blockingIssues: blockingIssues,
+            warnings: readiness.warnings
+        )
+    }
     
     var body: some View {
         VStack(spacing: 20) {
@@ -13,26 +37,47 @@ struct CopyAndVerifyView: View {
             
             // Full interface
             VStack(spacing: 20) {
-                // Enhanced source and destination selection with HorizontalFlow-like design
+                // The selection cards remain the owner of iPad Files picker actions.
                 EnhancedSourceDestinationView(coordinator: coordinator)
-                
-                // Collapsible destination folder labeling section (matching macOS)
-                CollapsibleLabelingSection(
-                    coordinator: coordinator,
-                    isExpanded: $cameraLabelExpanded
+
+                IpadTransferPlanPreflightCard(plan: plan)
+                IpadTransferPlanOptionSummary(plan: plan, isQuickMode: coordinator.verificationMode == .quick)
+
+                DisclosureGroup(isExpanded: $optionsExpanded) {
+                    VStack(spacing: 14) {
+                        CollapsibleLabelingSection(
+                            coordinator: coordinator,
+                            isExpanded: $cameraLabelExpanded
+                        )
+                        CollapsibleVerificationSection(
+                            coordinator: coordinator,
+                            isExpanded: $verificationModeExpanded
+                        )
+                        ReportToggleCard(coordinator: coordinator)
+                    }
+                    .padding(.top, 12)
+                } label: {
+                    HStack {
+                        Label("Options", systemImage: "slider.horizontal.3")
+                        Spacer()
+                        Text("\(coordinator.verificationMode.rawValue) · \(coordinator.reportSettings.makeReport ? "Reports on" : "Reports off")")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.55))
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.035))
                 )
-                
-                // Collapsible verification mode section (matching macOS)
-                CollapsibleVerificationSection(
-                    coordinator: coordinator,
-                    isExpanded: $verificationModeExpanded
-                )
-                
-                // Report settings toggle
-                ReportToggleCard(coordinator: coordinator)
-                
-                // Enhanced start transfer button
-                StartTransferButtonView(coordinator: coordinator)
+                .accessibilityLabel("Options")
+                .accessibilityHint("Shows camera labels, verification, and report settings")
+
+                StartTransferButtonView(coordinator: coordinator, plan: plan, showsReadinessBanner: false)
             }
         }
         .padding(.horizontal, 20)
@@ -66,23 +111,108 @@ struct CopyAndVerifyHeaderView: View {
     }
 }
 
+private struct IpadTransferPlanPreflightCard: View {
+    let plan: TransferPlanPresentation
+
+    var body: some View {
+        let display = statusDisplay
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: display.icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(display.tint)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(display.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(display.detail)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.68))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(display.tint.opacity(0.1))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(display.tint.opacity(0.2), lineWidth: 1))
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preflight: \(display.title). \(display.detail)")
+    }
+
+    private var statusDisplay: (title: String, detail: String, icon: String, tint: Color) {
+        switch plan.status {
+        case .ready:
+            return ("Ready to transfer", "Source and backups are ready.", "checkmark.circle.fill", .green)
+        case .analyzing(let message):
+            return ("Analyzing", message, "arrow.triangle.2.circlepath", .blue)
+        case .warning(let warnings):
+            return ("Ready with warnings", warnings.first ?? "Review options before starting.", "exclamationmark.triangle.fill", .orange)
+        case .blocked(let issues):
+            return ("Blocked", issues.first ?? "Resolve the issue to continue.", "xmark.octagon.fill", .red)
+        case .incomplete(let message):
+            return ("Needs setup", message, "info.circle.fill", .orange)
+        }
+    }
+}
+
+private struct IpadTransferPlanOptionSummary: View {
+    let plan: TransferPlanPresentation
+    let isQuickMode: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(plan.optionSummary, id: \.self) { summary in
+                        Text(summary)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.76))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(Color.white.opacity(0.07)))
+                    }
+                }
+            }
+
+            if isQuickMode {
+                Label("Quick mode does not use checksum verification.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.orange)
+                    .accessibilityLabel("Warning: Quick mode does not use checksum verification")
+            }
+        }
+    }
+}
+
 struct EnhancedSourceDestinationView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
-        HStack(spacing: 16) {
-            // Source section (left side)
-            ProfessionalSourceCard(coordinator: coordinator)
-                .frame(maxWidth: .infinity)
-            
-            // Arrow connector
-            Image(systemName: "arrow.right")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white.opacity(0.4))
-            
-            // Destinations section (right side)  
-            DestinationsFlowView(coordinator: coordinator)
-                .frame(maxWidth: .infinity)
+        Group {
+            if horizontalSizeClass == .regular {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        ProfessionalSourceCard(coordinator: coordinator)
+                            .frame(minWidth: 280, maxWidth: .infinity)
+
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+
+                        DestinationsFlowView(coordinator: coordinator)
+                            .frame(minWidth: 280, maxWidth: .infinity)
+                    }
+
+                    stackedCards
+                }
+            } else {
+                stackedCards
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -94,6 +224,13 @@ struct EnhancedSourceDestinationView: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
+    }
+
+    private var stackedCards: some View {
+        VStack(spacing: 16) {
+            ProfessionalSourceCard(coordinator: coordinator)
+            DestinationsFlowView(coordinator: coordinator)
+        }
     }
 }
 
@@ -259,6 +396,7 @@ struct DestinationsFlowView: View {
                     .foregroundColor(.white.opacity(0.9))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
+                    .frame(minHeight: 44)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
                             .fill(Color.white.opacity(0.1))
@@ -296,6 +434,7 @@ struct DestinationsFlowView: View {
                                 .foregroundColor(.white.opacity(0.6))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
+                                .frame(minHeight: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(Color.white.opacity(0.05))
@@ -779,9 +918,11 @@ struct VerificationModeRow: View {
 
 struct StartTransferButtonView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    var plan: TransferPlanPresentation? = nil
+    var showsReadinessBanner = true
     
     private var canStartTransfer: Bool {
-        coordinator.operationReadinessAssessment.isReady &&
+        (plan?.canStart ?? coordinator.operationReadinessAssessment.isReady) &&
         !coordinator.isOperationInProgress
     }
     
@@ -793,13 +934,13 @@ struct StartTransferButtonView: View {
         } else if coordinator.destinationURLs.isEmpty {
             return "Add Backup Destinations"
         } else {
-            return "Start Copy & Verify"
+            return plan?.actionTitle ?? "Start Copy & Verify"
         }
     }
     
     var body: some View {
         VStack(spacing: 12) {
-            if coordinator.sourceURL != nil || !coordinator.destinationURLs.isEmpty {
+            if showsReadinessBanner && (coordinator.sourceURL != nil || !coordinator.destinationURLs.isEmpty) {
                 ReadinessBannerView(assessment: coordinator.operationReadinessAssessment)
             }
 

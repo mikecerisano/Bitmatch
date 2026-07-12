@@ -1,6 +1,7 @@
 
 .AppleDouble
 .build/
+.derived-data/
 .DS_Store
 .LSOverride
 .swiftpm/
@@ -22,4 +23,6 @@ dist/
 build/
 DerivedData/
 mac-build.log
+.superpowers/
+.worktrees/
 Pods/

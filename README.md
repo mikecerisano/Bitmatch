@@ -36,7 +36,8 @@ Plug in your card and drives. BitMatch figures out which is which (1TB+ are dest
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, generic DCIM. Names backup folders after the camera. Autosorts A/B/C
 - **Folder compare** for stuff you already copied
 - **PDF reports** for producers who want documentation
-- **Safe by default**: never modifies the source, never overwrites destination conflicts, copies through temp files and verifies by default with SHA-256
+- **Transfer plan on Mac and iPad**: shows selected source, backup destinations, verification/report choices, and preflight blockers before Start
+- **Safe by default**: never modifies the source, never overwrites destination conflicts, copies through temp files, and verifies by default with SHA-256
 
 ## Why It's Safe (probably)
 
@@ -74,8 +75,16 @@ Requirements: Xcode 16+, macOS 15.5+ for the Mac app. The iPad target currently 
 
 Tests:
 ```bash
-bash test.sh
+bash test.sh mac-test       # macOS unit and integration tests
+bash test.sh mac-build      # macOS Debug build
+bash test.sh ipad-build     # iPad simulator Debug build
+bash test.sh ipad-test      # requires IOS_SIMULATOR_DESTINATION
+bash test.sh release-builds # macOS and iPad Release builds
 ```
+
+CI runs `mac-test` and `ipad-build` on every push and pull request. For the
+physical-media test procedure and the APFS fault/soak harnesses, see
+[`docs/HARDWARE_TESTING.md`](docs/HARDWARE_TESTING.md).
 
 ## FAQ
 
