@@ -83,25 +83,7 @@ final class MacOSFileSystemService: FileSystemService {
     func stopAccessing(url: URL) {}
     
     func getFileList(from folderURL: URL) async throws -> [URL] {
-        let fileManager = FileManager.default
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
-        let directoryEnumerator = fileManager.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: resourceKeys,
-            options: [],
-            errorHandler: nil
-        )
-        
-        var fileURLs: [URL] = []
-        guard let directoryEnumerator = directoryEnumerator else { return fileURLs }
-        let anyEnum: NSEnumerator = directoryEnumerator
-        while let fileURL = anyEnum.nextObject() as? URL {
-            let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
-            if resourceValues.isRegularFile == true {
-                fileURLs.append(fileURL)
-            }
-        }
-        return fileURLs
+        try FileTreeEnumerator.enumerateRegularFiles(base: folderURL).map(\.url)
     }
     
     // NOTE: copyFile removed - all copying uses FileCopyService.copyAllSafely() for atomic writes

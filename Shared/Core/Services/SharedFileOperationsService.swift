@@ -290,9 +290,18 @@ class SharedFileOperationsService: FileOperationsService {
             destinations: operation.destinationURLs
         )
         
-        // Step 2: Determine file counts without materializing full lists (streaming enumeration)
-        SharedLogger.debug("Prep: counting files at \(operation.sourceURL.path)", category: .transfer)
-        let perSourceFileCount = FileTreeEnumerator.countRegularFiles(base: operation.sourceURL)
+        // Step 2: Build one fail-closed source manifest for copy and verification.
+        SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
+        let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let perSourceFileCount = sourceManifest.count
+        let manifestBytes = try sourceManifest.reduce(Int64(0)) { total, entry in
+            let (sum, overflow) = total.addingReportingOverflow(max(0, entry.size))
+            guard !overflow else {
+                throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
+            }
+            return sum
+        }
+        let totalSizeBytes = operation.estimatedTotalBytes ?? manifestBytes
         let totalFiles = perSourceFileCount * operation.destinationURLs.count
         SharedLogger.debug("Prep: source files=\(perSourceFileCount), destinations=\(operation.destinationURLs.count), planned total rows=\(totalFiles)", category: .transfer)
         let destinationCount = operation.destinationURLs.count
@@ -301,33 +310,6 @@ class SharedFileOperationsService: FileOperationsService {
         let progressState = ProgressState()
         
         // Step 2a: Validate sufficient storage space
-        // Calculate total size if not provided
-        let totalSizeBytes: Int64
-        if let estimated = operation.estimatedTotalBytes {
-            totalSizeBytes = estimated
-        } else {
-            SharedLogger.debug("Calculating total size for space check...", category: .transfer)
-            // Quick enumeration to sum size
-            var size: Int64 = 0
-            if let enumerator = FileManager.default.enumerator(
-                at: operation.sourceURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
-                options: []
-            ) {
-                let anyEnum: NSEnumerator = enumerator
-                while let fileURL = anyEnum.nextObject() as? URL {
-                    if Task.isCancelled { throw CancellationError() }
-                    if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) {
-                        if resourceValues.isSymbolicLink == true { continue }
-                        if resourceValues.isRegularFile == true {
-                            size += Int64(resourceValues.fileSize ?? 0)
-                        }
-                    }
-                }
-            }
-            totalSizeBytes = size
-        }
-        
         for (index, destinationURL) in operation.destinationURLs.enumerated() {
             let available = fileSystem.freeSpace(at: destinationURL)
             SharedLogger.debug("Storage check dest #\(index+1): need \(totalSizeBytes), have \(available)", category: .transfer)
@@ -351,8 +333,7 @@ class SharedFileOperationsService: FileOperationsService {
         // Perf 2: time-based throttle on progress callbacks (500ms)
         let progressThrottleInterval: TimeInterval = 0.5
         
-        // Perf 1: enumerate files once; reuse for copy and verify phases
-        let preEnumeratedFiles = FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let sourceFileURLs = sourceManifest.map(\.url)
         // Perf 7: adaptive copy worker count
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
@@ -380,7 +361,7 @@ class SharedFileOperationsService: FileOperationsService {
                 toRoot: destFolder,
                 verificationMode: operation.verificationMode,
                 workers: copyWorkers,
-                preEnumeratedFiles: preEnumeratedFiles.map { $0.url },
+                preEnumeratedFiles: sourceFileURLs,
                 pauseCheck: {
                     try await pauseState.waitIfPaused()
                 },
@@ -618,8 +599,8 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
             // If pipelining is enabled, we skip the sequential verification pass for this destination
             if operation.verificationMode != .quick && shouldPipelineVerify == false {
-                // Perf 1: reuse pre-enumerated file list instead of re-enumerating filesystem
-                for entry in preEnumeratedFiles {
+                // Perf 1: reuse the source manifest instead of re-enumerating filesystem
+                for entry in sourceManifest {
                         try Task.checkCancellation()
                         try await waitIfPaused()
                         let fileURL = entry.url
@@ -628,7 +609,7 @@ class SharedFileOperationsService: FileOperationsService {
                         let fileStartTime = Date()
                         
                         do {
-                            let sizeForVerify = (try? fileSystem.getFileSize(for: fileURL)) ?? 0
+                            let sizeForVerify = max(0, entry.size)
                             // Verify if requested
                             var verificationResult: VerificationResult? = nil
                             // Recompute timing for verification stage

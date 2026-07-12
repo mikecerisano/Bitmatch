@@ -11,56 +11,52 @@ enum FileTreeEnumerator {
     /// Perf 1: Enumerate regular files once and cache the list.
     /// Pass result to both copy and verify phases to eliminate triple filesystem walk.
     /// ~20 bytes per entry overhead for 100K files ≈ 20MB - acceptable.
-    static func enumerateRegularFiles(base: URL) -> [FileEntry] {
-        var entries: [FileEntry] = []
-        let fm = FileManager.default
+    static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
+        let fileManager = FileManager.default
         let basePath = base.path
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
-        if let enumerator = fm.enumerator(
-            at: base,
-            includingPropertiesForKeys: Array(keys),
-            options: []
-        ) {
-            while let item = enumerator.nextObject() as? URL {
-                if Task.isCancelled { return entries }
-                guard let rv = try? item.resourceValues(forKeys: keys) else { continue }
-                if rv.isSymbolicLink == true { continue }
-                if rv.isRegularFile == true {
-                    let filePath = item.path
-                    let relative: String
-                    if filePath.hasPrefix(basePath + "/") {
-                        relative = String(filePath.dropFirst(basePath.count + 1))
-                    } else {
-                        relative = item.lastPathComponent
-                    }
-                    entries.append(FileEntry(
-                        url: item,
-                        relativePath: relative,
-                        size: Int64(rv.fileSize ?? 0)
-                    ))
-                }
-            }
+        var entries: [FileEntry] = []
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: base.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw BitMatchError.fileNotFound(base)
         }
-        return entries
-    }
 
-    static func countRegularFiles(base: URL) -> Int {
-        var count = 0
-        let fm = FileManager.default
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
-        if let enumerator = fm.enumerator(
+        var traversalError: Error?
+        guard let enumerator = fileManager.enumerator(
             at: base,
             includingPropertiesForKeys: Array(keys),
-            options: []
-        ) {
-            while let item = enumerator.nextObject() as? URL {
-                if Task.isCancelled { return count }
-                guard let values = try? item.resourceValues(forKeys: keys) else { continue }
-                if values.isSymbolicLink != true && values.isRegularFile == true {
-                    count += 1
+            options: [],
+            errorHandler: { url, error in
+                if traversalError == nil {
+                    traversalError = NSError(
+                        domain: "FileTreeEnumerator",
+                        code: (error as NSError).code,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not read \(url.lastPathComponent): \(error.localizedDescription)"]
+                    )
                 }
+                return false
             }
+        ) else {
+            throw BitMatchError.fileAccessDenied(base)
         }
-        return count
+
+        while let item = enumerator.nextObject() as? URL {
+            try Task.checkCancellation()
+            let values = try item.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true || values.isRegularFile != true {
+                continue
+            }
+            let relativePath = item.path.hasPrefix(basePath + "/")
+                ? String(item.path.dropFirst(basePath.count + 1))
+                : item.lastPathComponent
+            entries.append(FileEntry(
+                url: item,
+                relativePath: relativePath,
+                size: Int64(values.fileSize ?? 0)
+            ))
+        }
+        if let traversalError { throw traversalError }
+        return entries
     }
 }
