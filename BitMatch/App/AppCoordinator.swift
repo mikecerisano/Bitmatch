@@ -131,12 +131,13 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - Initialization
     init() {
-        setupObservers()
-        setupSharedCoreBindings()
+        setupFileSelectionBindings()
+        setupProgressBindings()
+        setupSharedCoordinatorBindings()
         setupCameraDetection()
     }
 
-    private func setupObservers() {
+    private func setupFileSelectionBindings() {
         // Camera detection with memory when source changes
         fileSelectionViewModel.$sourceURL.sink { [weak self] url in
             if let url = url { self?.cameraLabelViewModel.detectCameraWithMemory(at: url) }
@@ -162,20 +163,32 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] _ in self?.cameraLabelViewModel.onLabelChanged() }
             .store(in: &cancellables)
 
-        // Forward child VM changes to trigger UI refresh
-        for vm in [fileSelectionViewModel.objectWillChange.eraseToAnyPublisher(),
-                    progressViewModel.objectWillChange.eraseToAnyPublisher()] {
-            vm.sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: 1_000_000)
-                    self?.objectWillChange.send()
-                }
-            }.store(in: &cancellables)
-        }
+        Publishers.MergeMany(
+            fileSelectionViewModel.$sourceURL.map { _ in () }.eraseToAnyPublisher(),
+            fileSelectionViewModel.$destinationURLs.map { _ in () }.eraseToAnyPublisher(),
+            fileSelectionViewModel.$leftURL.map { _ in () }.eraseToAnyPublisher(),
+            fileSelectionViewModel.$rightURL.map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in self?.objectWillChange.send() }
+        .store(in: &cancellables)
+    }
+
+    private func setupProgressBindings() {
+        Publishers.MergeMany(
+            progressViewModel.$fileCountTotal.map { _ in () }.eraseToAnyPublisher(),
+            progressViewModel.$interpolatedProgress.map { _ in () }.eraseToAnyPublisher(),
+            progressViewModel.$currentFileName.map { _ in () }.eraseToAnyPublisher(),
+            progressViewModel.$bytesPerSecond.map { _ in () }.eraseToAnyPublisher(),
+            progressViewModel.$estimatedTimeRemaining.map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in self?.objectWillChange.send() }
+        .store(in: &cancellables)
     }
 
     // MARK: - Shared Core Bindings
-    private func setupSharedCoreBindings() {
+    private func setupSharedCoordinatorBindings() {
         // Map SharedAppCoordinator progress → ProgressViewModel
         sharedCoordinator.$progress.compactMap { $0 }
             .throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)
@@ -220,13 +233,14 @@ final class AppCoordinator: ObservableObject {
             }
         }.store(in: &cancellables)
 
-        // Forward SharedAppCoordinator changes to trigger UI refresh
-        sharedCoordinator.objectWillChange.sink { [weak self] _ in
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 1_000_000)
-                self?.objectWillChange.send()
-            }
-        }.store(in: &cancellables)
+        Publishers.MergeMany(
+            sharedCoordinator.$isOperationInProgress.map { _ in () }.eraseToAnyPublisher(),
+            sharedCoordinator.$operationState.map { _ in () }.eraseToAnyPublisher(),
+            sharedCoordinator.$results.map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in self?.objectWillChange.send() }
+        .store(in: &cancellables)
     }
 
     private func setupCameraDetection() {
