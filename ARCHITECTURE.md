@@ -2,7 +2,10 @@
 
 ## Overview
 
-BitMatch uses a shared core architecture that enables code reuse between macOS and iPad platforms while maintaining platform-specific optimizations.
+BitMatch keeps one copy-and-verify operation path in the shared core. macOS and
+iPad provide their own pickers, security/access integration, and SwiftUI views;
+both platforms hand the resolved operation to the same executor and file
+services. This keeps safety decisions and result semantics out of platform UI.
 
 ## Core Design Principles
 
@@ -47,6 +50,21 @@ class SharedAppCoordinator: ObservableObject {
     func addDestinationFolder() async
 }
 ```
+
+### Shared Copy-and-Verify Path
+
+`SharedAppCoordinator` prepares `CopyVerifyConfig` and delegates execution to
+`CopyVerifyExecutor`. The executor owns operation timing, state, error
+tracking, iPad background-task handling, result overflow, and report handoff.
+It calls `PlatformManager.fileOperations.performFileOperation(...)`, which is
+implemented by `SharedFileOperationsService` on both platforms.
+
+The shared service acquires access scopes, checks source and destination access,
+runs `SafetyValidator`, enumerates the source, copies with bounded concurrency,
+and records one current result per source/destination pair. Verification can
+run in a bounded pipeline. The executor maps progress and rows back to each
+platform UI, then seals completion state and generates enabled reports. A view
+can explain readiness, but it cannot bypass this shared preflight.
 
 ### Platform Managers
 
@@ -145,6 +163,7 @@ protocol FileSystemService {
 Features:
 - Dynamic window sizing based on content
 - Mode-specific layouts
+- Transfer-plan cards show source, destinations, options, and preflight status before transfer
 - Integrated report panel
 - Professional desktop interactions
 
@@ -162,6 +181,7 @@ Features:
 - Collapsible sections
 - Professional card designs
 - Native iOS interactions
+- The same transfer-plan presentation shows setup, readiness, warnings, and blocked states before transfer
 
 Key Components:
 - `CopyAndVerifyView`: Enhanced touch interface with collapsible sections
@@ -172,25 +192,24 @@ Key Components:
 
 ## Flow Diagrams
 
-### Copy & Verify (high level)
+### Copy & Verify (shared operation path)
 
-1. UI sets `sourceURL` and `destinationURLs` on `SharedAppCoordinator`
-2. User taps Start → `startOperation()`
-3. Coordinator runs readiness checks against the resolved final output roots
-4. Coordinator starts services:
+1. macOS or iPad selection UI sets source and destination URLs; its transfer-plan UI renders setup, readiness, warnings, or blockers.
+2. User taps Start → the coordinator builds `CopyVerifyConfig` and runs readiness checks against the resolved final output roots.
+3. `CopyVerifyExecutor` starts services:
    - `OperationTimingService.startOperation(...)`
    - `OperationStateService.startOperation(...)`
    - `ErrorReportingService.startErrorTracking(...)`
-5. `SharedFileOperationsService.performFileOperation(...)` performs core preflight:
+4. `CopyVerifyExecutor` invokes `PlatformManager.fileOperations.performFileOperation(...)`; both platforms reach `SharedFileOperationsService`.
+5. `SharedFileOperationsService` performs core preflight:
    - source exists and is a directory
    - destinations are unique and writable
    - final destination roots are unique, non-nested, non-symlinked folders
    - source tree has no unsafe relative paths or portable-name collisions
-6. `FileCopyService.copyAllSafely(...)` copies each file with temp-then-promote semantics and per-file error reporting
-7. Verification runs inline or pipelined depending on mode
-8. Progress updates → coordinator updates `progress` + timing service → UI reacts
-9. On completion: state services finalize; results mapped to `ResultRow` list
-10. If reports enabled, `SharedReportGenerationService` is invoked
+6. `FileCopyService.copyAllSafely(...)` copies each file with temp-then-promote semantics and per-file error reporting.
+7. Verification runs inline or in a bounded pipeline, depending on mode.
+8. Progress and per-file rows flow through the executor to timing, state, and platform UI.
+9. On completion, the executor coalesces current result rows, finalizes state, and invokes `SharedReportGenerationService` when reports are enabled.
 
 ### Compare Folders (basic)
 
@@ -291,3 +310,14 @@ await withTaskGroup(of: Result.self) { group in /* cap concurrency */ }
 - User interaction flows
 - State management verification
 - Platform-specific behavior validation
+
+### Concurrency and Fault Diagnostics
+
+`BitMatchTests/ConcurrencyTests.swift` targets the shared `AsyncSemaphore`:
+basic permit behavior, bounded concurrent access, stress, and cancellation.
+Transfer integration and soak tests exercise the shared operation path, rather
+than duplicating platform-specific copy logic. The focused APFS image harness
+(`Scripts/run_apfs_fault_tests.sh`) verifies that one inaccessible destination
+reports failure while another can finish. `Scripts/run_soak_tests.sh` runs a
+seeded, repeatable transfer soak test. Physical cable, power, hub, and exFAT
+fault cases require the procedure in `docs/HARDWARE_TESTING.md`.

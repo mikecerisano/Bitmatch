@@ -30,6 +30,8 @@
 - Reworked copy behavior to avoid destructive overwrites
 - Added source-stability checks before publishing destination files
 - Ensured large result sets and reports retain the latest status for every file/destination
+- Consolidated copy and verification through the shared executor and operation service
+- Added focused concurrency diagnostics plus APFS fault and seeded soak harnesses
 
 ## Current Development Status
 
@@ -41,6 +43,8 @@
 - **Interface Consistency**: Both platforms feature-complete and visually consistent
 - **Compilation**: All syntax and type errors resolved
 - **Transfer Safety Core**: Conservative copy, verification, preflight, and reporting behavior for production-style offloads
+- **Shared Operation Path**: macOS and iPad both execute through `CopyVerifyExecutor` and `SharedFileOperationsService`
+- **Transfer Plan UI**: Both platforms show the selected source/destinations, options, and preflight state before a transfer starts
 
 ### 🎯 Active Development Areas
 - **UI Polish**: Minor visual refinements and animations
@@ -181,9 +185,27 @@ Required behaviors:
 - skip symlink entries instead of following them outside the selected source
 - use uncached checksums for live verification/report sealing paths
 
+### 5. Shared Execution Boundary
+**Files**:
+- `Shared/Core/Services/CopyVerifyExecutor.swift`
+- `Shared/Core/Services/SharedFileOperationsService.swift`
+- `Shared/Core/Models/TransferPlanPresentation.swift`
+
+**Pattern**: Platform views present selection and readiness, then the shared
+coordinator creates a `CopyVerifyConfig` for `CopyVerifyExecutor`. The executor
+owns timing, operation state, error tracking, result coalescing, report
+handoff, and progress callbacks. It calls the shared file-operation service,
+which performs the real preflight and transfer. Do not add a platform-only
+transfer path or rely on UI validation as the safety boundary.
+
+The macOS `TransferPlanView` and iPad transfer-plan cards must describe the
+same presentation model. Keep platform interaction styles appropriate to mouse
+and touch, but keep their readiness meaning aligned.
+
 ## Development Workflow
 
 ### 1. Making Changes to Shared Code
+- Start with the narrowest relevant test; then run macOS tests and the iPad build
 - Test on both macOS and iPad targets
 - Ensure protocol contracts are maintained
 - Update both platform managers if needed
@@ -205,6 +227,18 @@ Required behaviors:
 4. Implement UI in both platforms (unless platform-specific)
 5. Add error handling and edge cases
 6. Test full operation flow
+
+### 5. Safe Change Workflow
+1. Inspect the shared path before changing copy, verification, preflight, state, or report behavior.
+2. Add or update a focused regression test in `BitMatchTests`; use `ConcurrencyTests` for semaphore behavior and transfer integration tests for operation semantics.
+3. Run `bash test.sh mac-test`.
+4. Run `bash test.sh ipad-build` after every shared-code or UI-model change.
+5. Run `bash test.sh release-builds` before release work. Run `bash test.sh ipad-test` only after setting an explicit `IOS_SIMULATOR_DESTINATION`.
+6. Do not treat the automated tests as proof of physical-media safety. Use the fault/soak scripts and `docs/HARDWARE_TESTING.md` with throwaway data when the change can affect transfer reliability.
+
+The repository's GitHub Actions workflow runs `mac-test` and `ipad-build` for
+pushes and pull requests. Keep these jobs green; do not replace their explicit
+job names with a catch-all script invocation.
 
 ## Debugging Guide
 
@@ -274,17 +308,50 @@ print("❌ Error: \(error)")
 
 ## Testing & Coverage
 
+Run the named jobs from the repository root:
+
+```bash
+bash test.sh mac-test
+bash test.sh mac-build
+bash test.sh ipad-build
+IOS_SIMULATOR_DESTINATION='platform=iOS Simulator,name=iPad (A16)' bash test.sh ipad-test
+bash test.sh release-builds
+```
+
+`mac-test` runs `BitMatchTests` on macOS. `ipad-build` is the portable shared
+code gate when no iPad simulator is selected. `ipad-test` deliberately refuses
+to guess a simulator; set `IOS_SIMULATOR_DESTINATION` to a destination installed
+on the current machine.
+
 - Run tests with coverage:
   - `xcodebuild test -scheme BitMatch -enableCodeCoverage YES -resultBundlePath coverage.xcresult`
-- Run the safety-focused unit target:
-  - `xcodebuild test -scheme BitMatch -project BitMatch.xcodeproj -configuration Debug -destination platform=macOS,arch=arm64 -only-testing:BitMatchTests`
-- Compile the iPad target after shared changes:
-  - `xcodebuild -scheme BitMatch-iPad -project BitMatch.xcodeproj -configuration Debug -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build`
 - Coverage summary:
   - `xcrun xccov view --report coverage.xcresult`
 - JSON coverage for tooling/CI:
   - `xcrun xccov view --report --json coverage.xcresult`
-- Convenience: `bash test.sh`
+
+### Reliability Diagnostics and Hardware Testing
+
+Use `Scripts/run_apfs_fault_tests.sh` for the automated APFS destination-fault
+case. It creates and removes a marked, disposable APFS image, then checks the
+case in which one destination becomes inaccessible while another succeeds.
+
+Use `Scripts/run_soak_tests.sh` for repeatable transfer stress. Set
+`BITMATCH_SOAK_SEED` and `BITMATCH_SOAK_ITERATIONS` when reproducing a failure;
+the defaults are `20260711` and `25`. The script prints validated JSON before
+removing its marked temporary directory.
+
+For cable removal, sleep, low-power hubs, exFAT, and other physical-media
+cases, follow [`docs/HARDWARE_TESTING.md`](docs/HARDWARE_TESTING.md). Use only
+throwaway data and retain independent post-run hashes. The automated APFS test
+does not prove that real hardware faults are safe.
+
+### Screenshot Maintenance
+
+`screenshot.png` remains unchanged in this documentation update. Do not replace
+it with a mock, a stale simulator image, or a view containing personal paths or
+media. Update it only after capturing a stable current app view with no personal
+data.
 
 ## macOS Release
 
