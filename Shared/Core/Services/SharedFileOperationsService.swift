@@ -161,6 +161,13 @@ class SharedFileOperationsService: FileOperationsService {
         func isPaused() -> Bool { paused }
         func pause() { paused = true }
         func resume() { paused = false }
+
+        func waitIfPaused() async throws {
+            while paused && !Task.isCancelled {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            }
+        }
     }
     
     init(fileSystem: FileSystemService, checksum: any ChecksumService) {
@@ -217,10 +224,7 @@ class SharedFileOperationsService: FileOperationsService {
     }
 
     private func waitIfPaused() async throws {
-        while await pauseState.isPaused() && !Task.isCancelled {
-            try Task.checkCancellation()
-            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-        }
+        try await pauseState.waitIfPaused()
     }
     
     // MARK: - Private Implementation
@@ -246,9 +250,9 @@ class SharedFileOperationsService: FileOperationsService {
         ))
 
         await verifyCounter.reset()
-        SharedChecksumService.pauseCheck = { [weak self] in
-            guard let self else { return }
-            try await self.waitIfPaused()
+        let pauseState = self.pauseState
+        SharedChecksumService.pauseCheck = {
+            try await pauseState.waitIfPaused()
         }
         let didStartSourceScope = fileSystem.startAccessing(url: operation.sourceURL)
         var destinationScopes: [URL: Bool] = [:]
@@ -377,9 +381,8 @@ class SharedFileOperationsService: FileOperationsService {
                 verificationMode: operation.verificationMode,
                 workers: copyWorkers,
                 preEnumeratedFiles: preEnumeratedFiles.map { $0.url },
-                pauseCheck: { [weak self] in
-                    guard let self else { return }
-                    try await self.waitIfPaused()
+                pauseCheck: {
+                    try await pauseState.waitIfPaused()
                 },
                 onProgress: { fileName, fileSize in
                     let copyUpdate = await progressState.recordCopy(
