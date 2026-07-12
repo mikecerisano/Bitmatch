@@ -28,10 +28,48 @@ final class AppCoordinatorBindingTests: XCTestCase {
         }
         defer { notification.cancel() }
 
+        XCTAssertEqual(coordinator.operationState, .notStarted)
         notificationReceived.enable()
-        coordinator.sharedCoordinator.resetForNewOperation()
+        coordinator.sharedCoordinator.cancelOperation()
+        XCTAssertEqual(coordinator.operationState, .cancelled)
 
         assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
+    }
+
+    func testFilesPerSecondChangeNotifiesOnNextRunLoopTurn() {
+        let coordinator = AppCoordinator()
+        drainMainRunLoop()
+        let notificationReceived = NotificationState()
+        let notification = coordinator.objectWillChange.sink { _ in
+            notificationReceived.recordIfEnabled()
+        }
+        defer { notification.cancel() }
+
+        XCTAssertNil(coordinator.formattedSpeed)
+        notificationReceived.enable()
+        coordinator.progressViewModel.filesPerSecond = 24
+        XCTAssertEqual(coordinator.formattedSpeed, "24 files/s")
+
+        assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
+    }
+
+    func testVerificationModeChangeNotifiesOnNextRunLoopTurn() {
+        let coordinator = AppCoordinator()
+        drainMainRunLoop()
+        let notificationReceived = NotificationState()
+        let notification = coordinator.objectWillChange.sink { _ in
+            notificationReceived.recordIfEnabled()
+        }
+        defer { notification.cancel() }
+
+        let originalMode = coordinator.verificationMode
+        let updatedMode: VerificationMode = originalMode == .quick ? .standard : .quick
+        notificationReceived.enable()
+        coordinator.sharedCoordinator.verificationMode = updatedMode
+        XCTAssertEqual(coordinator.verificationMode, updatedMode)
+
+        assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
+        coordinator.sharedCoordinator.verificationMode = originalMode
     }
 
     private func drainMainRunLoop() {

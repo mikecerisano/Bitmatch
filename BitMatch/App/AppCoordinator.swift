@@ -180,6 +180,7 @@ final class AppCoordinator: ObservableObject {
             progressViewModel.$interpolatedProgress.map { _ in () }.eraseToAnyPublisher(),
             progressViewModel.$currentFileName.map { _ in () }.eraseToAnyPublisher(),
             progressViewModel.$bytesPerSecond.map { _ in () }.eraseToAnyPublisher(),
+            progressViewModel.$filesPerSecond.map { _ in () }.eraseToAnyPublisher(),
             progressViewModel.$estimatedTimeRemaining.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
@@ -236,7 +237,8 @@ final class AppCoordinator: ObservableObject {
         Publishers.MergeMany(
             sharedCoordinator.$isOperationInProgress.map { _ in () }.eraseToAnyPublisher(),
             sharedCoordinator.$operationState.map { _ in () }.eraseToAnyPublisher(),
-            sharedCoordinator.$results.map { _ in () }.eraseToAnyPublisher()
+            sharedCoordinator.$results.map { _ in () }.eraseToAnyPublisher(),
+            sharedCoordinator.$verificationMode.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in self?.objectWillChange.send() }
