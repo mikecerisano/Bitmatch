@@ -341,6 +341,7 @@ final class SafetyValidator {
 // MARK: - Error Types
 
 enum FileOperationError: LocalizedError {
+    case operationAlreadyInProgress
     case sourceNotFound(String)
     case sourceNotDirectory(String)
     case destinationNotWritable(String)
@@ -350,6 +351,8 @@ enum FileOperationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .operationAlreadyInProgress:
+            return "Another file operation is already active or cancelling."
         case .sourceNotFound(_):
             return "Source folder not found"
         case .sourceNotDirectory(_):

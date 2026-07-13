@@ -146,12 +146,73 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
     return overflow ? Int64.max : result
 }
 
+/// Owns the single operation admitted by a service instance.
+/// Cancellation never releases the slot; only the matching operation's exit does.
+private final class ActiveOperationRegistry: @unchecked Sendable {
+    private struct Entry {
+        var task: Task<FileOperation, Error>?
+        var cancellationRequested = false
+    }
+
+    private let lock = NSLock()
+    private var activeID: UUID?
+    private var entries: [UUID: Entry] = [:]
+
+    func reserve(_ id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeID == nil else { return false }
+        activeID = id
+        entries[id] = Entry()
+        return true
+    }
+
+    func attach(_ task: Task<FileOperation, Error>, to id: UUID) {
+        lock.lock()
+        guard activeID == id, var entry = entries[id] else {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        entry.task = task
+        entries[id] = entry
+        let shouldCancel = entry.cancellationRequested
+        lock.unlock()
+
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func requestCancellation() {
+        lock.lock()
+        guard let id = activeID, var entry = entries[id] else {
+            lock.unlock()
+            return
+        }
+        entry.cancellationRequested = true
+        entries[id] = entry
+        let task = entry.task
+        lock.unlock()
+
+        task?.cancel()
+    }
+
+    func clear(_ id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeID == id else { return }
+        entries[id] = nil
+        activeID = nil
+    }
+}
+
 class SharedFileOperationsService: FileOperationsService {
     typealias ProgressCallback = (OperationProgress) -> Void
 
     private let fileSystem: FileSystemService
     private let checksumService: any ChecksumService
-    private var currentOperation: Task<FileOperation, Error>?
+    private let activeOperations = ActiveOperationRegistry()
     private let pauseState = PauseState()
     private let verifyCounter = VerifyCounter()
 
@@ -186,9 +247,12 @@ class SharedFileOperationsService: FileOperationsService {
         progressCallback: @escaping ProgressCallback,
         onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
-        
-        // Cancel any existing operation
-        cancelOperation()
+        let operationID = UUID()
+        guard activeOperations.reserve(operationID) else {
+            throw FileOperationError.operationAlreadyInProgress
+        }
+        defer { activeOperations.clear(operationID) }
+
         await pauseState.resume()
         
         let operation = FileOperation(
@@ -205,14 +269,13 @@ class SharedFileOperationsService: FileOperationsService {
         let operationTask = Task {
             return try await executeOperation(operation, progressCallback: progressCallback, onFileResult: onFileResult)
         }
-        currentOperation = operationTask
+        activeOperations.attach(operationTask, to: operationID)
 
         return try await operationTask.value
     }
     
     func cancelOperation() {
-        currentOperation?.cancel()
-        currentOperation = nil
+        activeOperations.requestCancellation()
     }
     
     func pauseOperation() async {
@@ -225,6 +288,23 @@ class SharedFileOperationsService: FileOperationsService {
 
     private func waitIfPaused() async throws {
         try await pauseState.waitIfPaused()
+    }
+
+    private func finishVerificationTasks(
+        in store: VerifyTaskStore,
+        cancelling: Bool
+    ) async {
+        let tasks = await store.drain()
+        if cancelling {
+            tasks.forEach { $0.cancel() }
+        }
+        await withTaskCancellationHandler {
+            for task in tasks {
+                await task.value
+            }
+        } onCancel: {
+            tasks.forEach { $0.cancel() }
+        }
     }
     
     // MARK: - Private Implementation
@@ -266,7 +346,9 @@ class SharedFileOperationsService: FileOperationsService {
                 fileSystem.stopAccessing(url: url)
             }
         }
-        
+
+        let verifyTaskStore = VerifyTaskStore()
+        do {
         SharedLogger.debug("Validating access to source: \(operation.sourceURL.path)", category: .transfer)
         guard await fileSystem.validateFileAccess(url: operation.sourceURL) else {
             throw BitMatchError.fileAccessDenied(operation.sourceURL)
@@ -334,7 +416,6 @@ class SharedFileOperationsService: FileOperationsService {
         // Perf 6: adaptive concurrency based on CPU count
         let verifyConcurrency = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
         let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? verifyConcurrency : 0)
-        let verifyTaskStore = VerifyTaskStore()
         let maxQueuedVerifyTasks = 200
         // Perf 2: time-based throttle on progress callbacks (500ms)
         let progressThrottleInterval: TimeInterval = 0.5
@@ -540,7 +621,11 @@ class SharedFileOperationsService: FileOperationsService {
                             }
                         }
                         if let next = await verifyTaskStore.enqueue(task, maxQueued: maxQueuedVerifyTasks) {
-                            await next.value
+                            await withTaskCancellationHandler {
+                                await next.value
+                            } onCancel: {
+                                next.cancel()
+                            }
                         }
                     }
 
@@ -795,8 +880,9 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
         }
         
-        // Wait for any in-flight pipelined verifications to complete
-        for task in await verifyTaskStore.drain() { await task.value }
+        // Wait for any in-flight pipelined verifications to complete.
+        await finishVerificationTasks(in: verifyTaskStore, cancelling: false)
+        try Task.checkCancellation()
 
         let finalMetrics = await progressState.snapshot()
 
@@ -838,5 +924,9 @@ class SharedFileOperationsService: FileOperationsService {
             settings: operation.settings,
             estimatedTotalBytes: operation.estimatedTotalBytes
         )
+        } catch {
+            await finishVerificationTasks(in: verifyTaskStore, cancelling: true)
+            throw error
+        }
     }
 }
