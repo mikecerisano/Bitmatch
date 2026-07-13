@@ -56,16 +56,17 @@ struct ReportView: View {
     private var totalDurationSeconds: TimeInterval {
         max(0, s.finished.timeIntervalSince(s.started))
     }
+
+    private var reportStatistics: ReportResultStatistics {
+        ReportResultStatistics(rows: rows)
+    }
     
     private var filesPerSecond: Double {
-        guard totalDurationSeconds > 0 else { return 0 }
-        return Double(rows.count) / totalDurationSeconds
+        reportStatistics.filesPerSecond(duration: totalDurationSeconds)
     }
     
     private var averageFileSize: String {
-        guard !rows.isEmpty else { return "—" }
-        let totalBytes = rows.reduce(into: Int64(0)) { $0 += $1.size }
-        let average = totalBytes / Int64(rows.count)
+        guard let average = reportStatistics.averageFileSizeBytes else { return "—" }
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB, .useKB]
         formatter.countStyle = .file
@@ -73,27 +74,15 @@ struct ReportView: View {
     }
     
     private var largestFile: ResultRow? {
-        rows.max(by: { $0.size < $1.size })
+        reportStatistics.largestFile
     }
     
     private var smallestFile: ResultRow? {
-        rows.min(by: { $0.size < $1.size })
+        reportStatistics.smallestFile
     }
     
     private var extensionBreakdown: [(ext: String, count: Int)] {
-        let grouped = Dictionary(grouping: rows) { row -> String in
-            let ext = URL(fileURLWithPath: row.path).pathExtension.uppercased()
-            return ext.isEmpty ? "—" : ext
-        }
-        let ranked: [(ext: String, count: Int)] = grouped
-            .map { (ext: $0.key, count: $0.value.count) }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    return lhs.ext < rhs.ext
-                }
-                return lhs.count > rhs.count
-            }
-        return Array(ranked.prefix(5))
+        reportStatistics.extensionBreakdown(limit: 5)
     }
     
     private var manifestPreview: [ResultRow] {
@@ -381,7 +370,7 @@ struct ReportView: View {
                 .font(.system(size: 14, weight: .semibold))
             
             HStack(spacing: 40) {
-                StatBox(title: "Files", value: "\(rows.count)", color: .blue)
+                StatBox(title: "Files", value: "\(reportStatistics.totalFiles)", color: .blue)
                 StatBox(title: "Matched", value: "\(verifiedFileCount)", color: .green)
                 StatBox(title: "Issues", value: "\(issueCount)", color: issueCount > 0 ? .orange : .gray)
                 StatBox(title: "Success Rate",

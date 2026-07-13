@@ -191,11 +191,47 @@ final class ResultPresentationTests: XCTestCase {
         XCTAssertEqual(groups.reduce(0) { $0 + $1.rows.count }, 108)
     }
 
-    private func row(_ fileName: String, status: String) -> ResultRow {
+    func testReportStatisticsIncludeMediaAndSidecars() {
+        let rows = [
+            row("clip.mov", status: "✅ Verified", size: 100),
+            row("clip.xml", status: "⚠️ Checksum Mismatch", size: 20),
+        ]
+
+        let statistics = ReportResultStatistics(rows: rows)
+
+        XCTAssertEqual(statistics.totalFiles, 2)
+        XCTAssertEqual(statistics.totalBytes, 120)
+        XCTAssertEqual(statistics.averageFileSizeBytes, 60)
+        XCTAssertEqual(statistics.largestFile?.fileName, "clip.mov")
+        XCTAssertEqual(statistics.smallestFile?.fileName, "clip.xml")
+        XCTAssertEqual(statistics.extensionCounts["MOV"], 1)
+        XCTAssertEqual(statistics.extensionCounts["XML"], 1)
+        XCTAssertEqual(statistics.filesPerSecond(duration: 2), 1, accuracy: 0.001)
+    }
+
+    func testSidecarOnlyReportStatisticsRemainCompleteWithEmptyMediaPreview() {
+        let rows = [row("clip.xml", status: "Unknown", size: 15)]
+
+        let statistics = ReportResultStatistics(rows: rows)
+        let mediaPreview = ResultPresentation.mediaRows(
+            rows,
+            allowedExtensions: ["MOV"]
+        )
+
+        XCTAssertEqual(statistics.totalFiles, 1)
+        XCTAssertEqual(statistics.totalBytes, 15)
+        XCTAssertEqual(statistics.averageFileSizeBytes, 15)
+        XCTAssertEqual(statistics.largestFile?.fileName, "clip.xml")
+        XCTAssertEqual(statistics.smallestFile?.fileName, "clip.xml")
+        XCTAssertEqual(statistics.extensionCounts, ["XML": 1])
+        XCTAssertTrue(mediaPreview.isEmpty)
+    }
+
+    private func row(_ fileName: String, status: String, size: Int64 = 1) -> ResultRow {
         ResultRow(
             path: "/source/\(fileName)",
             status: status,
-            size: 1,
+            size: size,
             checksum: nil,
             destination: "RAID"
         )
