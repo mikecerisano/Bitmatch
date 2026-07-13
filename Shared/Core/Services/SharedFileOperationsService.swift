@@ -184,7 +184,7 @@ class SharedFileOperationsService: FileOperationsService {
         settings: CameraLabelSettings,
         estimatedTotalBytes: Int64? = nil,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
         
         // Cancel any existing operation
@@ -232,7 +232,7 @@ class SharedFileOperationsService: FileOperationsService {
     private func executeOperation(
         _ operation: FileOperation,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
         
         // Use a result store to coalesce rows safely across concurrent verification tasks
@@ -397,7 +397,7 @@ class SharedFileOperationsService: FileOperationsService {
                         processingTime: 0
                     )
                     await resultStore.upsert(copyResult)
-                    onFileResult?(copyResult)
+                    await onFileResult?(copyResult)
 
                     if shouldPipelineVerify {
                         let mode = operation.verificationMode
@@ -520,7 +520,7 @@ class SharedFileOperationsService: FileOperationsService {
                                         ))
                                     }
                                     await resultStore.upsert(verified)
-                                    onFileResult?(verified)
+                                    await onFileResult?(verified)
                                 } catch is CancellationError {
                                     // Skip result on cancellation
                                 } catch {
@@ -535,7 +535,7 @@ class SharedFileOperationsService: FileOperationsService {
                                     )
                                     _ = await self.verifyCounter.increment()
                                     await resultStore.upsert(failure)
-                                    onFileResult?(failure)
+                                    await onFileResult?(failure)
                                 }
                             }
                         }
@@ -597,7 +597,7 @@ class SharedFileOperationsService: FileOperationsService {
                     _ = await progressState.recordCopyError()
                     await destProgress.increment(destIndex: destIndex)
                     await resultStore.upsert(result)
-                    onFileResult?(result)
+                    await onFileResult?(result)
                 }
             )
 
@@ -771,7 +771,7 @@ class SharedFileOperationsService: FileOperationsService {
                                 processingTime: Date().timeIntervalSince(fileStartTime)
                             )
                             await resultStore.upsert(result)
-                            onFileResult?(result)
+                            await onFileResult?(result)
                         
                         } catch {
                             let nsErr = error as NSError
@@ -786,7 +786,7 @@ class SharedFileOperationsService: FileOperationsService {
                                 processingTime: Date().timeIntervalSince(fileStartTime)
                             )
                             await resultStore.upsert(result)
-                            onFileResult?(result)
+                            await onFileResult?(result)
                         }
                         // processedFiles is incremented during copy callbacks
                 } // end file iteration

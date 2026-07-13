@@ -46,6 +46,7 @@ extension ChecksumService {
 // MARK: - File Operations Service Protocol
 protocol FileOperationsService {
     typealias ProgressCallback = (OperationProgress) -> Void
+    typealias FileResultCallback = (FileOperationResult) async -> Void
     
     func performFileOperation(
         sourceURL: URL,
@@ -54,7 +55,7 @@ protocol FileOperationsService {
         settings: CameraLabelSettings,
         estimatedTotalBytes: Int64?,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation
     
     func cancelOperation()

@@ -193,7 +193,7 @@ private final class ScopeTrackingFileOperationsService: FileOperationsService {
         settings: CameraLabelSettings,
         estimatedTotalBytes: Int64?,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
         FileOperation(
             sourceURL: sourceURL,

@@ -280,7 +280,7 @@ class SharedAppCoordinator: ObservableObject {
                 self?.operationState = state
             },
             onComplete: { [weak self] allResults in
-                // Results already updated via onResult callback
+                self?.results = allResults
                 self?.isOperationInProgress = false
             }
         )
