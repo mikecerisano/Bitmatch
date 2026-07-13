@@ -100,13 +100,17 @@ struct ReportView: View {
         // Show all files in PDF reports (no limit)
         relevantRows
     }
+
+    private var integritySummary: ResultIntegritySummary {
+        ResultIntegritySummary(rows: rows)
+    }
     
     private var verifiedFileCount: Int {
-        relevantRows.filter { $0.status.contains("✅") || $0.status.contains("Match") }.count
+        integritySummary.successfulRows.count
     }
     
     private var issueCount: Int {
-        relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
+        integritySummary.issueRows.count
     }
     
     private var totalSizeFormatted: String {
@@ -381,15 +385,15 @@ struct ReportView: View {
     @ViewBuilder
     private var statisticsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Media File Statistics")
+            Text("File Statistics")
                 .font(.system(size: 14, weight: .semibold))
             
             HStack(spacing: 40) {
-                StatBox(title: "Media Files", value: "\(relevantRows.count)", color: .blue)
+                StatBox(title: "Files", value: "\(rows.count)", color: .blue)
                 StatBox(title: "Matched", value: "\(verifiedFileCount)", color: .green)
                 StatBox(title: "Issues", value: "\(issueCount)", color: issueCount > 0 ? .orange : .gray)
                 StatBox(title: "Success Rate",
-                       value: String(format: "%.1f%%", relevantRows.count > 0 ? (Double(verifiedFileCount) / Double(relevantRows.count) * 100) : 100),
+                       value: String(format: "%.1f%%", rows.isEmpty ? 100 : (Double(verifiedFileCount) / Double(rows.count) * 100)),
                        color: issueCount == 0 ? .green : .orange)
             }
         }
@@ -509,7 +513,7 @@ struct ReportView: View {
             Text("Issues Detail (\(issueCount))")
                 .font(.system(size: 14, weight: .semibold))
             
-            let problems = relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.prefix(100)
+            let problems = integritySummary.issueRows.prefix(100)
             
             // Group issues by type
             let grouped = Dictionary(grouping: problems) { $0.status }
@@ -645,7 +649,7 @@ struct ReportView: View {
     
     @ViewBuilder
     private var summaryTableContent: some View {
-        let grouped = Dictionary(grouping: relevantRows.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }) { $0.status }
+        let grouped = Dictionary(grouping: integritySummary.issueRows) { $0.status }
         
         VStack(spacing: 2) {
             ForEach(Array(grouped.keys.sorted()), id: \.self) { status in
@@ -680,13 +684,14 @@ struct ReportView: View {
 
     // MARK: - Status Helper Methods
     private func statusSymbol(for status: String) -> String {
-        if status.contains("✅") || status.contains("Match") {
+        let lowercased = status.lowercased()
+        if ResultRow.isSuccessStatus(status) {
             return "checkmark.circle"
-        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
             return "xmark.circle"
-        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
             return "exclamationmark.triangle"
-        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
             return "arrow.clockwise"
         } else {
             return "questionmark.circle"
@@ -694,13 +699,14 @@ struct ReportView: View {
     }
     
     private func statusColor(for status: String) -> Color {
-        if status.contains("✅") || status.contains("Match") {
+        let lowercased = status.lowercased()
+        if ResultRow.isSuccessStatus(status) {
             return .green
-        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
             return .red
-        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
             return .yellow
-        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
             return .blue
         } else {
             return .gray
