@@ -12,6 +12,7 @@ SKIP_NOTARIZE=${SKIP_NOTARIZE:-0}
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DIST_DIR="$ROOT_DIR/dist"
+DERIVED_DATA_PATH="$DIST_DIR/DerivedData"
 ARCHIVE_PATH="$DIST_DIR/BitMatch-$VERSION.xcarchive"
 ZIP_PATH="$DIST_DIR/BitMatch-$VERSION.app.zip"
 DMG_ROOT="$DIST_DIR/dmg-root"
@@ -21,7 +22,7 @@ APP_PATH="$ARCHIVE_PATH/Products/Applications/BitMatch.app"
 
 cd "$ROOT_DIR"
 mkdir -p "$DIST_DIR"
-rm -rf "$ARCHIVE_PATH" "$ZIP_PATH" "$DMG_ROOT" "$DMG_PATH" "$CHECKSUM_PATH"
+rm -rf "$DERIVED_DATA_PATH" "$ARCHIVE_PATH" "$ZIP_PATH" "$DMG_ROOT" "$DMG_PATH" "$CHECKSUM_PATH"
 
 echo "Building signed archive for BitMatch $VERSION"
 xcodebuild archive \
@@ -29,6 +30,7 @@ xcodebuild archive \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
   -destination "generic/platform=macOS" \
+  -derivedDataPath "$DERIVED_DATA_PATH" \
   -archivePath "$ARCHIVE_PATH" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_STYLE=Manual \
