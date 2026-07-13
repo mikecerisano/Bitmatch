@@ -36,18 +36,34 @@ Plug in your card and drives. BitMatch figures out which is which (1TB+ are dest
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, generic DCIM. Names backup folders after the camera. Autosorts A/B/C
 - **Folder compare** for stuff you already copied
 - **PDF reports** for producers who want documentation
-- **Transfer plan on Mac and iPad**: shows selected source, backup destinations, verification/report choices, and preflight blockers before Start
+- **Transfer preflight on Mac and iPad** shows the source, destinations, verification/report choices, and blockers before Start
+- **Truthful completion and reports** count every result, including sidecars and failures, from the authoritative operation manifest
+- **Stable source verification** rejects files that grow, shrink, or change identity while BitMatch reads them
 - **Safe by default**: never modifies the source, never overwrites destination conflicts, copies through temp files, and verifies by default with SHA-256
 
-## Why It's Safe (probably)
+## Safety Model
 
-- 🚫 No cloud, no servers, no uploads
-- 🔒 Verification happens locally
-- ✅ Source card is never modified
-- 🛑 Existing destination files are never overwritten. In checksum modes, matching files can be reused only after local verification
-- 📁 Hidden files and empty folders included (camera sidecar data matters)
+### Enforced by code
 
-**Heads up though.** I think it's safe. I've used it on my own jobs. But I haven't shot every camera on every drive on every macOS version, and this is a one person project. It's open source so you can read the code and decide for yourself. **Test it on throwaway files first. Don't trust irreplaceable footage to it until you've shaken it out on a few jobs.**
+- Transfers, verification, and reports stay local; BitMatch has no cloud or analytics upload path.
+- BitMatch reads the source and never writes to it.
+- Destination conflicts never overwrite existing files. Checksum modes reuse an existing file only after local verification proves it matches.
+- Source enumeration fails closed: missing roots, unreadable metadata, traversal errors, unsafe paths, and portable-name collisions stop the transfer.
+- Hidden files and empty folders remain in the manifest because camera sidecar data matters.
+- Verification rejects files that grow, shrink, or change identity while they are being read.
+- Completion screens and reports derive their verdicts from the full authoritative result set, including sidecars and failed files.
+
+### Tested failures
+
+Automated tests cover source mutation and truncation, I/O and metadata failures, destination conflicts, cancellation races, late result delivery, large manifests, multi-destination faults, and repeatable soak transfers. See [`docs/HARDWARE_TESTING.md`](docs/HARDWARE_TESTING.md) for the physical-media procedure and fault harnesses.
+
+### Known limits
+
+BitMatch is beta software from a one-person project. It has not been tested with every camera, filesystem, drive, hub, macOS release, or iPadOS release. Quick mode copies without checksum verification, so it cannot prove byte-for-byte equality. BitMatch is not a certified replacement for an established DIT workflow on regulated, insured, or high-budget productions.
+
+### Field procedure
+
+Test BitMatch with disposable files before using it on a job. Keep the source card until every destination completes cleanly and you have reviewed the report. Inspect every failed file before clearing media, and maintain another independent copy of irreplaceable footage.
 
 ## Who It's For
 

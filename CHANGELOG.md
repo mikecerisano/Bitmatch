@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-13
+- Safety: Reject files that grow, shrink, or change identity during checksum or byte verification, including mismatch paths.
+- Safety: Build one fail-closed source manifest and use it for preflight counts, bytes, copying, verification, and final results.
+- Reliability: Make result delivery ordered and authoritative; keep exact operation ownership through cancellation and cleanup.
+- Reporting: Derive completion verdicts, counts, issue groups, throughput, sizes, and extension breakdowns from every result, including sidecars.
+- UX: Simplify Mac and iPad transfer setup with explicit preflight state, blockers, verification choices, and accessible readiness guidance.
+- Architecture: Remove orphaned operation layers and centralize shared coordinator bindings and iOS background-task ownership.
+- Testing: Add deterministic fixtures, transfer fault injection, seeded soak coverage, strict-concurrency builds, and GitHub CI for macOS tests and iPad builds.
+- Design: Refresh the application icon and retain the native, restrained utility interface.
+
 ## [0.1.2] - 2026-07-01
 - Safety: Fix exported PDF/CSV/JSON reports counting "Checksum Mismatch" and "Size Mismatch" rows as verified matches; status classification now has a single fail-safe rule (`ResultRow.isSuccessStatus`) used by reports, the executor, and view models.
 - Safety: Master reports no longer mark transfers "verified" when they completed with failures; Compare mode completes with success only when both folders truly match.
