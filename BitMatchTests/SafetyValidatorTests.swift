@@ -4,6 +4,23 @@ import XCTest
 
 final class SafetyValidatorTests: XCTestCase {
 
+    func testAvailableSpaceFallsBackWhenImportantUsageCapacityIsUnavailable() {
+        XCTAssertEqual(
+            SafetyValidator.resolvedAvailableSpace(
+                importantUsage: nil,
+                standardCapacity: 2_000_000_000
+            ),
+            2_000_000_000
+        )
+        XCTAssertEqual(
+            SafetyValidator.resolvedAvailableSpace(
+                importantUsage: 1_500_000_000,
+                standardCapacity: 2_000_000_000
+            ),
+            1_500_000_000
+        )
+    }
+
     // MARK: - System Directory Rejection
 
     func testRejectsSystemDirectories() {
@@ -130,7 +147,11 @@ final class SafetyValidatorTests: XCTestCase {
         let destination = source.appendingPathComponent("Backup")
 
         await assertThrowsFileOperationError(expectedMessage: "Destination is inside the source folder") {
-            try await SafetyValidator.performSafetyChecks(source: source, destinations: [destination])
+            try await SafetyValidator.performSafetyChecks(
+                source: source,
+                destinations: [destination],
+                sourceSizeBytes: 0
+            )
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
@@ -143,7 +164,11 @@ final class SafetyValidatorTests: XCTestCase {
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
 
         await assertThrowsFileOperationError(expectedMessage: "Destination contains the source folder") {
-            try await SafetyValidator.performSafetyChecks(source: source, destinations: [root])
+            try await SafetyValidator.performSafetyChecks(
+                source: source,
+                destinations: [root],
+                sourceSizeBytes: 0
+            )
         }
     }
 
@@ -157,7 +182,54 @@ final class SafetyValidatorTests: XCTestCase {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
         await assertThrowsFileOperationError(expectedMessage: "Destination folders must be unique") {
-            try await SafetyValidator.performSafetyChecks(source: source, destinations: [destination, destination])
+            try await SafetyValidator.performSafetyChecks(
+                source: source,
+                destinations: [destination, destination],
+                sourceSizeBytes: 0
+            )
+        }
+    }
+
+    func testSafetyChecksUseSuppliedSourceSizeInsteadOfEnumeratingBytes() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        let destination = root.appendingPathComponent("Destination")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try Data("tiny".utf8).write(to: source.appendingPathComponent("tiny.txt"))
+
+        let suppliedSourceBytes: Int64 = 1_000_000_000_000_000
+        do {
+            try await SafetyValidator.performSafetyChecks(
+                source: source,
+                destinations: [destination],
+                sourceSizeBytes: suppliedSourceBytes
+            )
+            XCTFail("Expected supplied source size to exceed available space")
+        } catch FileOperationError.insufficientSpace(_, _, let requiredGB) {
+            XCTAssertGreaterThan(requiredGB, Double(suppliedSourceBytes) / 1_000_000_000)
+        } catch {
+            XCTFail("Expected FileOperationError.insufficientSpace, got \(error)")
+        }
+    }
+
+    func testSafetyChecksHeadroomOverflowThrowsTypedError() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let source = root.appendingPathComponent("Source")
+        let destination = root.appendingPathComponent("Destination")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        await assertThrowsFileOperationError(expectedMessage: "Source size exceeds the supported range") {
+            try await SafetyValidator.performSafetyChecks(
+                source: source,
+                destinations: [destination],
+                sourceSizeBytes: .max
+            )
         }
     }
 

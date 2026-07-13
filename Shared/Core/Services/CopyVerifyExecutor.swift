@@ -35,8 +35,6 @@ final class CopyVerifyExecutor {
     private let backgroundTaskService: IOSBackgroundTaskService
 
     // MARK: - State
-    private var resultsOverflowService: ResultsOverflowService?
-    private var currentOperation: FileOperation?
     private let maxResultsInMemory = 5_000
 
     // MARK: - Initialization
@@ -66,7 +64,7 @@ final class CopyVerifyExecutor {
         SharedLogger.info("CopyVerifyExecutor: starting operation \(config.operationId)", category: .transfer)
 
         // Create overflow service for large transfers
-        resultsOverflowService = ResultsOverflowService(
+        let overflowService = ResultsOverflowService(
             operationId: config.operationId,
             maxInMemoryResults: maxResultsInMemory
         )
@@ -111,17 +109,28 @@ final class CopyVerifyExecutor {
                     self.handleProgress(progressUpdate, callbacks: callbacks)
                 }
             } onFileResult: { [weak self] fileResult in
-                Task { @MainActor in
-                    guard let self else { return }
-                    await self.handleFileResult(fileResult, callbacks: callbacks)
-                }
+                guard let self else { return }
+                await self.handleFileResult(
+                    fileResult,
+                    overflowService: overflowService,
+                    callbacks: callbacks
+                )
             }
 
-            currentOperation = operation
-            return try await handleSuccess(operation: operation, config: config, callbacks: callbacks)
+            return try await handleSuccess(
+                operation: operation,
+                overflowService: overflowService,
+                config: config,
+                callbacks: callbacks
+            )
 
         } catch {
-            await handleError(error, config: config, callbacks: callbacks)
+            await handleError(
+                error,
+                overflowService: overflowService,
+                config: config,
+                callbacks: callbacks
+            )
             throw error
         }
     }
@@ -149,7 +158,11 @@ final class CopyVerifyExecutor {
         backgroundTaskService.updateProgress(progressUpdate)
     }
 
-    private func handleFileResult(_ fileResult: FileOperationResult, callbacks: CopyVerifyCallbacks) async {
+    private func handleFileResult(
+        _ fileResult: FileOperationResult,
+        overflowService: ResultsOverflowService,
+        callbacks: CopyVerifyCallbacks
+    ) async {
         let destName = driveName(for: fileResult.destinationURL)
         let keyPath = fileResult.sourceURL.path
 
@@ -165,9 +178,7 @@ final class CopyVerifyExecutor {
         // Use overflow service for large transfers. Single atomic call:
         // copy and verify rows can arrive out of order, and the store
         // refuses to let a copy row replace a verify result.
-        if let overflowService = resultsOverflowService {
-            await overflowService.upsert(resultRow)
-        }
+        await overflowService.upsert(resultRow)
 
         callbacks.onResult(resultRow)
     }
@@ -176,31 +187,23 @@ final class CopyVerifyExecutor {
 
     private func handleSuccess(
         operation: FileOperation,
+        overflowService: ResultsOverflowService,
         config: CopyVerifyConfig,
         callbacks: CopyVerifyCallbacks
     ) async throws -> FileOperation {
-        // Get all results for report
-        let allResults: [ResultRow]
-        if let overflowService = resultsOverflowService {
-            allResults = await overflowService.getAllResults()
-            SharedLogger.info("Retrieved \(allResults.count) total results for report", category: .transfer)
-        } else {
-            allResults = operation.results.map { fileResult in
-                ResultRow(
-                    path: fileResult.sourceURL.path,
-                    status: fileResult.statusDescription,
-                    size: fileResult.fileSize,
-                    checksum: fileResult.verificationResult?.sourceChecksum,
-                    destination: driveName(for: fileResult.destinationURL),
-                    destinationPath: fileResult.destinationURL.path
-                )
-            }
+        let allResults = operation.results.map { fileResult in
+            ResultRow(
+                path: fileResult.sourceURL.path,
+                status: fileResult.statusDescription,
+                size: fileResult.fileSize,
+                checksum: fileResult.verificationResult?.sourceChecksum,
+                destination: driveName(for: fileResult.destinationURL),
+                destinationPath: fileResult.destinationURL.path
+            )
         }
+        SharedLogger.info("Mapped \(allResults.count) authoritative operation results for report", category: .transfer)
 
-        let failedResults = allResults.filter { row in
-            !row.isSuccessStatus
-        }
-        let issueCount = failedResults.count + errorService.currentErrors.count
+        let issueCount = allResults.filter { !$0.isSuccessStatus }.count
         let succeeded = issueCount == 0
         let completionMessage = succeeded ?
             "Operation completed successfully" :
@@ -222,7 +225,7 @@ final class CopyVerifyExecutor {
         }
 
         // Clean up
-        await cleanupOverflowService()
+        await cleanupOverflowService(overflowService)
 
         // Notify completion
         callbacks.onComplete(allResults)
@@ -233,8 +236,13 @@ final class CopyVerifyExecutor {
         return operation
     }
 
-    private func handleError(_ error: Error, config: CopyVerifyConfig, callbacks: CopyVerifyCallbacks) async {
-        await cleanupOverflowService()
+    private func handleError(
+        _ error: Error,
+        overflowService: ResultsOverflowService,
+        config: CopyVerifyConfig,
+        callbacks: CopyVerifyCallbacks
+    ) async {
+        await cleanupOverflowService(overflowService)
 
         if error is CancellationError {
             timingService.cancelOperation()
@@ -297,11 +305,8 @@ final class CopyVerifyExecutor {
 
     // MARK: - Helpers
 
-    private func cleanupOverflowService() async {
-        if let overflowService = resultsOverflowService {
-            await overflowService.clear()
-            resultsOverflowService = nil
-        }
+    private func cleanupOverflowService(_ overflowService: ResultsOverflowService) async {
+        await overflowService.clear()
     }
 
     private func driveName(for url: URL) -> String {
@@ -310,14 +315,6 @@ final class CopyVerifyExecutor {
             return comps[volIndex + 1]
         }
         return url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
-    }
-
-    /// Get current in-memory results for UI display
-    func getCurrentResults() async -> [ResultRow] {
-        if let overflowService = resultsOverflowService {
-            return await overflowService.currentResults
-        }
-        return []
     }
 
     /// Cancel the current operation

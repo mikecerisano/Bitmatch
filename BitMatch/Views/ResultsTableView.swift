@@ -9,26 +9,18 @@ struct ResultsTableView: View {
     // Convenience accessors
     private var progress: ProgressViewModel { coordinator.progressViewModel }
     private var results: [ResultRow] { coordinator.results }
+
+    private var resultSummary: ResultIntegritySummary {
+        ResultIntegritySummary(rows: results)
+    }
     
     private var issueCount: Int {
-        results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }.count
+        resultSummary.issueRows.count
     }
     
     // Compute filtered results (pure; no state mutation during render)
     private var filteredResults: [ResultRow] {
-        let allResults = showOnlyIssues
-            ? results.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }
-            : results
-        // Limit visible results for performance
-        let maxVisible = 1000
-        if allResults.count > maxVisible {
-            // Show most recent results plus all issues
-            let issues = allResults.filter { !($0.status.contains("✅") || $0.status.contains("Match")) }
-            let recentMatches = allResults.filter { $0.status.contains("✅") || $0.status.contains("Match") }.suffix(maxVisible - issues.count)
-            return issues + Array(recentMatches)
-        } else {
-            return allResults
-        }
+        ResultPresentation.visibleRows(results, issuesOnly: showOnlyIssues, limit: 1_000)
     }
     
     var body: some View {
@@ -321,9 +313,7 @@ struct ResultsTableView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(
-            (row.status.contains("✅") || row.status.contains("Match")) ?
-            Color.clear :
-            statusColor(for: row.status).opacity(0.1)
+            row.isSuccessStatus ? Color.clear : statusColor(for: row.status).opacity(0.1)
         )
     }
     
@@ -349,13 +339,14 @@ struct ResultsTableView: View {
     
     // MARK: - Status Helper Methods
     private func statusSymbol(for status: String) -> String {
-        if status.contains("✅") || status.contains("Match") {
+        let lowercased = status.lowercased()
+        if ResultRow.isSuccessStatus(status) {
             return "checkmark.circle"
-        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
             return "xmark.circle"
-        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
             return "exclamationmark.triangle"
-        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
             return "arrow.clockwise"
         } else {
             return "questionmark.circle"
@@ -363,13 +354,14 @@ struct ResultsTableView: View {
     }
     
     private func statusColor(for status: String) -> Color {
-        if status.contains("✅") || status.contains("Match") {
+        let lowercased = status.lowercased()
+        if ResultRow.isSuccessStatus(status) {
             return .green
-        } else if status.contains("❌") || status.contains("Error") || status.contains("Failed") {
+        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
             return .red
-        } else if status.contains("⚠️") || status.contains("Warning") || status.contains("Missing") {
+        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
             return .yellow
-        } else if status.contains("🔄") || status.contains("Processing") || status.contains("Copying") {
+        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
             return .blue
         } else {
             return .gray

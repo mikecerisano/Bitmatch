@@ -8,7 +8,11 @@ final class SafetyValidator {
 
     // MARK: - Pre-Operation Safety Checks
 
-    static func performSafetyChecks(source: URL, destinations: [URL]) async throws {
+    static func performSafetyChecks(
+        source: URL,
+        destinations: [URL],
+        sourceSizeBytes: Int64
+    ) async throws {
         // Validate source exists and is accessible
         guard FileManager.default.fileExists(atPath: source.path) else {
             throw FileOperationError.sourceNotFound(source.path)
@@ -34,7 +38,7 @@ final class SafetyValidator {
         }
 
         // Check for sufficient space
-        try await validateAvailableSpace(source: source, destinations: destinations)
+        try await validateAvailableSpace(sourceSizeBytes: sourceSizeBytes, destinations: destinations)
 
         SharedLogger.info("Safety checks passed for \(destinations.count) destinations", category: .transfer)
     }
@@ -92,12 +96,14 @@ final class SafetyValidator {
         }
     }
 
-    private static func validateAvailableSpace(source: URL, destinations: [URL]) async throws {
-        let sourceSize = try calculateTotalSize(at: source)
+    private static func validateAvailableSpace(sourceSizeBytes: Int64, destinations: [URL]) async throws {
+        let requiredSpace = try checkedRequiredSpace(
+            sourceBytes: sourceSizeBytes,
+            headroomBytes: 1_000_000_000
+        )
 
         for destination in destinations {
             let availableSpace = getAvailableSpace(at: destination)
-            let requiredSpace = sourceSize + 1_000_000_000 // 1GB buffer
 
             guard availableSpace > requiredSpace else {
                 let availableGB = Double(availableSpace) / 1_000_000_000
@@ -273,33 +279,37 @@ final class SafetyValidator {
 
     // MARK: - Utility Functions
 
-    private static func calculateTotalSize(at url: URL) throws -> Int64 {
-        let fm = FileManager.default
-        var totalSize: Int64 = 0
-
-        if let enumerator = fm.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
-            options: []
-        ) {
-            for case let fileURL as URL in enumerator {
-                let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
-                if resourceValues.isSymbolicLink != true && resourceValues.isRegularFile == true {
-                    totalSize += Int64(resourceValues.fileSize ?? 0)
-                }
-            }
-        }
-
-        return totalSize
-    }
-
     private static func getAvailableSpace(at url: URL) -> Int64 {
         do {
-            let resourceValues = try url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            return resourceValues.volumeAvailableCapacityForImportantUsage ?? 0
+            let resourceValues = try url.resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey,
+                .volumeAvailableCapacityKey,
+            ])
+            return resolvedAvailableSpace(
+                importantUsage: resourceValues.volumeAvailableCapacityForImportantUsage,
+                standardCapacity: resourceValues.volumeAvailableCapacity
+            )
         } catch {
             return 0
         }
+    }
+
+    static func resolvedAvailableSpace(
+        importantUsage: Int64?,
+        standardCapacity: Int?
+    ) -> Int64 {
+        importantUsage ?? Int64(standardCapacity ?? 0)
+    }
+
+    static func checkedRequiredSpace(sourceBytes: Int64, headroomBytes: Int64) throws -> Int64 {
+        guard sourceBytes >= 0, headroomBytes >= 0 else {
+            throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
+        }
+        let (requiredSpace, overflow) = sourceBytes.addingReportingOverflow(headroomBytes)
+        guard !overflow else {
+            throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
+        }
+        return requiredSpace
     }
 
     private static let protectedSystemPrefixes: [String] = [
@@ -331,6 +341,7 @@ final class SafetyValidator {
 // MARK: - Error Types
 
 enum FileOperationError: LocalizedError {
+    case operationAlreadyInProgress
     case sourceNotFound(String)
     case sourceNotDirectory(String)
     case destinationNotWritable(String)
@@ -340,6 +351,8 @@ enum FileOperationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .operationAlreadyInProgress:
+            return "Another file operation is already active or cancelling."
         case .sourceNotFound(_):
             return "Source folder not found"
         case .sourceNotDirectory(_):

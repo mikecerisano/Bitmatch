@@ -55,7 +55,6 @@ class IOSFileSystemService: NSObject, FileSystemService {
         #if DEBUG
         let start = CFAbsoluteTimeGetCurrent()
         #endif
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
 
         // Acquire a single folder-level security scope
         guard folderURL.startAccessingSecurityScopedResource() else {
@@ -65,38 +64,11 @@ class IOSFileSystemService: NSObject, FileSystemService {
         }
         defer { folderURL.stopAccessingSecurityScopedResource() }
 
-        let enumerator = FileManager.default.enumerator(
-            at: folderURL,
-            includingPropertiesForKeys: resourceKeys,
-            options: []
-        )
-
-        var fileURLs: [URL] = []
-        var perFileScopeFallbacks = 0
-
-        while let url = enumerator?.nextObject() as? URL {
-            do {
-                let resourceValues = try url.resourceValues(forKeys: Set(resourceKeys))
-                if resourceValues.isRegularFile == true {
-                    fileURLs.append(url)
-                }
-            } catch {
-                // Fallback: attempt a one-off per-file scope only when needed
-                if url.startAccessingSecurityScopedResource() {
-                    defer { url.stopAccessingSecurityScopedResource() }
-                    if let resourceValues = try? url.resourceValues(forKeys: Set(resourceKeys)),
-                       resourceValues.isRegularFile == true {
-                        fileURLs.append(url)
-                        perFileScopeFallbacks += 1
-                    }
-                }
-            }
-        }
+        let fileURLs = try FileTreeEnumerator.enumerateRegularFiles(base: folderURL).map(\.url)
 
         #if DEBUG
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
-        let note = perFileScopeFallbacks > 0 ? " (per-file fallbacks: \(perFileScopeFallbacks))" : ""
-        SharedLogger.debug("IOSFileSystemService: enumerated \(fileURLs.count) files in \(elapsedMs) ms\(note)")
+        SharedLogger.debug("IOSFileSystemService: enumerated \(fileURLs.count) files in \(elapsedMs) ms")
         #endif
 
         return fileURLs

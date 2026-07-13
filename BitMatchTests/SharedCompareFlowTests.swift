@@ -6,6 +6,68 @@ import Testing
 struct SharedCompareFlowTests {
 
     @Test
+    func testCleanCompareDoesNotInheritPriorCopyFailures() async throws {
+        #if os(macOS)
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("bitmatch_clean_compare_\(UUID().uuidString)")
+        let left = root.appendingPathComponent("left")
+        let right = root.appendingPathComponent("right")
+        try fileManager.createDirectory(at: left, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: right, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let contents = Data("matching".utf8)
+        try contents.write(to: left.appendingPathComponent("clip.mov"))
+        try contents.write(to: right.appendingPathComponent("clip.mov"))
+
+        let coordinator = await MainActor.run {
+            SharedAppCoordinator(platformManager: MacOSPlatformManager.shared)
+        }
+        await MainActor.run {
+            coordinator.results = [
+                ResultRow(
+                    path: "/previous/failed.mov",
+                    status: "Checksum mismatch",
+                    size: 8,
+                    checksum: nil,
+                    destination: "Previous destination"
+                )
+            ]
+            coordinator.errorService.reportWarning(
+                "Previous operation warning",
+                context: .general(operation: "Copy", stage: "Verification")
+            )
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+
+        await coordinator.compareFolders()
+
+        let outcome = await MainActor.run {
+            let hasErrors = coordinator.hasErrors
+            return (
+                coordinator.results,
+                hasErrors,
+                CompletionVerdict.resolve(
+                    state: coordinator.operationState,
+                    rows: coordinator.results,
+                    hasErrors: hasErrors,
+                    hasCriticalErrors: coordinator.hasCriticalErrors
+                )
+            )
+        }
+        #expect(outcome.0.isEmpty)
+        #expect(!outcome.1)
+        #expect(outcome.2 == .success)
+        #else
+        #expect(true)
+        #endif
+    }
+
+    @Test
     func testCompareFoldersCompletes() async throws {
         #if os(macOS)
         // Arrange: create two small folders with overlapping and unique files
@@ -193,7 +255,7 @@ private final class ScopeTrackingFileOperationsService: FileOperationsService {
         settings: CameraLabelSettings,
         estimatedTotalBytes: Int64?,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
         FileOperation(
             sourceURL: sourceURL,
@@ -242,6 +304,4 @@ private final class ScopeTrackingPlatformManager: PlatformManager {
     func presentAlert(title: String, message: String) async {}
     func presentError(_ error: Error) async {}
     func openURL(_ url: URL) async -> Bool { false }
-    func beginBackgroundTask(name: String?, expirationHandler: (() -> Void)?) -> Int { 0 }
-    func endBackgroundTask(_ id: Int) {}
 }

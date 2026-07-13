@@ -140,6 +140,9 @@ struct IdleStateView: View {
                     switch coordinator.currentMode {
                     case .copyAndVerify:
                         CopyAndVerifyView(coordinator: coordinator)
+                            // Keep the transfer plan readable on wide iPads while
+                            // leaving the compact operation interface untouched.
+                            .frame(maxWidth: 1_100)
                     case .compareFolders:
                         CompareFoldersView(coordinator: coordinator)
                     case .masterReport:

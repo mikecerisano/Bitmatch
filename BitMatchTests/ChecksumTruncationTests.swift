@@ -39,6 +39,22 @@ final class ChecksumTruncationTests: XCTestCase {
         try? handle.close()
     }
 
+    private func appendByte(to url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0xff]))
+    }
+
+    private func growAndMutateNextChunk(of url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: 64 * 1024)
+        try handle.write(contentsOf: Data([0xff]))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0xff]))
+    }
+
     func testChecksumThrowsWhenFileShrinksMidHash() async throws {
         // 256KB = 4 x 64KB chunks; truncate to one chunk after the first
         // progress callback so subsequent reads hit EOF early.
@@ -97,6 +113,66 @@ final class ChecksumTruncationTests: XCTestCase {
         }
 
         XCTAssertTrue(outcome, "Byte comparison must throw promptly when files shrink mid-compare")
+    }
+
+    func testChecksumThrowsWhenFileGrowsAfterFinalChunk() async throws {
+        let file = try makeFile("growing-hash.bin", size: 64 * 1024)
+        let appended = ThreadSafeFlag()
+
+        do {
+            _ = try await SharedChecksumService.shared.generateChecksum(
+                for: file,
+                type: .sha256,
+                useCache: false
+            ) { [self] progress, _ in
+                if progress >= 1, !appended.getAndSet() {
+                    try? appendByte(to: file)
+                }
+            }
+            XCTFail("Expected checksum of a growing file to throw")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("changed while reading"))
+        }
+    }
+
+    func testByteComparisonThrowsWhenFileGrowsAfterFinalChunk() async throws {
+        let source = try makeFile("growing-source.bin", size: 64 * 1024)
+        let destination = try makeFile("growing-destination.bin", size: 64 * 1024)
+        let appended = ThreadSafeFlag()
+
+        do {
+            _ = try await SharedChecksumService.shared.performByteComparison(
+                sourceURL: source,
+                destinationURL: destination
+            ) { [self] progress, _ in
+                if progress >= 1, !appended.getAndSet() {
+                    try? appendByte(to: source)
+                }
+            }
+            XCTFail("Expected byte comparison of a growing file to throw")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("changed while reading"))
+        }
+    }
+
+    func testByteComparisonThrowsWhenGrowingFileMismatchesBeforeFinalValidation() async throws {
+        let source = try makeFile("growing-mismatch-source.bin", size: 128 * 1024)
+        let destination = try makeFile("growing-mismatch-destination.bin", size: 128 * 1024)
+        let mutated = ThreadSafeFlag()
+
+        do {
+            _ = try await SharedChecksumService.shared.performByteComparison(
+                sourceURL: source,
+                destinationURL: destination
+            ) { [self] progress, _ in
+                if progress >= 0.5, !mutated.getAndSet() {
+                    try? growAndMutateNextChunk(of: source)
+                }
+            }
+            XCTFail("Expected byte comparison of a growing file to throw before a mismatch verdict")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("changed while reading"))
+        }
     }
 
     func testChecksumOfStableFileStillSucceeds() async throws {

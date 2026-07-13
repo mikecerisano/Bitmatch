@@ -146,12 +146,73 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
     return overflow ? Int64.max : result
 }
 
+/// Owns the single operation admitted by a service instance.
+/// Cancellation never releases the slot; only the matching operation's exit does.
+private final class ActiveOperationRegistry: @unchecked Sendable {
+    private struct Entry {
+        var task: Task<FileOperation, Error>?
+        var cancellationRequested = false
+    }
+
+    private let lock = NSLock()
+    private var activeID: UUID?
+    private var entries: [UUID: Entry] = [:]
+
+    func reserve(_ id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeID == nil else { return false }
+        activeID = id
+        entries[id] = Entry()
+        return true
+    }
+
+    func attach(_ task: Task<FileOperation, Error>, to id: UUID) {
+        lock.lock()
+        guard activeID == id, var entry = entries[id] else {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        entry.task = task
+        entries[id] = entry
+        let shouldCancel = entry.cancellationRequested
+        lock.unlock()
+
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func requestCancellation() {
+        lock.lock()
+        guard let id = activeID, var entry = entries[id] else {
+            lock.unlock()
+            return
+        }
+        entry.cancellationRequested = true
+        entries[id] = entry
+        let task = entry.task
+        lock.unlock()
+
+        task?.cancel()
+    }
+
+    func clear(_ id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeID == id else { return }
+        entries[id] = nil
+        activeID = nil
+    }
+}
+
 class SharedFileOperationsService: FileOperationsService {
     typealias ProgressCallback = (OperationProgress) -> Void
 
     private let fileSystem: FileSystemService
     private let checksumService: any ChecksumService
-    private var currentOperation: Task<FileOperation, Error>?
+    private let activeOperations = ActiveOperationRegistry()
     private let pauseState = PauseState()
     private let verifyCounter = VerifyCounter()
 
@@ -161,6 +222,13 @@ class SharedFileOperationsService: FileOperationsService {
         func isPaused() -> Bool { paused }
         func pause() { paused = true }
         func resume() { paused = false }
+
+        func waitIfPaused() async throws {
+            while paused && !Task.isCancelled {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            }
+        }
     }
     
     init(fileSystem: FileSystemService, checksum: any ChecksumService) {
@@ -177,11 +245,14 @@ class SharedFileOperationsService: FileOperationsService {
         settings: CameraLabelSettings,
         estimatedTotalBytes: Int64? = nil,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
-        
-        // Cancel any existing operation
-        cancelOperation()
+        let operationID = UUID()
+        guard activeOperations.reserve(operationID) else {
+            throw FileOperationError.operationAlreadyInProgress
+        }
+        defer { activeOperations.clear(operationID) }
+
         await pauseState.resume()
         
         let operation = FileOperation(
@@ -198,14 +269,17 @@ class SharedFileOperationsService: FileOperationsService {
         let operationTask = Task {
             return try await executeOperation(operation, progressCallback: progressCallback, onFileResult: onFileResult)
         }
-        currentOperation = operationTask
+        activeOperations.attach(operationTask, to: operationID)
 
-        return try await operationTask.value
+        return try await withTaskCancellationHandler {
+            try await operationTask.value
+        } onCancel: {
+            operationTask.cancel()
+        }
     }
     
     func cancelOperation() {
-        currentOperation?.cancel()
-        currentOperation = nil
+        activeOperations.requestCancellation()
     }
     
     func pauseOperation() async {
@@ -217,9 +291,23 @@ class SharedFileOperationsService: FileOperationsService {
     }
 
     private func waitIfPaused() async throws {
-        while await pauseState.isPaused() && !Task.isCancelled {
-            try Task.checkCancellation()
-            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        try await pauseState.waitIfPaused()
+    }
+
+    private func finishVerificationTasks(
+        in store: VerifyTaskStore,
+        cancelling: Bool
+    ) async {
+        let tasks = await store.drain()
+        if cancelling {
+            tasks.forEach { $0.cancel() }
+        }
+        await withTaskCancellationHandler {
+            for task in tasks {
+                await task.value
+            }
+        } onCancel: {
+            tasks.forEach { $0.cancel() }
         }
     }
     
@@ -228,7 +316,7 @@ class SharedFileOperationsService: FileOperationsService {
     private func executeOperation(
         _ operation: FileOperation,
         progressCallback: @escaping ProgressCallback,
-        onFileResult: ((FileOperationResult) -> Void)?
+        onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
         
         // Use a result store to coalesce rows safely across concurrent verification tasks
@@ -246,9 +334,9 @@ class SharedFileOperationsService: FileOperationsService {
         ))
 
         await verifyCounter.reset()
-        SharedChecksumService.pauseCheck = { [weak self] in
-            guard let self else { return }
-            try await self.waitIfPaused()
+        let pauseState = self.pauseState
+        SharedChecksumService.pauseCheck = {
+            try await pauseState.waitIfPaused()
         }
         let didStartSourceScope = fileSystem.startAccessing(url: operation.sourceURL)
         var destinationScopes: [URL: Bool] = [:]
@@ -262,7 +350,9 @@ class SharedFileOperationsService: FileOperationsService {
                 fileSystem.stopAccessing(url: url)
             }
         }
-        
+
+        let verifyTaskStore = VerifyTaskStore()
+        do {
         SharedLogger.debug("Validating access to source: \(operation.sourceURL.path)", category: .transfer)
         guard await fileSystem.validateFileAccess(url: operation.sourceURL) else {
             throw BitMatchError.fileAccessDenied(operation.sourceURL)
@@ -275,6 +365,17 @@ class SharedFileOperationsService: FileOperationsService {
             }
         }
 
+        // Step 2: Build one fail-closed source manifest before safety validation.
+        SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
+        let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let manifestBytes = try sourceManifest.reduce(Int64(0)) { total, entry in
+            let (sum, overflow) = total.addingReportingOverflow(max(0, entry.size))
+            guard !overflow else {
+                throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
+            }
+            return sum
+        }
+
         try SafetyValidator.validateResolvedDestinationRoots(
             source: operation.sourceURL,
             destinations: operation.destinationURLs,
@@ -283,12 +384,12 @@ class SharedFileOperationsService: FileOperationsService {
 
         try await SafetyValidator.performSafetyChecks(
             source: operation.sourceURL,
-            destinations: operation.destinationURLs
+            destinations: operation.destinationURLs,
+            sourceSizeBytes: manifestBytes
         )
-        
-        // Step 2: Determine file counts without materializing full lists (streaming enumeration)
-        SharedLogger.debug("Prep: counting files at \(operation.sourceURL.path)", category: .transfer)
-        let perSourceFileCount = FileTreeEnumerator.countRegularFiles(base: operation.sourceURL)
+
+        let perSourceFileCount = sourceManifest.count
+        let totalSizeBytes = operation.estimatedTotalBytes ?? manifestBytes
         let totalFiles = perSourceFileCount * operation.destinationURLs.count
         SharedLogger.debug("Prep: source files=\(perSourceFileCount), destinations=\(operation.destinationURLs.count), planned total rows=\(totalFiles)", category: .transfer)
         let destinationCount = operation.destinationURLs.count
@@ -297,39 +398,16 @@ class SharedFileOperationsService: FileOperationsService {
         let progressState = ProgressState()
         
         // Step 2a: Validate sufficient storage space
-        // Calculate total size if not provided
-        let totalSizeBytes: Int64
-        if let estimated = operation.estimatedTotalBytes {
-            totalSizeBytes = estimated
-        } else {
-            SharedLogger.debug("Calculating total size for space check...", category: .transfer)
-            // Quick enumeration to sum size
-            var size: Int64 = 0
-            if let enumerator = FileManager.default.enumerator(
-                at: operation.sourceURL,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey],
-                options: []
-            ) {
-                let anyEnum: NSEnumerator = enumerator
-                while let fileURL = anyEnum.nextObject() as? URL {
-                    if Task.isCancelled { throw CancellationError() }
-                    if let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey]) {
-                        if resourceValues.isSymbolicLink == true { continue }
-                        if resourceValues.isRegularFile == true {
-                            size += Int64(resourceValues.fileSize ?? 0)
-                        }
-                    }
-                }
-            }
-            totalSizeBytes = size
-        }
-        
         for (index, destinationURL) in operation.destinationURLs.enumerated() {
             let available = fileSystem.freeSpace(at: destinationURL)
             SharedLogger.debug("Storage check dest #\(index+1): need \(totalSizeBytes), have \(available)", category: .transfer)
             
             // Add 100MB buffer for overhead/filesystem structures
-            if available < (totalSizeBytes + 100 * 1024 * 1024) {
+            let requiredSizeBytes = try SafetyValidator.checkedRequiredSpace(
+                sourceBytes: totalSizeBytes,
+                headroomBytes: 100 * 1024 * 1024
+            )
+            if available < requiredSizeBytes {
                 throw BitMatchError.insufficientStorage(totalSizeBytes, available)
             }
         }
@@ -342,13 +420,11 @@ class SharedFileOperationsService: FileOperationsService {
         // Perf 6: adaptive concurrency based on CPU count
         let verifyConcurrency = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
         let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? verifyConcurrency : 0)
-        let verifyTaskStore = VerifyTaskStore()
         let maxQueuedVerifyTasks = 200
         // Perf 2: time-based throttle on progress callbacks (500ms)
         let progressThrottleInterval: TimeInterval = 0.5
         
-        // Perf 1: enumerate files once; reuse for copy and verify phases
-        let preEnumeratedFiles = FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let sourceFileURLs = sourceManifest.map(\.url)
         // Perf 7: adaptive copy worker count
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
@@ -376,10 +452,9 @@ class SharedFileOperationsService: FileOperationsService {
                 toRoot: destFolder,
                 verificationMode: operation.verificationMode,
                 workers: copyWorkers,
-                preEnumeratedFiles: preEnumeratedFiles.map { $0.url },
-                pauseCheck: { [weak self] in
-                    guard let self else { return }
-                    try await self.waitIfPaused()
+                preEnumeratedFiles: sourceFileURLs,
+                pauseCheck: {
+                    try await pauseState.waitIfPaused()
                 },
                 onProgress: { fileName, fileSize in
                     let copyUpdate = await progressState.recordCopy(
@@ -407,7 +482,7 @@ class SharedFileOperationsService: FileOperationsService {
                         processingTime: 0
                     )
                     await resultStore.upsert(copyResult)
-                    onFileResult?(copyResult)
+                    await onFileResult?(copyResult)
 
                     if shouldPipelineVerify {
                         let mode = operation.verificationMode
@@ -530,7 +605,7 @@ class SharedFileOperationsService: FileOperationsService {
                                         ))
                                     }
                                     await resultStore.upsert(verified)
-                                    onFileResult?(verified)
+                                    await onFileResult?(verified)
                                 } catch is CancellationError {
                                     // Skip result on cancellation
                                 } catch {
@@ -545,12 +620,16 @@ class SharedFileOperationsService: FileOperationsService {
                                     )
                                     _ = await self.verifyCounter.increment()
                                     await resultStore.upsert(failure)
-                                    onFileResult?(failure)
+                                    await onFileResult?(failure)
                                 }
                             }
                         }
                         if let next = await verifyTaskStore.enqueue(task, maxQueued: maxQueuedVerifyTasks) {
-                            await next.value
+                            await withTaskCancellationHandler {
+                                await next.value
+                            } onCancel: {
+                                next.cancel()
+                            }
                         }
                     }
 
@@ -607,7 +686,7 @@ class SharedFileOperationsService: FileOperationsService {
                     _ = await progressState.recordCopyError()
                     await destProgress.increment(destIndex: destIndex)
                     await resultStore.upsert(result)
-                    onFileResult?(result)
+                    await onFileResult?(result)
                 }
             )
 
@@ -615,8 +694,8 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
             // If pipelining is enabled, we skip the sequential verification pass for this destination
             if operation.verificationMode != .quick && shouldPipelineVerify == false {
-                // Perf 1: reuse pre-enumerated file list instead of re-enumerating filesystem
-                for entry in preEnumeratedFiles {
+                // Perf 1: reuse the source manifest instead of re-enumerating filesystem
+                for entry in sourceManifest {
                         try Task.checkCancellation()
                         try await waitIfPaused()
                         let fileURL = entry.url
@@ -625,7 +704,7 @@ class SharedFileOperationsService: FileOperationsService {
                         let fileStartTime = Date()
                         
                         do {
-                            let sizeForVerify = (try? fileSystem.getFileSize(for: fileURL)) ?? 0
+                            let sizeForVerify = max(0, entry.size)
                             // Verify if requested
                             var verificationResult: VerificationResult? = nil
                             // Recompute timing for verification stage
@@ -781,7 +860,7 @@ class SharedFileOperationsService: FileOperationsService {
                                 processingTime: Date().timeIntervalSince(fileStartTime)
                             )
                             await resultStore.upsert(result)
-                            onFileResult?(result)
+                            await onFileResult?(result)
                         
                         } catch {
                             let nsErr = error as NSError
@@ -796,7 +875,7 @@ class SharedFileOperationsService: FileOperationsService {
                                 processingTime: Date().timeIntervalSince(fileStartTime)
                             )
                             await resultStore.upsert(result)
-                            onFileResult?(result)
+                            await onFileResult?(result)
                         }
                         // processedFiles is incremented during copy callbacks
                 } // end file iteration
@@ -805,8 +884,9 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
         }
         
-        // Wait for any in-flight pipelined verifications to complete
-        for task in await verifyTaskStore.drain() { await task.value }
+        // Wait for any in-flight pipelined verifications to complete.
+        await finishVerificationTasks(in: verifyTaskStore, cancelling: false)
+        try Task.checkCancellation()
 
         let finalMetrics = await progressState.snapshot()
 
@@ -848,5 +928,9 @@ class SharedFileOperationsService: FileOperationsService {
             settings: operation.settings,
             estimatedTotalBytes: operation.estimatedTotalBytes
         )
+        } catch {
+            await finishVerificationTasks(in: verifyTaskStore, cancelling: true)
+            throw error
+        }
     }
 }

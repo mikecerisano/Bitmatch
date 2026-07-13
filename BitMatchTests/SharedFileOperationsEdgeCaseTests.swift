@@ -5,6 +5,48 @@ import Testing
 struct SharedFileOperationsEdgeCaseTests {
 
     @Test
+    func testEstimatedSizeHeadroomOverflowThrowsTypedError() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let tmp = fm.temporaryDirectory
+            let source = tmp.appendingPathComponent("bitmatch_overflow_src_\(UUID().uuidString)")
+            let dest = tmp.appendingPathComponent("bitmatch_overflow_dst_\(UUID().uuidString)")
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+            defer {
+                try? fm.removeItem(at: source)
+                try? fm.removeItem(at: dest)
+            }
+
+            let sut = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: SharedChecksumService.shared
+            )
+
+            do {
+                _ = try await sut.performFileOperation(
+                    sourceURL: source,
+                    destinationURLs: [dest],
+                    verificationMode: .quick,
+                    settings: CameraLabelSettings(),
+                    estimatedTotalBytes: .max,
+                    progressCallback: { _ in },
+                    onFileResult: nil
+                )
+                Issue.record("Expected typed source-size overflow error")
+            } catch FileOperationError.unsafeOperation(let message) {
+                #expect(message == "Source size exceeds the supported range")
+            } catch {
+                Issue.record("Expected FileOperationError.unsafeOperation, got \(error)")
+            }
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
     func testCopySkipsSymlinkEntries() async throws {
         try await FileOperationsTestLock.shared.run {
             #if os(macOS)

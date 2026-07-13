@@ -3,18 +3,35 @@ import SwiftUI
 
 struct CompletionSummaryView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+
+    private var verdict: CompletionVerdict {
+        CompletionVerdict.resolve(
+            state: coordinator.operationState,
+            rows: coordinator.results,
+            hasErrors: coordinator.hasErrors,
+            hasCriticalErrors: coordinator.hasCriticalErrors
+        )
+    }
+
+    private var resultSummary: ResultIntegritySummary {
+        ResultIntegritySummary(rows: coordinator.results)
+    }
     
     var body: some View {
         VStack(spacing: 20) {
             // Completion status header
-            CompletionStatusHeaderView(coordinator: coordinator)
+            CompletionStatusHeaderView(coordinator: coordinator, verdict: verdict)
             
             // Operation summary stats
             OperationSummaryStatsView(coordinator: coordinator)
             
-            // Error details (if any)
-            if coordinator.hasErrors {
-                ErrorDetailsView(coordinator: coordinator)
+            // Issue evidence and field guidance
+            if verdict != .success {
+                ErrorDetailsView(
+                    coordinator: coordinator,
+                    verdict: verdict,
+                    failedResultCount: resultSummary.issueRows.count
+                )
             }
             
             // Action buttons
@@ -28,20 +45,42 @@ struct CompletionSummaryView: View {
 
 struct CompletionStatusHeaderView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    let verdict: CompletionVerdict
+
+    private var statusIcon: String {
+        switch verdict {
+        case .success: "checkmark.circle.fill"
+        case .issues: "exclamationmark.triangle.fill"
+        case .failed: "xmark.circle.fill"
+        }
+    }
+
+    private var statusTitle: String {
+        switch verdict {
+        case .success: "Transfer Completed Successfully"
+        case .issues: "Transfer Completed with Issues"
+        case .failed: "Transfer Failed"
+        }
+    }
+
+    private var statusColor: Color {
+        switch verdict {
+        case .success: .green
+        case .issues: .orange
+        case .failed: .red
+        }
+    }
     
     var body: some View {
         VStack(spacing: 12) {
             // Status icon
-            Image(systemName: coordinator.hasCriticalErrors ? "xmark.circle.fill" : 
-                  coordinator.hasErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Image(systemName: statusIcon)
                 .font(.system(size: 48, weight: .light))
-                .foregroundColor(coordinator.hasCriticalErrors ? .red : 
-                                coordinator.hasErrors ? .orange : .green)
+                .foregroundColor(statusColor)
             
             // Status title
-            Text(coordinator.hasCriticalErrors ? "Transfer Failed" : 
-                 coordinator.hasErrors ? "Transfer Completed with Issues" : "Transfer Completed Successfully")
-                .font(.system(size: 22, weight: .bold))
+            Text(statusTitle)
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
             
@@ -152,13 +191,19 @@ struct SummaryStatCard: View {
 
 struct ErrorDetailsView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    let verdict: CompletionVerdict
+    let failedResultCount: Int
+
+    private var issueColor: Color {
+        verdict == .failed ? .red : .orange
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(.orange)
+                    .foregroundColor(issueColor)
                 
                 Text("ISSUES SUMMARY")
                     .font(.system(size: 11, weight: .semibold))
@@ -169,13 +214,27 @@ struct ErrorDetailsView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
+                if failedResultCount > 0 {
+                    HStack {
+                        Image(systemName: "doc.badge.exclamationmark")
+                            .font(.system(size: 12))
+                            .foregroundColor(issueColor)
+
+                        Text("\(failedResultCount) failed file \(failedResultCount == 1 ? "result" : "results")")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Spacer()
+                    }
+                }
+
                 if coordinator.errorCount > 0 {
                     HStack {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 12))
                             .foregroundColor(.red)
                         
-                        Text("\(coordinator.errorCount) critical errors")
+                        Text("\(coordinator.errorCount) reported \(coordinator.errorCount == 1 ? "error" : "errors")")
                             .font(.system(size: 13))
                             .foregroundColor(.white)
                         
@@ -197,19 +256,19 @@ struct ErrorDetailsView: View {
                     }
                 }
                 
-                Text("Review detailed error log for more information.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.7))
+                Text("Review failed files before clearing source media.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(coordinator.hasCriticalErrors ? Color.red.opacity(0.1) : Color.orange.opacity(0.1))
+                .fill(issueColor.opacity(0.1))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(coordinator.hasCriticalErrors ? Color.red.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+                        .stroke(issueColor.opacity(0.3), lineWidth: 1)
                 )
         )
     }

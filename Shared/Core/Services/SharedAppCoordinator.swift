@@ -81,6 +81,8 @@ class SharedAppCoordinator: ObservableObject {
     var folderInfoLoadingState: [URL: Bool] { folderInfoService.folderInfoLoadingState }
     
     private var cancellables = Set<AnyCancellable>()
+    private var activeStartID: UUID?
+    private var startCancellationRequested = false
 
     // MARK: - iOS Background Task Service
     private let backgroundTaskService = IOSBackgroundTaskService.shared
@@ -210,13 +212,25 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - Operation Control
 
     func startOperation() async {
-        guard !isOperationInProgress else { return }
+        guard activeStartID == nil, !isOperationInProgress else { return }
         guard let sourceURL = sourceURL, !destinationURLs.isEmpty else {
             await platformManager.presentAlert(
                 title: "Invalid Selection",
                 message: "Please select a source folder and at least one destination folder."
             )
             return
+        }
+
+        let startID = UUID()
+        activeStartID = startID
+        startCancellationRequested = false
+        isOperationInProgress = true
+        defer {
+            if activeStartID == startID {
+                activeStartID = nil
+                startCancellationRequested = false
+                isOperationInProgress = false
+            }
         }
 
         // iOS: Acquire security-scoped access BEFORE any FileManager operations
@@ -234,27 +248,27 @@ class SharedAppCoordinator: ObservableObject {
             }
         }
 
-        // SAFETY: Perform validation before starting (same checks as macOS)
-        // Validates: source exists, not copying to self/subdirectory, symlink loops, sufficient space
+        // Validate resolved destination paths before starting. Source-tree and
+        // capacity checks run in the file operation after its manifest is built.
         do {
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
                 destinations: destinationURLs,
                 settings: cameraLabelSettings
             )
-            try await SafetyValidator.performSafetyChecks(source: sourceURL, destinations: destinationURLs)
         } catch {
             await platformManager.presentError(error)
             return
         }
 
-        isOperationInProgress = true
+        guard activeStartID == startID, !startCancellationRequested else { return }
+
         operationState = .inProgress
         results = []
         progress = nil
 
         let config = CopyVerifyConfig(
-            operationId: UUID(),
+            operationId: startID,
             sourceURL: sourceURL,
             destinationURLs: destinationURLs,
             verificationMode: verificationMode,
@@ -267,10 +281,15 @@ class SharedAppCoordinator: ObservableObject {
 
         let callbacks = CopyVerifyCallbacks(
             onProgress: { [weak self] progressUpdate in
-                self?.progress = progressUpdate
+                guard let self,
+                      self.activeStartID == startID,
+                      !self.startCancellationRequested else { return }
+                self.progress = progressUpdate
             },
             onResult: { [weak self] result in
-                guard let self else { return }
+                guard let self,
+                      self.activeStartID == startID,
+                      !self.startCancellationRequested else { return }
                 if let idx = self.results.firstIndex(where: { $0.path == result.path && $0.destination == result.destination }) {
                     self.results[idx] = result
                 } else {
@@ -278,11 +297,16 @@ class SharedAppCoordinator: ObservableObject {
                 }
             },
             onStateChange: { [weak self] state in
-                self?.operationState = state
+                guard let self,
+                      self.activeStartID == startID,
+                      !self.startCancellationRequested else { return }
+                self.operationState = state
             },
             onComplete: { [weak self] allResults in
-                // Results already updated via onResult callback
-                self?.isOperationInProgress = false
+                guard let self,
+                      self.activeStartID == startID,
+                      !self.startCancellationRequested else { return }
+                self.results = allResults
             }
         )
 
@@ -291,11 +315,12 @@ class SharedAppCoordinator: ObservableObject {
         } catch {
             // Error already handled by executor
         }
-
-        isOperationInProgress = false
     }
 
     func cancelOperation() {
+        if activeStartID != nil {
+            startCancellationRequested = true
+        }
         copyVerifyExecutor.cancel()
         if currentMode == .compareFolders {
             comparisonCoordinator.requestCancellation()
@@ -308,7 +333,6 @@ class SharedAppCoordinator: ObservableObject {
         stateService.cancelOperation()
         NotificationCenter.default.post(name: .operationCancelledByUser, object: nil)
         
-        isOperationInProgress = false
         operationState = .cancelled
     }
     
@@ -388,6 +412,9 @@ class SharedAppCoordinator: ObservableObject {
 
         isOperationInProgress = true
         operationState = .inProgress
+        results = []
+        lastCompareStats = nil
+        errorService.clearCurrentErrors()
         progress = OperationProgress(
             overallProgress: 0.0,
             currentFile: nil,

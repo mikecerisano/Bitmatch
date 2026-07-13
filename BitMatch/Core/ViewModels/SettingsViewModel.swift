@@ -29,7 +29,6 @@ final class SettingsViewModel: ObservableObject {
     
     func updateVerificationMode(_ mode: VerificationMode) {
         prefs.verifyWithChecksum = mode.useChecksum
-        // The OperationViewModel should observe this change
     }
     
     // MARK: - Notifications
