@@ -51,7 +51,7 @@ private final class ExecutorHarness {
             destinationURLs: [URL(fileURLWithPath: "/destination")],
             verificationMode: .standard,
             cameraLabelSettings: CameraLabelSettings(),
-            reportSettings: ReportPrefs(),
+            reportSettings: ReportPrefs(makeReport: false),
             estimatedFiles: returnedResults.count,
             estimatedBytes: returnedResults.reduce(0) { $0 + $1.fileSize },
             currentMode: .copyAndVerify

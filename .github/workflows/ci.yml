@@ -10,6 +10,7 @@ env:
 jobs:
   mac-tests:
     runs-on: macos-15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - run: xcodebuild -version
@@ -19,6 +20,7 @@ jobs:
 
   ipad-build:
     runs-on: macos-15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - run: xcodebuild -version
