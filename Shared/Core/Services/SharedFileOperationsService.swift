@@ -271,7 +271,11 @@ class SharedFileOperationsService: FileOperationsService {
         }
         activeOperations.attach(operationTask, to: operationID)
 
-        return try await operationTask.value
+        return try await withTaskCancellationHandler {
+            try await operationTask.value
+        } onCancel: {
+            operationTask.cancel()
+        }
     }
     
     func cancelOperation() {

@@ -54,13 +54,80 @@ final class OperationOwnershipTests: XCTestCase {
 
             let firstWasStillActive = !(await firstFinished.value)
             await checksum.release()
-            _ = await first.value
+            let firstResult = await first.value
+            let firstVerifierWasCancelled = await checksum.didObserveCancellation
 
             XCTAssertEqual(
                 secondError?.localizedDescription,
                 "Another file operation is already active or cancelling."
             )
             XCTAssertTrue(firstWasStillActive, "The rejected start must not finish or replace the active operation")
+            switch firstResult {
+            case .success(let operation):
+                XCTAssertEqual(operation.results.count, 1)
+                XCTAssertTrue(operation.results.allSatisfy(\.success))
+            case .failure(let error):
+                XCTFail("Rejecting the second operation disturbed the first: \(error)")
+            }
+            XCTAssertFalse(firstVerifierWasCancelled, "Rejecting B must not cancel A's verifier")
+        }
+    }
+
+    func testCallerCancellationOwnsVerifierCleanupBeforeReturning() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try OwnershipTransferFixture(destinationCount: 1)
+            defer { fixture.cleanup() }
+            let checksum = BlockingChecksumService()
+            let service = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: checksum
+            )
+            let callbackCount = AsyncCounter()
+            let callerFinished = AsyncFlag()
+
+            let caller = Task { () -> Result<FileOperation, Error> in
+                let result: Result<FileOperation, Error>
+                do {
+                    result = .success(try await service.performFileOperation(
+                        sourceURL: fixture.source,
+                        destinationURLs: fixture.destinations,
+                        verificationMode: .standard,
+                        settings: CameraLabelSettings(),
+                        estimatedTotalBytes: nil,
+                        progressCallback: { _ in },
+                        onFileResult: { _ in await callbackCount.increment() }
+                    ))
+                } catch {
+                    result = .failure(error)
+                }
+                await callerFinished.set()
+                return result
+            }
+
+            let verifierStarted = await waitUntil { await checksum.didStart }
+            XCTAssertTrue(verifierStarted)
+
+            caller.cancel()
+            let verifierSawCancellation = await waitUntil(
+                timeoutNanoseconds: 300_000_000,
+                condition: { await checksum.didObserveCancellation }
+            )
+            let callerReturnedBeforeRelease = await callerFinished.value
+            let callbacksBeforeRelease = await callbackCount.value
+
+            await checksum.release()
+            let callerResult = await caller.value
+            try? await Task<Never, Never>.sleep(nanoseconds: 100_000_000)
+            let callbacksAfterReturn = await callbackCount.value
+
+            XCTAssertTrue(verifierSawCancellation, "Cancelling the caller must cancel its owned operation task")
+            XCTAssertFalse(callerReturnedBeforeRelease, "Caller returned before cancellation-resistant verifier cleanup")
+            if case .failure(let error) = callerResult {
+                XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
+            } else {
+                XCTFail("Direct caller cancellation completed as success")
+            }
+            XCTAssertEqual(callbacksAfterReturn, callbacksBeforeRelease, "A callback escaped caller return")
         }
     }
 
