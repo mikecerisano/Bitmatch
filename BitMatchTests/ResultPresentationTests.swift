@@ -145,6 +145,52 @@ final class ResultPresentationTests: XCTestCase {
         XCTAssertTrue(visible.allSatisfy { !$0.isSuccessStatus })
     }
 
+    func testMixedReportKeepsAllRowsButMediaPreviewContainsOnlyMedia() {
+        let rows = [
+            row("clip.mov", status: "✅ Verified"),
+            row("clip.xml", status: "⚠️ Checksum Mismatch"),
+        ]
+
+        let summary = ResultIntegritySummary(rows: rows)
+        let mediaPreview = ResultPresentation.mediaRows(
+            rows,
+            allowedExtensions: ["MOV"]
+        )
+
+        XCTAssertEqual(summary.successfulRows.map(\.fileName), ["clip.mov"])
+        XCTAssertEqual(summary.issueRows.map(\.fileName), ["clip.xml"])
+        XCTAssertEqual(summary.successfulRows.count + summary.issueRows.count, 2)
+        XCTAssertEqual(mediaPreview.map(\.fileName), ["clip.mov"])
+    }
+
+    func testSidecarOnlyReportHasEmptyMediaPreviewWithoutDiscardingRows() {
+        let rows = [row("clip.xml", status: "Unknown")]
+
+        let summary = ResultIntegritySummary(rows: rows)
+        let mediaPreview = ResultPresentation.mediaRows(
+            rows,
+            allowedExtensions: ["MOV"]
+        )
+
+        XCTAssertEqual(summary.issueRows.map(\.fileName), ["clip.xml"])
+        XCTAssertTrue(mediaPreview.isEmpty)
+    }
+
+    func testIssueGroupsRetainLateStatusAndFullCountsBeyondOneHundredRows() {
+        let earlyFailures = (0..<105).map {
+            row("early-\($0).mov", status: "❌ Failed")
+        }
+        let lateFailures = (0..<3).map {
+            row("late-\($0).xml", status: "Unknown")
+        }
+
+        let groups = ResultPresentation.issueGroups(earlyFailures + lateFailures)
+
+        XCTAssertEqual(groups.first { $0.status == "❌ Failed" }?.rows.count, 105)
+        XCTAssertEqual(groups.first { $0.status == "Unknown" }?.rows.count, 3)
+        XCTAssertEqual(groups.reduce(0) { $0 + $1.rows.count }, 108)
+    }
+
     private func row(_ fileName: String, status: String) -> ResultRow {
         ResultRow(
             path: "/source/\(fileName)",

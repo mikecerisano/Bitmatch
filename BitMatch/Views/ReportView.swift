@@ -59,13 +59,13 @@ struct ReportView: View {
     
     private var filesPerSecond: Double {
         guard totalDurationSeconds > 0 else { return 0 }
-        return Double(relevantRows.count) / totalDurationSeconds
+        return Double(rows.count) / totalDurationSeconds
     }
     
     private var averageFileSize: String {
-        guard !relevantRows.isEmpty else { return "—" }
-        let totalBytes = relevantRows.reduce(into: Int64(0)) { $0 += $1.size }
-        let average = totalBytes / Int64(relevantRows.count)
+        guard !rows.isEmpty else { return "—" }
+        let totalBytes = rows.reduce(into: Int64(0)) { $0 += $1.size }
+        let average = totalBytes / Int64(rows.count)
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useGB, .useMB, .useKB]
         formatter.countStyle = .file
@@ -73,15 +73,15 @@ struct ReportView: View {
     }
     
     private var largestFile: ResultRow? {
-        relevantRows.max(by: { $0.size < $1.size })
+        rows.max(by: { $0.size < $1.size })
     }
     
     private var smallestFile: ResultRow? {
-        relevantRows.min(by: { $0.size < $1.size })
+        rows.min(by: { $0.size < $1.size })
     }
     
     private var extensionBreakdown: [(ext: String, count: Int)] {
-        let grouped = Dictionary(grouping: relevantRows) { row -> String in
+        let grouped = Dictionary(grouping: rows) { row -> String in
             let ext = URL(fileURLWithPath: row.path).pathExtension.uppercased()
             return ext.isEmpty ? "—" : ext
         }
@@ -97,8 +97,7 @@ struct ReportView: View {
     }
     
     private var manifestPreview: [ResultRow] {
-        // Show all files in PDF reports (no limit)
-        relevantRows
+        ResultPresentation.mediaRows(rows, allowedExtensions: Self.mediaExtensions)
     }
 
     private var integritySummary: ResultIntegritySummary {
@@ -120,11 +119,6 @@ struct ReportView: View {
         return formatter.string(fromByteCount: s.totalBytesProcessed)
     }
     
-    private var relevantRows: [ResultRow] {
-        let filtered = rows.filter(isMediaFile)
-        return filtered.isEmpty ? rows : filtered
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header with logos
@@ -159,10 +153,8 @@ struct ReportView: View {
                 extensionSection
             }
             
-            if !manifestPreview.isEmpty {
-                Divider().padding(.vertical, 12)
-                manifestSection
-            }
+            Divider().padding(.vertical, 12)
+            manifestSection
             
             // Issues Detail (if any)
             if issueCount > 0 {
@@ -446,11 +438,6 @@ struct ReportView: View {
                 )
             }
             
-            if relevantRows.count > manifestPreview.count {
-                Text("… \(relevantRows.count - manifestPreview.count) more media files in CSV manifest")
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
         }
     }
     
@@ -513,24 +500,21 @@ struct ReportView: View {
             Text("Issues Detail (\(issueCount))")
                 .font(.system(size: 14, weight: .semibold))
             
-            let problems = integritySummary.issueRows.prefix(100)
-            
-            // Group issues by type
-            let grouped = Dictionary(grouping: problems) { $0.status }
+            let groups = ResultPresentation.issueGroups(rows)
             
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(grouped.keys.sorted()), id: \.self) { status in
+                ForEach(groups) { group in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Image(systemName: statusSymbol(for: status))
-                                .foregroundColor(statusColor(for: status))
+                            Image(systemName: statusSymbol(for: group.status))
+                                .foregroundColor(statusColor(for: group.status))
                                 .font(.system(size: 10))
-                            Text("\(status) (\(grouped[status]?.count ?? 0))")
+                            Text("\(group.status) (\(group.rows.count))")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(grouped[status]?.prefix(10) ?? [], id: \.id) { row in
+                            ForEach(group.rows.prefix(10), id: \.id) { row in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(row.fileName)
                                         .font(.system(size: 10, weight: .medium))
@@ -555,8 +539,8 @@ struct ReportView: View {
                                 }
                             }
                             
-                            if (grouped[status]?.count ?? 0) > 10 {
-                                Text("... and \((grouped[status]?.count ?? 0) - 10) more")
+                            if group.rows.count > 10 {
+                                Text("Showing 10 of \(group.rows.count) files; \(group.rows.count - 10) more in the complete result manifest.")
                                     .font(.system(size: 9))
                                     .foregroundColor(.secondary)
                                     .italic()
@@ -649,11 +633,11 @@ struct ReportView: View {
     
     @ViewBuilder
     private var summaryTableContent: some View {
-        let grouped = Dictionary(grouping: integritySummary.issueRows) { $0.status }
+        let groups = ResultPresentation.issueGroups(rows)
         
         VStack(spacing: 2) {
-            ForEach(Array(grouped.keys.sorted()), id: \.self) { status in
-                summaryTableRow(for: status, count: grouped[status]?.count ?? 0)
+            ForEach(groups) { group in
+                summaryTableRow(for: group.status, count: group.rows.count)
             }
         }
     }
@@ -777,12 +761,6 @@ private func environmentLabel(_ title: String, value: String) -> some View {
 }
 
 private extension ReportView {
-    func isMediaFile(_ row: ResultRow) -> Bool {
-        let ext = URL(fileURLWithPath: row.path).pathExtension.uppercased()
-        guard !ext.isEmpty else { return false }
-        return Self.mediaExtensions.contains(ext)
-    }
-    
     func shortDirectoryPath(for path: String, components: Int = 3) -> String {
         var url = URL(fileURLWithPath: path)
         if !url.pathExtension.isEmpty {

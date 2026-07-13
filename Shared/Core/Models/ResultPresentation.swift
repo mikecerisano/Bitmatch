@@ -14,6 +14,13 @@ struct ResultIntegritySummary {
     }
 }
 
+struct ResultIssueGroup: Identifiable {
+    let status: String
+    let rows: [ResultRow]
+
+    var id: String { status }
+}
+
 enum CompletionVerdict: Equatable {
     case success
     case issues
@@ -43,6 +50,24 @@ enum CompletionVerdict: Equatable {
 }
 
 enum ResultPresentation {
+    static func mediaRows(
+        _ rows: [ResultRow],
+        allowedExtensions: Set<String>
+    ) -> [ResultRow] {
+        let normalizedExtensions = Set(allowedExtensions.map { $0.uppercased() })
+        return rows.filter { row in
+            let fileExtension = URL(fileURLWithPath: row.path).pathExtension.uppercased()
+            return !fileExtension.isEmpty && normalizedExtensions.contains(fileExtension)
+        }
+    }
+
+    static func issueGroups(_ rows: [ResultRow]) -> [ResultIssueGroup] {
+        let issues = ResultIntegritySummary(rows: rows).issueRows
+        return Dictionary(grouping: issues, by: \.status)
+            .map { ResultIssueGroup(status: $0.key, rows: $0.value) }
+            .sorted { $0.status < $1.status }
+    }
+
     static func visibleRows(
         _ rows: [ResultRow],
         issuesOnly: Bool,
