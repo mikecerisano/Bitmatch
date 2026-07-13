@@ -412,6 +412,9 @@ class SharedAppCoordinator: ObservableObject {
 
         isOperationInProgress = true
         operationState = .inProgress
+        results = []
+        lastCompareStats = nil
+        errorService.clearCurrentErrors()
         progress = OperationProgress(
             overallProgress: 0.0,
             currentFile: nil,
