@@ -36,6 +36,29 @@ struct PhotographerCardAnalyzerTests {
         #expect(group.sidecarPaths == ["A.XMP"])
     }
 
+    @Test func preliminaryAnalysisCooperativelyObservesTaskCancellation() async {
+        let entries = (0..<20_000).map { index in
+            FileEntry(
+                url: URL(fileURLWithPath: "/card/\(index).ARW"),
+                relativePath: "DCIM/\(index).ARW",
+                size: 100
+            )
+        }
+        let task = Task.detached {
+            try PhotographerCardAnalyzer.preliminaryAnalysis(entries: entries)
+        }
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            Issue.record("Expected preliminary analysis to throw CancellationError")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
     @Test func canonicalPathCollisionStillIgnoresEnumerationOrder() throws {
         let earlier = FileEntry(
             url: URL(fileURLWithPath: "/card/A.JPG"),

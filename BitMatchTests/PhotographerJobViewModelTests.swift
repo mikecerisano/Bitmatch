@@ -227,6 +227,48 @@ struct PhotographerJobViewModelTests {
         }
     }
 
+    @Test func editingAndRepreparingPendingCardPreservesIdentityAndCardNumber() async throws {
+        let source = URL(fileURLWithPath: "/Volumes/CARD1")
+        let viewModel = PhotographerJobViewModel(
+            store: InMemoryPhotographerJobStore(),
+            now: { self.now },
+            entryEnumerator: { source in
+                [FileEntry(
+                    url: source.appendingPathComponent("A.ARW"),
+                    relativePath: "A.ARW",
+                    size: 100
+                )]
+            }
+        )
+        let original = setupSignature()
+        viewModel.startPreparingDraftCard(sourceURL: source, setupSignature: original)
+        await viewModel.waitForSetupForTesting()
+        let originalID = try #require(viewModel.activeCard?.id)
+        #expect(viewModel.proposedCardNumber(cameraName: original.cameraName) == 1)
+        var editedRecipe = original.recipe
+        editedRecipe.name = "Edited Wedding"
+        let edited = PhotographerSetupSignature(
+            clientName: "Jones",
+            jobName: "Jones Wedding",
+            eventDate: eventDate.addingTimeInterval(86_400),
+            photographerName: "Sam",
+            cameraName: "Canon R5",
+            cardNumber: 1,
+            recipe: editedRecipe
+        )
+
+        viewModel.updateSetupSignature(edited)
+        viewModel.startPreparingDraftCard(sourceURL: source, setupSignature: edited)
+        await viewModel.waitForSetupForTesting()
+
+        #expect(viewModel.activeJob?.clientName == "Jones")
+        #expect(viewModel.activeJob?.jobName == "Jones Wedding")
+        #expect(viewModel.activeCard?.id == originalID)
+        #expect(viewModel.activeCard?.provenance.cardNumber == 1)
+        #expect(viewModel.activeJob?.cardIngests.count == 1)
+        #expect(viewModel.activeCard?.provenance.cameraName == "Canon R5")
+    }
+
     @Test func exactVerifiedDestinationCountPersistsAndRestoresMostRecentSession() throws {
         let store = InMemoryPhotographerJobStore()
         let viewModel = preparedViewModel(store: store)

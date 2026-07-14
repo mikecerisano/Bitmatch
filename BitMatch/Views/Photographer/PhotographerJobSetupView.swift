@@ -15,9 +15,6 @@ struct PhotographerJobSetupView: View {
 
     private var viewModel: PhotographerJobViewModel { coordinator.photographerJobViewModel }
     private var cardNumber: Int {
-        if !isExpanded, let activeNumber = viewModel.activeCard?.provenance.cardNumber {
-            return activeNumber
-        }
         return viewModel.proposedCardNumber(cameraName: cameraName)
     }
     private var presentation: PhotographerJobSetupPresentation {
@@ -278,11 +275,12 @@ struct PhotographerJobSetupView: View {
                     isExpanded = true
                 }
                 .accessibilityHint("Clears the finished card and opens setup for the next card")
+            } else {
+                Button("Set up card", action: setUpCard)
+                    .disabled(!presentation.canSetUpCard)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityHint("Analyzes the selected source and prepares its job package")
             }
-            Button("Set up card", action: setUpCard)
-                .disabled(!presentation.canSetUpCard)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityHint("Analyzes the selected source and prepares its job package")
         }
     }
 

@@ -117,7 +117,12 @@ final class PhotographerJobViewModel: ObservableObject {
             job.photographers.append(photographer)
         }
 
-        let cardNumber = nextCardNumber(cameraName: cameraName, in: job)
+        let pendingIndex = activeCardDraft.flatMap { draft in
+            job.cardIngests.firstIndex { $0.id == draft.id && $0.localState == .notStarted }
+        }
+        let pendingCard = pendingIndex.map { job.cardIngests[$0] }
+        let cardNumber = pendingCard?.provenance.cardNumber
+            ?? nextCardNumber(cameraName: cameraName, in: job)
         let rendered = try FolderRecipeRenderer.render(
             job.recipe,
             context: FolderRecipeContext(
@@ -128,9 +133,12 @@ final class PhotographerJobViewModel: ObservableObject {
                 cardNumber: cardNumber
             )
         )
-        let warning = duplicateWarning(for: analysis.fingerprint)
+        let warning = duplicateWarning(
+            for: analysis.fingerprint,
+            excludingCardID: pendingCard?.id
+        )
         let card = CardIngest(
-            id: UUID(),
+            id: pendingCard?.id ?? UUID(),
             provenance: CardProvenance(
                 photographerID: photographer.id,
                 photographerName: photographer.name,
@@ -148,7 +156,11 @@ final class PhotographerJobViewModel: ObservableObject {
             totalBytes: analysis.totalBytes
         )
 
-        job.cardIngests.append(card)
+        if let pendingIndex {
+            job.cardIngests[pendingIndex] = card
+        } else {
+            job.cardIngests.append(card)
+        }
         try persistThrowing(job)
         selectedPhotographerID = photographer.id
         self.cameraName = cameraName
@@ -185,8 +197,9 @@ final class PhotographerJobViewModel: ObservableObject {
             analysis: analysis
         )
         preparedSourcePath = standardizedPath(sourceURL)
-        preparedSetupSignature = setupSignature
-        currentSetupSignature = setupSignature
+        let actualSignature = preparedSetupSignature ?? setupSignature
+        preparedSetupSignature = actualSignature
+        currentSetupSignature = actualSignature
         sourcePreparationInvalidated = false
         setupPreparationInvalidated = false
     }
@@ -269,11 +282,18 @@ final class PhotographerJobViewModel: ObservableObject {
         sourceURL: URL,
         setupSignature: PhotographerSetupSignature
     ) throws {
-        if var job = activeJob,
-           job.clientName == setupSignature.clientName,
-           job.jobName == setupSignature.jobName,
-           job.eventDate == setupSignature.eventDate,
-           job.eventType == .wedding {
+        if var job = activeJob, activeCard?.localState == .notStarted {
+            job.clientName = setupSignature.clientName
+            job.jobName = setupSignature.jobName
+            job.eventDate = setupSignature.eventDate
+            job.eventType = .wedding
+            job.recipe = setupSignature.recipe
+            try persistThrowing(job)
+        } else if var job = activeJob,
+                  job.clientName == setupSignature.clientName,
+                  job.jobName == setupSignature.jobName,
+                  job.eventDate == setupSignature.eventDate,
+                  job.eventType == .wedding {
             job.recipe = setupSignature.recipe
             try persistThrowing(job)
         } else {
@@ -295,6 +315,9 @@ final class PhotographerJobViewModel: ObservableObject {
     }
 
     func proposedCardNumber(cameraName: String) -> Int {
+        if let activeCardDraft {
+            return activeCardDraft.provenance.cardNumber
+        }
         guard let activeJob else { return 1 }
         return nextCardNumber(cameraName: cameraName, in: activeJob)
     }
@@ -551,15 +574,19 @@ final class PhotographerJobViewModel: ObservableObject {
         return (priorNumbers.max() ?? 0) + 1
     }
 
-    private func duplicateWarning(for fingerprint: String) -> DuplicateCardWarning? {
+    private func duplicateWarning(
+        for fingerprint: String,
+        excludingCardID: UUID? = nil
+    ) -> DuplicateCardWarning? {
         let currentJobID = activeJob?.id
         let allJobs = jobs.map { storedJob in
             storedJob.id == currentJobID ? (activeJob ?? storedJob) : storedJob
         }
         for job in allJobs {
             if let card = job.cardIngests.first(where: {
-                $0.provenance.preliminaryFingerprint == fingerprint
-                    || $0.provenance.confirmedFingerprint == fingerprint
+                $0.id != excludingCardID
+                    && ($0.provenance.preliminaryFingerprint == fingerprint
+                        || $0.provenance.confirmedFingerprint == fingerprint)
             }) {
                 return DuplicateCardWarning(
                     jobID: job.id,
