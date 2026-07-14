@@ -597,20 +597,22 @@ final class ReportExporter {
         let payload = try photographerContext.map {
             try PhotographerReportPayload.make(context: $0, results: results)
         }
-        var csvContent = "Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp\n"
+        var csvContent = csvRow([
+            "Status", "File Path", "Target Path", "Job", "Photographer", "Camera", "Card", "Package Path", "Details", "Timestamp"
+        ])
         
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime]
         
         for (index, result) in results.enumerated() {
-            let status = escapeCSV(result.status)
-            let path = escapeCSV(result.path)
-            let target = escapeCSV(result.destinationPath ?? result.destination ?? "—")
-            let job = escapeCSV(payload?.jobName ?? "")
-            let photographer = escapeCSV(payload?.card.provenance.photographerName ?? "")
-            let camera = escapeCSV(payload?.card.provenance.cameraName ?? "")
+            let status = result.status
+            let path = result.path
+            let target = result.destinationPath ?? result.destination ?? "—"
+            let job = payload?.jobName ?? ""
+            let photographer = payload?.card.provenance.photographerName ?? ""
+            let camera = payload?.card.provenance.cameraName ?? ""
             let card = payload.map { String(format: "Card %03d", $0.card.provenance.cardNumber) } ?? ""
-            let packagePath = escapeCSV(payload?.card.renderedRelativePath ?? "")
+            let packagePath = payload?.card.renderedRelativePath ?? ""
             let details = isMatchStatus(result.status) ? "Verified" : result.status
             
             // Calculate estimated timestamp based on processing speed
@@ -621,16 +623,18 @@ final class ReportExporter {
             let clampedTime = estimatedTime > completionTime ? completionTime : estimatedTime
             let timestamp = dateFormatter.string(from: clampedTime)
             
-            csvContent += "\(status),\(path),\(target),\(job),\(photographer),\(camera),\(card),\(packagePath),\(escapeCSV(details)),\(timestamp)\n"
+            csvContent += csvRow([
+                status, path, target, job, photographer, camera, card, packagePath, details, timestamp
+            ])
         }
         
         // Add summary at the end
         csvContent += "\n# Summary\n"
-        csvContent += "Total Files,\(results.count)\n"
-        csvContent += "Matched,\(results.filter { isMatchStatus($0.status) }.count)\n"
-        csvContent += "Issues,\(results.filter { !isMatchStatus($0.status) }.count)\n"
-        csvContent += "Duration,\(String(format: "%.2f", duration)) seconds\n"
-        csvContent += "Files/Second,\(String(format: "%.2f", filesPerSecond))\n"
+        csvContent += csvRow(["Total Files", String(results.count)])
+        csvContent += csvRow(["Matched", String(results.filter { isMatchStatus($0.status) }.count)])
+        csvContent += csvRow(["Issues", String(results.filter { !isMatchStatus($0.status) }.count)])
+        csvContent += csvRow(["Duration", "\(String(format: "%.2f", duration)) seconds"])
+        csvContent += csvRow(["Files/Second", String(format: "%.2f", filesPerSecond)])
         
         return csvContent
     }
@@ -875,13 +879,30 @@ final class ReportExporter {
     }
     #endif
     
+    private static func csvRow(_ values: [String]) -> String {
+        values.map(escapeCSV).joined(separator: ",") + "\n"
+    }
+
     private static func escapeCSV(_ string: String) -> String {
-        let needsQuotes = string.contains(",") || string.contains("\"") || string.contains("\n")
+        let neutralized = neutralizeCSVFormula(string)
+        let needsQuotes = neutralized.contains(",")
+            || neutralized.contains("\"")
+            || neutralized.contains("\n")
+            || neutralized.contains("\r")
         if needsQuotes {
-            let escaped = string.replacingOccurrences(of: "\"", with: "\"\"")
+            let escaped = neutralized.replacingOccurrences(of: "\"", with: "\"\"")
             return "\"\(escaped)\""
         }
-        return string
+        return neutralized
+    }
+
+    private static func neutralizeCSVFormula(_ string: String) -> String {
+        guard let firstContentScalar = string.unicodeScalars.first(where: {
+            !CharacterSet.whitespacesAndNewlines.contains($0)
+        }), ["=", "+", "-", "@"].contains(String(firstContentScalar)) else {
+            return string
+        }
+        return "'\(string)"
     }
     
     private static func showErrorAlert(message: String) {

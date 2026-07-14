@@ -28,13 +28,13 @@ struct PhotographerReportTests {
         #expect(provenance["cardNumber"] as? Int == 1)
         #expect(card["renderedRelativePath"] as? String == "2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001")
         #expect(provenance["preliminaryFingerprint"] as? String == "preliminary-fingerprint")
-        #expect(provenance["confirmedFingerprint"] as? String == "confirmed-fingerprint")
+        #expect(provenance["confirmedFingerprint"] == nil)
         #expect(companionCounts["raw"] as? Int == 1)
         #expect(companionCounts["jpeg"] as? Int == 1)
         #expect(companionCounts["sidecar"] as? Int == 1)
         #expect(object["requiredLocalCopyCount"] as? Int == 2)
-        #expect(object["verifiedDestinationCount"] as? Int == 2)
-        #expect(object["locallySafeAt"] as? String == "2025-07-14T14:30:00Z")
+        #expect(object["verifiedDestinationCount"] as? Int == 0)
+        #expect(object["locallySafeAt"] == nil)
         #expect(object["warnings"] as? [String] == ["Duplicate fingerprint matches Card 004."])
         #expect(encodedResults.count == 2)
         #expect(encodedResults[0]["checksum"] as? String == "raw-checksum")
@@ -142,12 +142,9 @@ struct PhotographerReportTests {
         #expect(try encoder.encode(payload) == encoder.encode(payload))
     }
 
-    @Test func staleStartContextIsFinalizedOnlyFromExactAuthoritativeResults() throws {
+    @Test func nonterminalStartContextCannotClaimSafetyFromAuthoritativeRows() throws {
         let context = staleContext()
         let rows = exactTwoDestinationResults()
-        let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
-            results: Array(rows.prefix(2)).sorted { $0.path < $1.path }
-        )
 
         let payload = try PhotographerReportPayload.make(
             context: context,
@@ -155,7 +152,34 @@ struct PhotographerReportTests {
             finishedAt: locallySafeAt
         )
 
+        #expect(payload.card.localState == .issues)
+        #expect(payload.card.locallySafeAt == nil)
+        #expect(payload.card.provenance.confirmedFingerprint == nil)
+        #expect(payload.verifiedDestinationCount == 0)
+        #expect(payload.card.verifiedDestinationCount == 0)
+        #expect(payload.results.count == 4)
+    }
+
+    @Test func persistedSafeContextSurvivesExactAuthoritativeRowsWithoutRewritingTerminalData() throws {
+        let rows = exactTwoDestinationResults()
+        let startedAt = eventDate.addingTimeInterval(60)
+        let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
+            results: Array(rows.prefix(2)).sorted { $0.path < $1.path }
+        )
+        let context = persistedSafeContext(
+            startedAt: startedAt,
+            safeAt: locallySafeAt,
+            fingerprint: expectedFingerprint
+        )
+
+        let payload = try PhotographerReportPayload.make(
+            context: context,
+            results: rows,
+            finishedAt: locallySafeAt.addingTimeInterval(60)
+        )
+
         #expect(payload.card.localState == .locallySafe)
+        #expect(payload.card.startedAt == startedAt)
         #expect(payload.card.locallySafeAt == locallySafeAt)
         #expect(payload.card.provenance.confirmedFingerprint == expectedFingerprint)
         #expect(payload.verifiedDestinationCount == 2)
@@ -189,6 +213,169 @@ struct PhotographerReportTests {
         #expect(payload.results.count == 4)
         #expect(payload.results.last?.successful == false)
         #expect(payload.results.last?.checksum == nil)
+    }
+
+    @Test func staleLocallySafeContextIsDowngradedByFailedAuthoritativeRows() throws {
+        var rows = exactTwoDestinationResults()
+        let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
+            results: Array(rows.prefix(2)).sorted { $0.path < $1.path }
+        )
+        let failedRow = rows[3]
+        rows[3] = ResultRow(
+            id: failedRow.id,
+            path: failedRow.path,
+            status: "⚠️ Checksum Missing",
+            size: failedRow.size,
+            checksum: nil,
+            destination: failedRow.destination,
+            destinationPath: failedRow.destinationPath
+        )
+        let payload = try PhotographerReportPayload.make(
+            context: persistedSafeContext(
+                startedAt: eventDate,
+                safeAt: locallySafeAt,
+                fingerprint: expectedFingerprint
+            ),
+            results: rows,
+            finishedAt: locallySafeAt
+        )
+
+        #expect(payload.card.localState == .issues)
+        #expect(payload.card.locallySafeAt == nil)
+        #expect(payload.card.provenance.confirmedFingerprint == nil)
+        #expect(payload.card.verifiedDestinationCount == 0)
+        #expect(payload.verifiedDestinationCount == 0)
+        #expect(payload.results.count == 4)
+        #expect(payload.results.last?.successful == false)
+    }
+
+    @Test func flatWrongAndEscapedPackageFoldersNeverCertifyFinalEvidence() throws {
+        let sourceRows = exactTwoDestinationResults()
+        let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
+            results: Array(sourceRows.prefix(2)).sorted { $0.path < $1.path }
+        )
+        let context = persistedSafeContext(
+            startedAt: eventDate,
+            safeAt: locallySafeAt,
+            fingerprint: expectedFingerprint
+        )
+        let invalidPaths = [
+            "/Volumes/LOCAL-A/flat",
+            "/Volumes/LOCAL-A/2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001-escape",
+            "/Volumes/LOCAL-A/2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001/../flat"
+        ]
+
+        for invalidPath in invalidPaths {
+            let rows = sourceRows.map { row in
+                let fileName = URL(fileURLWithPath: row.destinationPath ?? "").lastPathComponent
+                return ResultRow(
+                    id: row.id,
+                    path: row.path,
+                    status: row.status,
+                    size: row.size,
+                    checksum: row.checksum,
+                    destination: row.destination,
+                    destinationPath: "\(invalidPath)/\(fileName)"
+                )
+            }
+
+            let payload = try PhotographerReportPayload.make(
+                context: context,
+                results: rows,
+                finishedAt: locallySafeAt
+            )
+
+            #expect(payload.card.localState == .issues)
+            #expect(payload.card.locallySafeAt == nil)
+            #expect(payload.card.provenance.confirmedFingerprint == nil)
+            #expect(payload.verifiedDestinationCount == 0)
+            #expect(payload.results.count == sourceRows.count)
+        }
+    }
+
+    @Test @MainActor func lateContextProviderRunsOnlyAfterLifecycleCompletionAndFailsClosed() throws {
+        let expectedContext = staleContext()
+        var order: [String] = []
+
+        let finalizer: PhotographerReportFinalizer = { _ in
+            order.append("lifecycle")
+            return expectedContext
+        }
+        let failedFinalizer: PhotographerReportFinalizer = { _ in
+            order.append("failed lifecycle")
+            throw ReportFixtureError.persistence
+        }
+        let cancelledFinalizer: PhotographerReportFinalizer = { _ in
+            throw CancellationError()
+        }
+        let completed = try CopyVerifyExecutor.photographerLifecycleAfterAuthoritativeCompletion(
+            completion: { try finalizer([]) }
+        )
+        let completedWithoutContext = try CopyVerifyExecutor.photographerLifecycleAfterAuthoritativeCompletion(
+            completion: {
+                order.append("nil lifecycle")
+                return nil
+            }
+        )
+        let failed = try CopyVerifyExecutor.photographerLifecycleAfterAuthoritativeCompletion(
+            completion: { try failedFinalizer([]) }
+        )
+
+        #expect(completed.didPersist)
+        #expect(completed.context == expectedContext)
+        #expect(completedWithoutContext.didPersist)
+        #expect(completedWithoutContext.context == nil)
+        #expect(!failed.didPersist)
+        #expect(failed.context == nil)
+        #expect(order == ["lifecycle", "nil lifecycle", "failed lifecycle"])
+        #expect(throws: CancellationError.self) {
+            try CopyVerifyExecutor.photographerLifecycleAfterAuthoritativeCompletion(
+                completion: { try cancelledFinalizer([]) }
+            )
+        }
+        #expect(order == ["lifecycle", "nil lifecycle", "failed lifecycle"])
+    }
+
+    @Test func csvNeutralizesFormulaCellsAndQuotesCarriageReturns() throws {
+        var context = staleContext()
+        var job = context.job
+        var card = try #require(job.cardIngests.first)
+        job.jobName = "=job"
+        card.provenance.photographerName = " +photographer"
+        card.provenance.cameraName = "\t-camera"
+        card.renderedRelativePath = "@package"
+        job.cardIngests[0] = card
+        context = PhotographerReportContext(
+            job: job,
+            cardIngestID: context.cardIngestID,
+            analysis: context.analysis,
+            verifiedDestinationCount: context.verifiedDestinationCount,
+            warnings: context.warnings
+        )
+        let csv = try ReportExporter.makeEnhancedCSV(
+            results: [
+                ResultRow(
+                    path: "\t=SUM(1,1)",
+                    status: "+status",
+                    size: 1,
+                    checksum: nil,
+                    destination: nil,
+                    destinationPath: "normal\rpath"
+                )
+            ],
+            started: eventDate,
+            duration: 1,
+            filesPerSecond: 1,
+            photographerContext: context
+        )
+
+        #expect(csv.contains("'+status"))
+        #expect(csv.contains("\"'\t=SUM(1,1)\""))
+        #expect(csv.contains("\"normal\rpath\""))
+        #expect(csv.contains("'=job"))
+        #expect(csv.contains("' +photographer"))
+        #expect(csv.contains("'\t-camera"))
+        #expect(csv.contains("'@package"))
     }
 
     private func context() -> PhotographerReportContext {
@@ -351,4 +538,31 @@ struct PhotographerReportTests {
             ]
         }
     }
+
+    private func persistedSafeContext(
+        startedAt: Date,
+        safeAt: Date,
+        fingerprint: String
+    ) -> PhotographerReportContext {
+        let source = staleContext()
+        var job = source.job
+        var card = job.cardIngests[0]
+        card.localState = .locallySafe
+        card.startedAt = startedAt
+        card.locallySafeAt = safeAt
+        card.provenance.confirmedFingerprint = fingerprint
+        card.verifiedDestinationCount = 2
+        job.cardIngests[0] = card
+        return PhotographerReportContext(
+            job: job,
+            cardIngestID: source.cardIngestID,
+            analysis: source.analysis,
+            verifiedDestinationCount: 2,
+            warnings: source.warnings
+        )
+    }
+}
+
+private enum ReportFixtureError: Error {
+    case persistence
 }

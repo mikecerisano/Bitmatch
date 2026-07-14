@@ -1,6 +1,8 @@
 // CopyVerifyExecutor.swift - Handles copy and verify operation execution
 import Foundation
 
+typealias PhotographerReportFinalizer = @MainActor ([ResultRow]) throws -> PhotographerReportContext?
+
 /// Configuration for a copy/verify operation
 struct CopyVerifyConfig {
     let operationId: UUID
@@ -12,7 +14,7 @@ struct CopyVerifyConfig {
     let estimatedFiles: Int
     let estimatedBytes: Int64
     let currentMode: AppMode
-    let photographerContext: PhotographerReportContext?
+    let photographerReportFinalizer: PhotographerReportFinalizer?
 
     init(
         operationId: UUID,
@@ -24,7 +26,7 @@ struct CopyVerifyConfig {
         estimatedFiles: Int,
         estimatedBytes: Int64,
         currentMode: AppMode,
-        photographerContext: PhotographerReportContext? = nil
+        photographerReportFinalizer: PhotographerReportFinalizer? = nil
     ) {
         self.operationId = operationId
         self.sourceURL = sourceURL
@@ -35,7 +37,7 @@ struct CopyVerifyConfig {
         self.estimatedFiles = estimatedFiles
         self.estimatedBytes = estimatedBytes
         self.currentMode = currentMode
-        self.photographerContext = photographerContext
+        self.photographerReportFinalizer = photographerReportFinalizer
     }
 }
 
@@ -44,13 +46,18 @@ struct CopyVerifyCallbacks {
     let onProgress: @MainActor (OperationProgress) -> Void
     let onResult: @MainActor (ResultRow) -> Void
     let onStateChange: @MainActor (OperationState) -> Void
-    let onComplete: @MainActor ([ResultRow]) -> Void
+    let onAuthoritativeResults: @MainActor ([ResultRow]) throws -> Void
 }
 
 /// Service that executes copy/verify operations
 /// Extracted from SharedAppCoordinator to reduce its size
 @MainActor
 final class CopyVerifyExecutor {
+
+    struct PhotographerLifecycleFinalization {
+        let context: PhotographerReportContext?
+        let didPersist: Bool
+    }
 
     // MARK: - Dependencies
     private let platformManager: PlatformManager
@@ -229,31 +236,41 @@ final class CopyVerifyExecutor {
         SharedLogger.info("Mapped \(allResults.count) authoritative operation results for report", category: .transfer)
 
         let issueCount = allResults.filter { !$0.isSuccessStatus }.count
-        let succeeded = issueCount == 0
-        let completionMessage = succeeded ?
+        let fileResultsSucceeded = issueCount == 0
+        let fileResultsMessage = fileResultsSucceeded ?
             "Operation completed successfully" :
             "Operation completed with \(issueCount) issue\(issueCount == 1 ? "" : "s")"
+
+        let photographerLifecycle = try Self.photographerLifecycleAfterAuthoritativeCompletion(
+            completion: {
+                try callbacks.onAuthoritativeResults(allResults)
+                guard let finalizer = config.photographerReportFinalizer else { return nil }
+                return try finalizer(allResults)
+            }
+        )
+        let succeeded = fileResultsSucceeded && photographerLifecycle.didPersist
+        let completionMessage = photographerLifecycle.didPersist
+            ? fileResultsMessage
+            : "\(fileResultsMessage); photographer lifecycle finalization failed"
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
         stateService.completeOperation()
-
-        callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
         // Generate report if enabled
         if config.reportSettings.makeReport && !allResults.isEmpty {
             await generateReport(
                 operation: operation,
                 results: allResults,
-                config: config
+                config: config,
+                photographerContext: photographerLifecycle.context
             )
         }
 
+        callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
+
         // Clean up
         await cleanupOverflowService(overflowService)
-
-        // Notify completion
-        callbacks.onComplete(allResults)
 
         SharedLogger.info("CopyVerifyExecutor: operation completed", category: .transfer)
         NotificationCenter.default.post(name: .operationCompleted, object: nil)
@@ -292,7 +309,8 @@ final class CopyVerifyExecutor {
     private func generateReport(
         operation: FileOperation,
         results: [ResultRow],
-        config: CopyVerifyConfig
+        config: CopyVerifyConfig,
+        photographerContext: PhotographerReportContext?
     ) async {
         let matchCount = results.filter { $0.isSuccessStatus }.count
         let totalBytesProcessed = config.estimatedBytes
@@ -302,13 +320,15 @@ final class CopyVerifyExecutor {
         SharedLogger.info("Auto-report queued for job \(operation.id) with \(fileCount) rows", category: .transfer)
 
         #if os(macOS)
-        let reportConfig = config
+        let reportMode = config.currentMode
+        let reportSettings = config.reportSettings
         let reportResults = results
         let reportOperation = operation
+        let reportContext = photographerContext
 
         Task.detached(priority: .utility) {
             await ReportExporter.export(
-                mode: reportConfig.currentMode,
+                mode: reportMode,
                 jobID: reportOperation.id,
                 started: reportOperation.startTime,
                 finished: reportOperation.endTime ?? Date(),
@@ -317,16 +337,36 @@ final class CopyVerifyExecutor {
                 results: reportResults,
                 fileCount: fileCount,
                 matchCount: matchCount,
-                prefs: reportConfig.reportSettings,
+                prefs: reportSettings,
                 workers: workers,
                 totalBytesProcessed: totalBytesProcessed,
-                generateFullReport: reportConfig.reportSettings.makeReport,
-                photographerContext: reportConfig.photographerContext
+                generateFullReport: reportSettings.makeReport,
+                photographerContext: reportContext
             )
         }
         #else
         SharedLogger.info("Report export not available on iOS", category: .transfer)
         #endif
+    }
+
+    static func photographerLifecycleAfterAuthoritativeCompletion(
+        completion: @MainActor () throws -> PhotographerReportContext?
+    ) throws -> PhotographerLifecycleFinalization {
+        do {
+            let context = try completion()
+            return PhotographerLifecycleFinalization(
+                context: context,
+                didPersist: true
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            SharedLogger.error(
+                "Photographer lifecycle finalization failed; exporting without photographer context: \(error.localizedDescription)",
+                category: .transfer
+            )
+            return PhotographerLifecycleFinalization(context: nil, didPersist: false)
+        }
     }
 
     // MARK: - Helpers

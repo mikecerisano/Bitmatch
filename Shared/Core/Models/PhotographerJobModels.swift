@@ -176,6 +176,7 @@ struct PhotographerReportContext: Codable, Equatable, Sendable {
 
 enum PhotographerReportError: Error, Equatable {
     case cardNotFound
+    case cardNotReady
 }
 
 struct PhotographerReportPayload: Codable, Equatable, Sendable {
@@ -207,6 +208,16 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
         }
     }
 
+    struct FinalizedCard: Equatable {
+        let card: CardIngest
+        let verifiedDestinationCount: Int
+    }
+
+    private struct FinalEvidence {
+        let destinationCount: Int
+        let canonicalRows: [ResultRow]
+    }
+
     let jobID: UUID
     let jobName: String
     let clientName: String
@@ -231,28 +242,13 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
     static func make(
         context: PhotographerReportContext,
         results: [ResultRow],
-        finishedAt: Date?
+        finishedAt _: Date?
     ) throws -> PhotographerReportPayload {
-        guard var card = context.job.cardIngests.first(where: { $0.id == context.cardIngestID }) else {
-            throw PhotographerReportError.cardNotFound
-        }
-
-        var verifiedDestinationCount = context.verifiedDestinationCount
-        if card.localState != .locallySafe {
-            if let evidence = try finalEvidence(context: context, card: card, results: results) {
-                card.localState = .locallySafe
-                card.locallySafeAt = finishedAt ?? context.job.updatedAt
-                card.provenance.confirmedFingerprint = evidence.fingerprint
-                card.verifiedDestinationCount = evidence.destinationCount
-                verifiedDestinationCount = evidence.destinationCount
-            } else {
-                card.localState = .issues
-                card.locallySafeAt = nil
-                card.provenance.confirmedFingerprint = nil
-                card.verifiedDestinationCount = 0
-                verifiedDestinationCount = 0
-            }
-        }
+        let finalized = try reportFinalizedCard(
+            context: context,
+            results: results
+        )
+        let card = finalized.card
 
         let groups = context.analysis.companionGroups
         return PhotographerReportPayload(
@@ -269,18 +265,86 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
                 sidecar: groups.reduce(0) { $0 + $1.sidecarPaths.count }
             ),
             requiredLocalCopyCount: context.job.requiredLocalCopyCount,
-            verifiedDestinationCount: verifiedDestinationCount,
+            verifiedDestinationCount: finalized.verifiedDestinationCount,
             locallySafeAt: card.locallySafeAt,
             warnings: context.warnings,
             results: results.map(Result.init)
         )
     }
 
+    static func finalizedCard(
+        context: PhotographerReportContext,
+        results: [ResultRow],
+        finishedAt: Date?
+    ) throws -> FinalizedCard {
+        return try finalizedCard(
+            context: context,
+            results: results,
+            finishedAt: finishedAt,
+            confirmedFingerprint: PhotographerCardAnalyzer.confirmedFingerprint
+        )
+    }
+
+    static func finalizedCard(
+        context: PhotographerReportContext,
+        results: [ResultRow],
+        finishedAt: Date?,
+        confirmedFingerprint: ([ResultRow]) throws -> String
+    ) throws -> FinalizedCard {
+        guard var card = context.job.cardIngests.first(where: { $0.id == context.cardIngestID }) else {
+            throw PhotographerReportError.cardNotFound
+        }
+
+        if let evidence = finalEvidence(context: context, card: card, results: results) {
+            card.localState = .locallySafe
+            card.locallySafeAt = card.locallySafeAt ?? finishedAt ?? context.job.updatedAt
+            card.provenance.confirmedFingerprint = try confirmedFingerprint(evidence.canonicalRows)
+            card.verifiedDestinationCount = evidence.destinationCount
+            return FinalizedCard(
+                card: card,
+                verifiedDestinationCount: evidence.destinationCount
+            )
+        }
+
+        return unsafeFinalizedCard(card)
+    }
+
+    static func reportFinalizedCard(
+        context: PhotographerReportContext,
+        results: [ResultRow]
+    ) throws -> FinalizedCard {
+        guard let card = context.job.cardIngests.first(where: { $0.id == context.cardIngestID }) else {
+            throw PhotographerReportError.cardNotFound
+        }
+        let evidence = finalEvidence(context: context, card: card, results: results)
+        guard card.localState == .locallySafe,
+              card.locallySafeAt != nil,
+              let fingerprint = nonblank(card.provenance.confirmedFingerprint),
+              let evidence,
+              card.verifiedDestinationCount == evidence.destinationCount,
+              (try? PhotographerCardAnalyzer.confirmedFingerprint(results: evidence.canonicalRows)) == fingerprint else {
+            return unsafeFinalizedCard(card)
+        }
+        return FinalizedCard(
+            card: card,
+            verifiedDestinationCount: evidence.destinationCount
+        )
+    }
+
+    private static func unsafeFinalizedCard(_ card: CardIngest) -> FinalizedCard {
+        var card = card
+        card.localState = .issues
+        card.locallySafeAt = nil
+        card.provenance.confirmedFingerprint = nil
+        card.verifiedDestinationCount = 0
+        return FinalizedCard(card: card, verifiedDestinationCount: 0)
+    }
+
     private static func finalEvidence(
         context: PhotographerReportContext,
         card: CardIngest,
         results: [ResultRow]
-    ) throws -> (destinationCount: Int, fingerprint: String)? {
+    ) -> FinalEvidence? {
         let expectedPaths = context.analysis.sourcePaths
         let expectedSet = Set(expectedPaths)
         let identifiedRows = results.compactMap { row -> (String, ResultRow)? in
@@ -313,20 +377,41 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
               let canonicalRows = groups.sorted(by: { $0.key < $1.key }).first?.value.sorted(by: { $0.path < $1.path }) else {
             return nil
         }
-        return (groups.count, try PhotographerCardAnalyzer.confirmedFingerprint(results: canonicalRows))
+        return FinalEvidence(destinationCount: groups.count, canonicalRows: canonicalRows)
     }
 
     private static func destinationIdentity(for row: ResultRow, packagePath: String) -> String? {
-        if let destinationPath = nonblank(row.destinationPath) {
-            let pathComponents = URL(fileURLWithPath: destinationPath).standardized.pathComponents
-            let packageComponents = packagePath.split(separator: "/").map(String.init)
-            if let packageStart = pathComponents.firstSubsequenceIndex(of: packageComponents) {
-                let packageEnd = packageStart + packageComponents.count
-                return NSString.path(withComponents: Array(pathComponents[..<packageEnd]))
-            }
-            return URL(fileURLWithPath: destinationPath).standardized.deletingLastPathComponent().path
+        guard let destinationPath = nonblank(row.destinationPath),
+              destinationPath.hasPrefix("/"),
+              let packageComponents = normalizedRelativePathComponents(packagePath) else {
+            return nil
         }
-        return nonblank(row.destination)
+        let pathComponents = URL(fileURLWithPath: destinationPath).standardizedFileURL.pathComponents
+        guard let packageStart = pathComponents.firstSubsequenceIndex(of: packageComponents) else {
+            return nil
+        }
+        let packageEnd = packageStart + packageComponents.count
+        guard packageEnd < pathComponents.count else {
+            return nil
+        }
+        return NSString.path(withComponents: Array(pathComponents[..<packageEnd]))
+    }
+
+    private static func normalizedRelativePathComponents(_ path: String) -> [String]? {
+        guard !path.hasPrefix("/") else { return nil }
+        var components: [String] = []
+        for rawComponent in path.split(separator: "/", omittingEmptySubsequences: false) {
+            switch rawComponent {
+            case "", ".":
+                continue
+            case "..":
+                guard !components.isEmpty else { return nil }
+                components.removeLast()
+            default:
+                components.append(String(rawComponent))
+            }
+        }
+        return components.isEmpty ? nil : components
     }
 
     private static func isVerified(_ row: ResultRow) -> Bool {

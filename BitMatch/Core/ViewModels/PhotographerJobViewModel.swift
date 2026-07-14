@@ -408,61 +408,73 @@ final class PhotographerJobViewModel: ObservableObject {
     }
 
     func operationFailed() {
-        transitionActiveCard(to: .issues) { card in
-            card.locallySafeAt = nil
-            card.provenance.confirmedFingerprint = nil
+        do {
+            try transitionActiveCardThrowing(to: .issues) { card in
+                card.locallySafeAt = nil
+                card.provenance.confirmedFingerprint = nil
+                card.verifiedDestinationCount = 0
+            }
+        } catch {
+            forceActiveCardIntoIssuesInMemory()
+            lastError = error.localizedDescription
         }
     }
 
     func completeIngest(results: [ResultRow]) throws {
-        guard let requiredCount = activeJob?.requiredLocalCopyCount,
-              !isActiveCardTerminal else { return }
-        let expectedPaths = preliminaryAnalysis?.sourcePaths ?? []
-        let expectedSet = Set(expectedPaths)
-        let identifiedRows = results.compactMap { row -> (String, ResultRow)? in
-            guard let identity = destinationIdentity(for: row) else { return nil }
-            return (identity, row)
+        guard var job = activeJob else {
+            throw PhotographerJobViewModelError.noActiveJob
         }
-        let groups = Dictionary(grouping: identifiedRows, by: \.0)
-            .mapValues { $0.map(\.1) }
-        let manifests = groups.mapValues { rows in
-            rows.reduce(into: [String: String]()) { manifest, row in
-                manifest[row.path] = row.checksum ?? ""
-            }
+        guard let cardID = activeCardDraft?.id,
+              let cardIndex = job.cardIngests.firstIndex(where: { $0.id == cardID }) else {
+            throw PhotographerJobViewModelError.noActiveCard
         }
-        let hasExactEvidence = !expectedPaths.isEmpty
-            && expectedSet.count == expectedPaths.count
-            && expectedPaths.count == activeCard?.fileCount
-            && identifiedRows.count == results.count
-            && groups.count >= requiredCount
-            && groups.values.allSatisfy { rows in
-                rows.count == expectedPaths.count
-                    && Set(rows.map(\.path)) == expectedSet
-                    && rows.allSatisfy(isVerified)
-            }
-        let checksumsAgree = expectedPaths.allSatisfy { path in
-            let checksums = Set(manifests.values.compactMap { $0[path] })
-            return checksums.count == 1 && checksums.first?.isEmpty == false
+        guard let analysis = preliminaryAnalysis else {
+            throw PhotographerJobViewModelError.missingPreliminaryAnalysis
         }
+        let currentCard = job.cardIngests[cardIndex]
+        guard currentCard.localState == .copying || currentCard.localState == .verifying else { return }
 
-        guard hasExactEvidence, checksumsAgree else {
-            operationFailed()
-            return
-        }
-
-        let canonicalRows = groups.sorted { $0.key < $1.key }.first?.value.sorted { $0.path < $1.path } ?? []
-        let fingerprint: String
+        let context = PhotographerReportContext(
+            job: job,
+            cardIngestID: cardID,
+            analysis: analysis,
+            verifiedDestinationCount: currentCard.verifiedDestinationCount,
+            warnings: duplicateWarning.map { [$0.message] } ?? []
+        )
+        let finalized: PhotographerReportPayload.FinalizedCard
         do {
-            fingerprint = try confirmedAnalyzer(canonicalRows)
+            finalized = try PhotographerReportPayload.finalizedCard(
+                context: context,
+                results: results,
+                finishedAt: now(),
+                confirmedFingerprint: confirmedAnalyzer
+            )
         } catch {
-            operationFailed()
+            var failedCard = currentCard
+            failedCard.localState = .issues
+            failedCard.locallySafeAt = nil
+            failedCard.provenance.confirmedFingerprint = nil
+            failedCard.verifiedDestinationCount = 0
+            job.cardIngests[cardIndex] = failedCard
+            do {
+                try persistThrowing(job)
+            } catch {
+                lastError = error.localizedDescription
+                throw error
+            }
+            activeCardDraft = failedCard
+            lastError = error.localizedDescription
             throw error
         }
-        try transitionActiveCardThrowing(to: .locallySafe) { card in
-            card.locallySafeAt = self.now()
-            card.provenance.confirmedFingerprint = fingerprint
-            card.verifiedDestinationCount = groups.count
+
+        job.cardIngests[cardIndex] = finalized.card
+        do {
+            try persistThrowing(job)
+        } catch {
+            lastError = error.localizedDescription
+            throw error
         }
+        activeCardDraft = finalized.card
     }
 
     func cancelIngest() {
@@ -631,6 +643,25 @@ final class PhotographerJobViewModel: ObservableObject {
         activeCardDraft = job.cardIngests[index]
     }
 
+    private func forceActiveCardIntoIssuesInMemory() {
+        guard var job = activeJob,
+              let cardID = activeCardDraft?.id,
+              let index = job.cardIngests.firstIndex(where: { $0.id == cardID }) else { return }
+        guard job.cardIngests[index].localState == .notStarted
+                || job.cardIngests[index].localState == .copying
+                || job.cardIngests[index].localState == .verifying else { return }
+
+        job.cardIngests[index].localState = .issues
+        job.cardIngests[index].locallySafeAt = nil
+        job.cardIngests[index].provenance.confirmedFingerprint = nil
+        job.cardIngests[index].verifiedDestinationCount = 0
+        activeJob = job
+        if let jobIndex = jobs.firstIndex(where: { $0.id == job.id }) {
+            jobs[jobIndex] = job
+        }
+        activeCardDraft = job.cardIngests[index]
+    }
+
     private func persistThrowing(_ job: PhotographerJob) throws {
         var updated = job
         updated.updatedAt = now()
@@ -645,34 +676,6 @@ final class PhotographerJobViewModel: ObservableObject {
         lastError = nil
     }
 
-    private func destinationIdentity(for row: ResultRow) -> String? {
-        if let destinationPath = nonblank(row.destinationPath) {
-            let pathComponents = URL(fileURLWithPath: destinationPath).standardized.pathComponents
-            if let recipeComponents = renderedRecipe?.components,
-               let recipeStart = pathComponents.firstSubsequenceIndex(of: recipeComponents) {
-                let packageEnd = recipeStart + recipeComponents.count
-                return NSString.path(withComponents: Array(pathComponents[..<packageEnd]))
-            }
-            return URL(fileURLWithPath: destinationPath).standardized.deletingLastPathComponent().path
-        }
-        if let destination = nonblank(row.destination) {
-            return destination
-        }
-        return nil
-    }
-
-    private func isVerified(_ row: ResultRow) -> Bool {
-        row.isSuccessStatus
-            && nonblank(row.path) != nil
-            && nonblank(row.checksum) != nil
-            && nonblank(row.destinationPath) != nil
-    }
-
-    private var isActiveCardTerminal: Bool {
-        guard let state = activeCard?.localState else { return false }
-        return state == .locallySafe || state == .issues || state == .cancelled
-    }
-
     private func canTransition(from current: PhotographerLocalState, to next: PhotographerLocalState) -> Bool {
         switch current {
         case .locallySafe, .issues, .cancelled:
@@ -684,12 +687,6 @@ final class PhotographerJobViewModel: ObservableObject {
         case .verifying:
             return next == .locallySafe || next == .issues || next == .cancelled
         }
-    }
-
-    private func nonblank(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 
     private func clearCardPreparation() {
@@ -725,24 +722,16 @@ final class PhotographerJobViewModel: ObservableObject {
 
 }
 
-private extension Array where Element: Equatable {
-    func firstSubsequenceIndex(of subsequence: [Element]) -> Int? {
-        guard !subsequence.isEmpty, subsequence.count <= count else { return nil }
-        for start in 0...(count - subsequence.count) {
-            if Array(self[start..<(start + subsequence.count)]) == subsequence {
-                return start
-            }
-        }
-        return nil
-    }
-}
-
 enum PhotographerJobViewModelError: LocalizedError, Equatable {
     case noActiveJob
+    case noActiveCard
+    case missingPreliminaryAnalysis
 
     var errorDescription: String? {
         switch self {
         case .noActiveJob: return "Create or select a photographer job first."
+        case .noActiveCard: return "Prepare a photographer card before completing ingest."
+        case .missingPreliminaryAnalysis: return "Card analysis is required before completing ingest."
         }
     }
 }

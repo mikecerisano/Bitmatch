@@ -6,6 +6,7 @@ import Testing
 struct PhotographerJobViewModelTests {
     private let eventDate = Date(timeIntervalSince1970: 100)
     private let now = Date(timeIntervalSince1970: 200)
+    private let renderedPackage = "1970-01-01_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001"
 
     @Test func weddingJobUsesWeddingDefaultsAndPersistsCreation() throws {
         let store = InMemoryPhotographerJobStore()
@@ -340,7 +341,10 @@ struct PhotographerJobViewModelTests {
         let store = InMemoryPhotographerJobStore()
         let viewModel = preparedViewModel(store: store)
         viewModel.beginIngest(destinationCount: 2)
-        let rows = ["/Volumes/One/Package/A.ARW", "/Volumes/Two/Package/A.ARW"].map { path in
+        let rows = [
+            "/Volumes/One/\(renderedPackage)/A.ARW",
+            "/Volumes/Two/\(renderedPackage)/A.ARW"
+        ].map { path in
             ResultRow(
                 path: "/card/A.ARW",
                 status: "✅ Verified",
@@ -546,7 +550,7 @@ struct PhotographerJobViewModelTests {
 
         try viewModel.completeIngest(results: [secondary, primary])
 
-        #expect(analyzedDestinationPaths == [["/primary/A.ARW"]])
+        #expect(analyzedDestinationPaths == [["/primary/\(renderedPackage)/A.ARW"]])
     }
 
     @Test func resetClearsCardSpecificStateAndKeepsJobForNextCard() throws {
@@ -562,6 +566,15 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.preliminaryAnalysis == nil)
         #expect(viewModel.duplicateWarning == nil)
         #expect(viewModel.cameraName.isEmpty)
+    }
+
+    @Test func completionWithoutAnActivePreparedCardFailsClosed() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+        viewModel.resetForNextCard()
+
+        #expect(throws: PhotographerJobViewModelError.noActiveCard) {
+            try viewModel.completeIngest(results: [])
+        }
     }
 
     private func makeViewModel(store: InMemoryPhotographerJobStore) -> PhotographerJobViewModel {
@@ -598,7 +611,7 @@ struct PhotographerJobViewModelTests {
                 size: 100,
                 checksum: "abc",
                 destination: destination,
-                destinationPath: "/\(destination.lowercased())/A.ARW"
+                destinationPath: "/\(destination.lowercased())/\(renderedPackage)/A.ARW"
             )
         }
     }
@@ -610,7 +623,7 @@ struct PhotographerJobViewModelTests {
             size: 100,
             checksum: checksum,
             destination: destination,
-            destinationPath: "/\(destination.lowercased())/\((path as NSString).lastPathComponent)"
+            destinationPath: "/\(destination.lowercased())/\(renderedPackage)/\((path as NSString).lastPathComponent)"
         )
     }
 }

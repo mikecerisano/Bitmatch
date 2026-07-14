@@ -34,7 +34,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var verificationMode: VerificationMode = .standard
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
-    var photographerReportContext: PhotographerReportContext?
+    var photographerReportFinalizer: PhotographerReportFinalizer?
 
     // MARK: - Operation State
     @Published var isOperationInProgress = false
@@ -280,7 +280,7 @@ class SharedAppCoordinator: ObservableObject {
             estimatedFiles: sourceFolderInfo?.fileCount ?? 100,
             estimatedBytes: sourceFolderInfo?.totalSize ?? 1_000_000_000,
             currentMode: currentMode,
-            photographerContext: photographerReportContext
+            photographerReportFinalizer: photographerReportFinalizer
         )
 
         let callbacks = CopyVerifyCallbacks(
@@ -306,10 +306,12 @@ class SharedAppCoordinator: ObservableObject {
                       !self.startCancellationRequested else { return }
                 self.operationState = state
             },
-            onComplete: { [weak self] allResults in
+            onAuthoritativeResults: { [weak self] allResults in
                 guard let self,
                       self.activeStartID == startID,
-                      !self.startCancellationRequested else { return }
+                      !self.startCancellationRequested else {
+                    throw CancellationError()
+                }
                 self.results = allResults
             }
         )

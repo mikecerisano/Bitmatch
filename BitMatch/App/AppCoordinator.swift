@@ -77,7 +77,7 @@ final class AppCoordinator: ObservableObject {
         sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
         sharedCoordinator.leftURL = fileSelectionViewModel.leftURL
         sharedCoordinator.rightURL = fileSelectionViewModel.rightURL
-        sharedCoordinator.photographerReportContext = makePhotographerReportContext()
+        configurePhotographerReportLifecycle()
 
         progressViewModel.setProgressMessage("Preparing transfer…")
         progressViewModel.startProgressTracking()
@@ -139,6 +139,32 @@ final class AppCoordinator: ObservableObject {
             verifiedDestinationCount: card.verifiedDestinationCount,
             warnings: warnings
         )
+    }
+
+    private func configurePhotographerReportLifecycle() {
+        guard currentMode == .copyAndVerify,
+              let jobID = photographerJobViewModel.activeJob?.id,
+              let cardID = photographerJobViewModel.activeCard?.id,
+              photographerJobViewModel.preliminaryAnalysis != nil else {
+            sharedCoordinator.photographerReportFinalizer = nil
+            return
+        }
+
+        sharedCoordinator.photographerReportFinalizer = { [weak self, jobID, cardID] results in
+            guard let self,
+                  self.photographerJobViewModel.activeJob?.id == jobID,
+                  self.photographerJobViewModel.activeCard?.id == cardID,
+                  self.photographerJobViewModel.preliminaryAnalysis != nil,
+                  let state = self.photographerJobViewModel.activeCard?.localState,
+                  state == .copying || state == .verifying else {
+                throw PhotographerReportError.cardNotReady
+            }
+            try self.photographerJobViewModel.completeIngest(results: results)
+            guard let context = self.makePhotographerReportContext() else {
+                throw PhotographerReportError.cardNotReady
+            }
+            return context
+        }
     }
 
     func cancelOperation() {
@@ -322,9 +348,12 @@ final class AppCoordinator: ObservableObject {
                         break
                     }
                 }
-            case .completed:
+            case .completed(let info):
                 self.progressViewModel.stopProgressTracking()
                 self.lastSharedBytesProcessed = 0
+                if self.currentMode == .copyAndVerify, !info.success {
+                    self.photographerJobViewModel.operationFailed()
+                }
             case .failed, .cancelled:
                 self.progressViewModel.stopProgressTracking()
                 self.lastSharedBytesProcessed = 0
@@ -337,19 +366,6 @@ final class AppCoordinator: ObservableObject {
                 }
             default: break
             }
-        }.store(in: &cancellables)
-
-        // CopyVerifyExecutor publishes .completed before its onComplete callback
-        // replaces presentation rows with the complete authoritative array.
-        // Gating on completed here ensures incremental onResult rows are never
-        // treated as terminal evidence.
-        sharedCoordinator.$results.sink { [weak self] authoritativeResults in
-            guard let self,
-                  self.currentMode == .copyAndVerify,
-                  case .completed = self.sharedCoordinator.operationState,
-                  let state = self.photographerJobViewModel.activeCard?.localState,
-                  state == .copying || state == .verifying else { return }
-            try? self.photographerJobViewModel.completeIngest(results: authoritativeResults)
         }.store(in: &cancellables)
 
         photographerJobViewModel.objectWillChange

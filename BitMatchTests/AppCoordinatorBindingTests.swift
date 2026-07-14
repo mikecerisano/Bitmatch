@@ -4,6 +4,8 @@ import XCTest
 
 @MainActor
 final class AppCoordinatorBindingTests: XCTestCase {
+    private let renderedPackage = "1970-01-01_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001"
+
     func testFileSelectionChangeNotifiesOnNextRunLoopTurn() {
         let coordinator = makeTestCoordinator()
         drainMainRunLoop()
@@ -127,7 +129,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .verifying)
     }
 
-    func testTerminalStateWaitsForAuthoritativeResultArray() throws {
+    func testPublishedResultsDoNotBypassExecutorTerminalLifecycleCallback() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
         coordinator.photographerJobViewModel.beginIngest(destinationCount: 2, sourceURL: coordinator.fileSelectionViewModel.sourceURL)
         coordinator.sharedCoordinator.progress = progress(stage: .verifying)
@@ -144,7 +146,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
             verifiedRow(destination: "Secondary")
         ]
 
-        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .locallySafe)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .verifying)
     }
 
     func testCancellationCancelsPreparedPhotographerCard() throws {
@@ -160,15 +162,13 @@ final class AppCoordinatorBindingTests: XCTestCase {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
         primeSharedTransfer(coordinator)
         coordinator.sharedCoordinator.operationState = .inProgress
-        coordinator.sharedCoordinator.progress = progress(stage: .copying)
-        coordinator.sharedCoordinator.results = [
+        try coordinator.photographerJobViewModel.completeIngest(results: [
             verifiedRow(destination: "Primary"),
             verifiedRow(destination: "Secondary")
-        ]
+        ])
         coordinator.sharedCoordinator.operationState = .completed(
             OperationCompletionInfo(success: true, message: "Complete")
         )
-        coordinator.sharedCoordinator.results = coordinator.sharedCoordinator.results
         coordinator.sharedCoordinator.progress = progress(stage: .verifying)
 
         waitForPresentationThrottle()
@@ -198,6 +198,33 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
         coordinator.sharedCoordinator.operationState = .failed
         XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
+    }
+
+    func testUnsuccessfulTerminalCompletionEndsPreparedPhotographerCardInIssues() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        primeSharedTransfer(coordinator)
+        coordinator.sharedCoordinator.operationState = .inProgress
+
+        coordinator.sharedCoordinator.operationState = .completed(
+            OperationCompletionInfo(success: false, message: "Lifecycle persistence failed")
+        )
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
+    }
+
+    func testUnsuccessfulTerminalCompletionFailsClosedWhenStoreStillRejectsTheDowngrade() throws {
+        let (coordinator, store) = try makePreparedPhotographerCoordinator()
+        primeSharedTransfer(coordinator)
+        coordinator.sharedCoordinator.operationState = .inProgress
+        store.errorOnSave = CoordinatorFixtureError.saveFailed
+
+        coordinator.sharedCoordinator.operationState = .completed(
+            OperationCompletionInfo(success: false, message: "Lifecycle persistence failed")
+        )
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCardDraft?.localState, .issues)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeJob?.cardIngests.first?.localState, .issues)
     }
 
     func testRejectedStartEndsPreparedCardInIssuesWithoutMarkingCopying() throws {
@@ -299,7 +326,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
             size: 100,
             checksum: "abc",
             destination: destination,
-            destinationPath: "/\(destination.lowercased())/A.ARW"
+            destinationPath: "/\(destination.lowercased())/\(renderedPackage)/A.ARW"
         )
     }
 
@@ -358,4 +385,8 @@ private final class NotificationState: @unchecked Sendable {
         value = true
         lock.unlock()
     }
+}
+
+private enum CoordinatorFixtureError: Error {
+    case saveFailed
 }

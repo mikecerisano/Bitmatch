@@ -22,6 +22,36 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertFalse(harness.completedRows[0].isSuccessStatus)
         XCTAssertEqual(harness.terminalInfo?.success, false)
     }
+
+    func testLifecycleFailureDowngradesCompletionAndStillPublishesAuthoritativeRows() async throws {
+        let success = FileOperationResult(
+            sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            success: true,
+            error: nil,
+            fileSize: 10,
+            verificationResult: VerificationResult(
+                sourceChecksum: "checksum",
+                destinationChecksum: "checksum",
+                matches: true,
+                checksumType: .sha256,
+                processingTime: 0,
+                fileSize: 10
+            ),
+            processingTime: 0
+        )
+        let harness = ExecutorHarness(
+            returnedResults: [success],
+            emittedResults: [],
+            lifecycleCompletion: { _ in throw ExecutorFixtureError.persistence }
+        )
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.completedRows.count, 1)
+        XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
+        XCTAssertEqual(harness.terminalInfo?.success, false)
+    }
 }
 
 @MainActor
@@ -32,7 +62,11 @@ private final class ExecutorHarness {
     private(set) var completedRows: [ResultRow] = []
     private(set) var terminalInfo: OperationCompletionInfo?
 
-    init(returnedResults: [FileOperationResult], emittedResults: [FileOperationResult]) {
+    init(
+        returnedResults: [FileOperationResult],
+        emittedResults: [FileOperationResult],
+        lifecycleCompletion: (@MainActor ([ResultRow]) throws -> Void)? = nil
+    ) {
         let fileOperations = ExecutorFileOperationsService(
             returnedResults: returnedResults,
             emittedResults: emittedResults
@@ -54,7 +88,13 @@ private final class ExecutorHarness {
             reportSettings: ReportPrefs(makeReport: false),
             estimatedFiles: returnedResults.count,
             estimatedBytes: returnedResults.reduce(0) { $0 + $1.fileSize },
-            currentMode: .copyAndVerify
+            currentMode: .copyAndVerify,
+            photographerReportFinalizer: lifecycleCompletion.map { completion in
+                { rows in
+                    try completion(rows)
+                    return nil
+                }
+            }
         )
     }
 
@@ -68,12 +108,17 @@ private final class ExecutorHarness {
                     guard case .completed(let info) = state else { return }
                     self?.terminalInfo = info
                 },
-                onComplete: { [weak self] rows in
-                    self?.completedRows = rows
+                onAuthoritativeResults: { [weak self] rows in
+                    guard let self else { return }
+                    self.completedRows = rows
                 }
             )
         )
     }
+}
+
+private enum ExecutorFixtureError: Error {
+    case persistence
 }
 
 private final class ExecutorFileOperationsService: FileOperationsService {
