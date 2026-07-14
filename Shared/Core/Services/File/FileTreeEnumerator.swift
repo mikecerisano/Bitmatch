@@ -5,6 +5,14 @@ struct FileEntry {
     let url: URL
     let relativePath: String
     let size: Int64
+    let modificationDate: Date?
+
+    init(url: URL, relativePath: String, size: Int64, modificationDate: Date? = nil) {
+        self.url = url
+        self.relativePath = relativePath
+        self.size = size
+        self.modificationDate = modificationDate
+    }
 }
 
 enum FileTreeEnumerator {
@@ -15,7 +23,12 @@ enum FileTreeEnumerator {
         try Task.checkCancellation()
         let fileManager = FileManager.default
         let basePath = base.path
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+            .fileSizeKey,
+            .contentModificationDateKey
+        ]
         var entries: [FileEntry] = []
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: base.path, isDirectory: &isDirectory),
@@ -54,7 +67,8 @@ enum FileTreeEnumerator {
             entries.append(FileEntry(
                 url: item,
                 relativePath: relativePath,
-                size: Int64(values.fileSize ?? 0)
+                size: Int64(values.fileSize ?? 0),
+                modificationDate: values.contentModificationDate
             ))
         }
         if let traversalError { throw traversalError }
