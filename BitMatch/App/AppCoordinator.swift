@@ -238,7 +238,8 @@ final class AppCoordinator: ObservableObject {
         // throttled subscription above exists only to pace presentation work.
         sharedCoordinator.$progress.compactMap { $0 }
             .sink { [weak self] progress in
-                self?.photographerJobViewModel.updateProgressStage(progress.currentStage)
+                guard let self, self.currentMode == .copyAndVerify else { return }
+                self.photographerJobViewModel.updateProgressStage(progress.currentStage)
             }
             .store(in: &cancellables)
 
@@ -251,15 +252,17 @@ final class AppCoordinator: ObservableObject {
                 if self.progressViewModel.progressMessage == "Ready" {
                     self.progressViewModel.setProgressMessage("Preparing transfer…")
                 }
-                switch state {
-                case .inProgress, .copying:
-                    self.photographerJobViewModel.beginIngest(
-                        destinationCount: self.sharedCoordinator.destinationURLs.count
-                    )
-                case .verifying:
-                    self.photographerJobViewModel.updateProgressStage(.verifying)
-                default:
-                    break
+                if self.currentMode == .copyAndVerify {
+                    switch state {
+                    case .inProgress, .copying:
+                        self.photographerJobViewModel.beginIngest(
+                            destinationCount: self.sharedCoordinator.destinationURLs.count
+                        )
+                    case .verifying:
+                        self.photographerJobViewModel.updateProgressStage(.verifying)
+                    default:
+                        break
+                    }
                 }
             case .completed:
                 self.progressViewModel.stopProgressTracking()
@@ -267,10 +270,12 @@ final class AppCoordinator: ObservableObject {
             case .failed, .cancelled:
                 self.progressViewModel.stopProgressTracking()
                 self.lastSharedBytesProcessed = 0
-                if state == .cancelled {
-                    self.photographerJobViewModel.cancelIngest()
-                } else {
-                    self.photographerJobViewModel.operationFailed()
+                if self.currentMode == .copyAndVerify {
+                    if state == .cancelled {
+                        self.photographerJobViewModel.cancelIngest()
+                    } else {
+                        self.photographerJobViewModel.operationFailed()
+                    }
                 }
             default: break
             }
@@ -282,6 +287,7 @@ final class AppCoordinator: ObservableObject {
         // treated as terminal evidence.
         sharedCoordinator.$results.sink { [weak self] authoritativeResults in
             guard let self,
+                  self.currentMode == .copyAndVerify,
                   case .completed = self.sharedCoordinator.operationState,
                   let state = self.photographerJobViewModel.activeCard?.localState,
                   state == .copying || state == .verifying else { return }

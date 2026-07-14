@@ -175,6 +175,29 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
     }
 
+    func testCompareFolderEventsNeverMutatePreparedPhotographerCard() throws {
+        let terminalStates: [OperationState] = [
+            .completed(OperationCompletionInfo(success: true, message: "Compared")),
+            .failed,
+            .cancelled
+        ]
+
+        for terminalState in terminalStates {
+            let (coordinator, store) = try makePreparedPhotographerCoordinator()
+            coordinator.switchMode(to: .compareFolders)
+            XCTAssertEqual(store.saveCount, 2)
+
+            coordinator.sharedCoordinator.operationState = .inProgress
+            coordinator.sharedCoordinator.progress = progress(stage: .copying)
+            coordinator.sharedCoordinator.progress = progress(stage: .verifying)
+            coordinator.sharedCoordinator.operationState = terminalState
+            coordinator.sharedCoordinator.results = [verifiedRow(destination: "Comparison")]
+
+            XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .notStarted)
+            XCTAssertEqual(store.saveCount, 2)
+        }
+    }
+
     private func makePreparedPhotographerCoordinator() throws -> (AppCoordinator, InMemoryPhotographerJobStore) {
         let store = InMemoryPhotographerJobStore()
         let viewModel = PhotographerJobViewModel(
