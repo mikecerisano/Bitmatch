@@ -22,6 +22,64 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.jobs == [job])
     }
 
+    @Test func draftLayerControlsToggleAndReorderTheWeddingRecipe() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        let photographerID = try #require(viewModel.draftRecipe.layers.first { $0.kind == .photographer }?.id)
+
+        viewModel.setDraftLayer(photographerID, isEnabled: false)
+        viewModel.moveDraftLayer(photographerID, direction: .up)
+
+        let photographerIndex = try #require(viewModel.draftRecipe.layers.firstIndex { $0.id == photographerID })
+        #expect(!viewModel.draftRecipe.layers[photographerIndex].isEnabled)
+        #expect(photographerIndex == 1)
+    }
+
+    @Test func saveDraftAsPresetPersistsCurrentLayerConfiguration() throws {
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = makeViewModel(store: store)
+        let cameraID = try #require(viewModel.draftRecipe.layers.first { $0.kind == .camera }?.id)
+        viewModel.setDraftLayer(cameraID, isEnabled: false)
+
+        viewModel.saveDraftAsPreset(name: "Wedding without camera")
+
+        let preset = try #require(store.storedPresets.first)
+        #expect(preset.name == "Wedding without camera")
+        #expect(preset.recipe.layers.first { $0.kind == .camera }?.isEnabled == false)
+        #expect(viewModel.presets.contains(preset))
+    }
+
+    @Test func draftSetupCreatesCardWithCustomizedRecipeAndKeepsJobForNextCard() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        let photographerID = try #require(viewModel.draftRecipe.layers.first { $0.kind == .photographer }?.id)
+        viewModel.setDraftLayer(photographerID, isEnabled: false)
+
+        try viewModel.prepareDraftCard(
+            clientName: "Smith",
+            jobName: "Smith Wedding",
+            eventDate: eventDate,
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            sourceDisplayName: "CARD1",
+            entries: [FileEntry(url: URL(fileURLWithPath: "/card/A.ARW"), relativePath: "A.ARW", size: 100, modificationDate: eventDate)]
+        )
+        let firstJobID = try #require(viewModel.activeJob?.id)
+        #expect(viewModel.renderedRecipe?.relativePath == "1970-01-01_Smith-Wedding/Originals/Sony-A7-IV/Card-001")
+
+        viewModel.resetForNextCard()
+        try viewModel.prepareDraftCard(
+            clientName: "Smith",
+            jobName: "Smith Wedding",
+            eventDate: eventDate,
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            sourceDisplayName: "CARD2",
+            entries: [FileEntry(url: URL(fileURLWithPath: "/card/B.ARW"), relativePath: "B.ARW", size: 100, modificationDate: eventDate)]
+        )
+
+        #expect(viewModel.activeJob?.id == firstJobID)
+        #expect(viewModel.activeCard?.provenance.cardNumber == 2)
+    }
+
     @Test func cardNumbersAdvanceIndependentlyForEachCamera() throws {
         let store = InMemoryPhotographerJobStore()
         let viewModel = makeViewModel(store: store)

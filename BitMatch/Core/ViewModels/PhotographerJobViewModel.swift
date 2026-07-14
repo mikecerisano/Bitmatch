@@ -11,12 +11,18 @@ struct DuplicateCardWarning: Equatable, Sendable {
     var priorCardIngestID: UUID { cardIngestID }
 }
 
+enum FolderLayerMoveDirection: Sendable {
+    case up
+    case down
+}
+
 @MainActor
 final class PhotographerJobViewModel: ObservableObject {
     typealias PreliminaryAnalyzer = ([FileEntry]) throws -> CardAnalysis
     typealias ConfirmedAnalyzer = ([ResultRow]) throws -> String
 
     @Published private(set) var jobs: [PhotographerJob] = []
+    @Published private(set) var presets: [PhotographerPreset] = []
     @Published var activeJob: PhotographerJob?
     @Published var selectedPhotographerID: UUID?
     @Published var cameraName = ""
@@ -25,6 +31,8 @@ final class PhotographerJobViewModel: ObservableObject {
     @Published private(set) var preliminaryAnalysis: CardAnalysis?
     @Published private(set) var duplicateWarning: DuplicateCardWarning?
     @Published private(set) var lastError: String?
+    @Published var draftRecipe = FolderRecipe.wedding
+    @Published var focusedCardIngestID: UUID?
 
     var activeCard: CardIngest? {
         guard let id = activeCardDraft?.id else { return nil }
@@ -47,6 +55,7 @@ final class PhotographerJobViewModel: ObservableObject {
         self.preliminaryAnalyzer = preliminaryAnalyzer
         self.confirmedAnalyzer = confirmedAnalyzer
         loadJobs()
+        loadPresets()
     }
 
     func createWeddingJob(clientName: String, jobName: String, eventDate: Date) {
@@ -58,7 +67,7 @@ final class PhotographerJobViewModel: ObservableObject {
             jobName: jobName,
             eventType: .wedding,
             photographers: [],
-            recipe: .wedding,
+            recipe: draftRecipe,
             requiredLocalCopyCount: 2,
             cardIngests: [],
             createdAt: timestamp,
@@ -126,6 +135,38 @@ final class PhotographerJobViewModel: ObservableObject {
         renderedRecipe = rendered
         preliminaryAnalysis = analysis
         duplicateWarning = warning
+    }
+
+    func prepareDraftCard(
+        clientName: String,
+        jobName: String,
+        eventDate: Date,
+        photographerName: String,
+        cameraName: String,
+        sourceDisplayName: String,
+        entries: [FileEntry]
+    ) throws {
+        if var job = activeJob,
+           job.clientName == clientName,
+           job.jobName == jobName,
+           job.eventDate == eventDate,
+           job.eventType == .wedding {
+            job.recipe = draftRecipe
+            try persistThrowing(job)
+        } else {
+            createWeddingJob(clientName: clientName, jobName: jobName, eventDate: eventDate)
+        }
+        try prepareCard(
+            photographerName: photographerName,
+            cameraName: cameraName,
+            sourceDisplayName: sourceDisplayName,
+            entries: entries
+        )
+    }
+
+    func proposedCardNumber(cameraName: String) -> Int {
+        guard let activeJob else { return 1 }
+        return nextCardNumber(cameraName: cameraName, in: activeJob)
     }
 
     func prepareCard(
@@ -234,10 +275,68 @@ final class PhotographerJobViewModel: ObservableObject {
         clearCardPreparation()
     }
 
+    func setDraftLayer(_ id: UUID, isEnabled: Bool) {
+        guard let index = draftRecipe.layers.firstIndex(where: { $0.id == id }) else { return }
+        draftRecipe.layers[index].isEnabled = isEnabled
+    }
+
+    func moveDraftLayer(_ id: UUID, direction: FolderLayerMoveDirection) {
+        guard let index = draftRecipe.layers.firstIndex(where: { $0.id == id }) else { return }
+        let destination = direction == .up ? index - 1 : index + 1
+        guard draftRecipe.layers.indices.contains(destination) else { return }
+        draftRecipe.layers.swapAt(index, destination)
+    }
+
+    func saveDraftAsPreset(name: String) {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return }
+        let presetID = UUID()
+        var recipe = draftRecipe
+        recipe.id = presetID
+        recipe.name = cleanName
+        let preset = PhotographerPreset(
+            id: presetID,
+            name: cleanName,
+            eventType: .wedding,
+            recipe: recipe,
+            requiredLocalCopyCount: activeJob?.requiredLocalCopyCount ?? 2
+        )
+        do {
+            try store.save(preset)
+            presets.append(preset)
+            presets.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func selectPreset(id: UUID) {
+        if id == FolderRecipe.wedding.id {
+            draftRecipe = .wedding
+        } else if let preset = presets.first(where: { $0.id == id }) {
+            draftRecipe = preset.recipe
+        }
+    }
+
+    func focusCardIngest(id: UUID) {
+        focusedCardIngestID = id
+    }
+
     private func loadJobs() {
         do {
             jobs = try store.jobs()
             lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func loadPresets() {
+        do {
+            presets = try store.presets().sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
         } catch {
             lastError = error.localizedDescription
         }

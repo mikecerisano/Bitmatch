@@ -22,6 +22,7 @@ struct TransferPlanView: View {
             }
             .padding(.top, 4)
 
+            PhotographerJobSetupView(coordinator: coordinator)
             TransferPlanPreflightCard(plan: plan)
             optionSummary
             TransferOptionsView(coordinator: coordinator, isExpanded: $optionsExpanded)
@@ -52,7 +53,8 @@ struct TransferPlanView: View {
     }
 
     private var actionArea: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let canStart = plan.canStart && coordinator.photographerJobViewModel.activeCardDraft != nil
+        return VStack(alignment: .leading, spacing: 8) {
             if let estimate = coordinator.timeEstimate {
                 Text("Estimated time: \(estimate.formatted) · \(estimate.speedSummary)")
                     .font(.system(size: 11)).foregroundColor(.white.opacity(0.6))
@@ -67,9 +69,9 @@ struct TransferPlanView: View {
                     .padding(.vertical, 11)
             }
             .buttonStyle(.plain)
-            .foregroundColor(plan.canStart ? .black : .white.opacity(0.45))
-            .background(RoundedRectangle(cornerRadius: 10).fill(plan.canStart ? Color.green : Color.white.opacity(0.1)))
-            .disabled(!plan.canStart)
+            .foregroundColor(canStart ? .black : .white.opacity(0.45))
+            .background(RoundedRectangle(cornerRadius: 10).fill(canStart ? Color.green : Color.white.opacity(0.1)))
+            .disabled(!canStart)
             .accessibilityLabel(plan.actionTitle)
             .accessibilityHint(disabledReason ?? "Starts the transfer")
             if let disabledReason {
@@ -81,6 +83,9 @@ struct TransferPlanView: View {
     }
 
     private var disabledReason: String? {
+        if plan.canStart && coordinator.photographerJobViewModel.activeCardDraft == nil {
+            return "Set up the photography job"
+        }
         switch plan.status {
         case .incomplete(let reason), .analyzing(let reason): return reason
         case .blocked(let reasons): return reasons.first

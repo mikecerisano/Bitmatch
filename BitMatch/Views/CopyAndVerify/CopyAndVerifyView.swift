@@ -124,6 +124,15 @@ struct CopyAndVerifyView: View {
             .background(Color.black.opacity(0.3))
             TransferQueueView(coordinator: coordinator)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if let job = coordinator.photographerJobViewModel.activeJob,
+               !job.cardIngests.isEmpty {
+                PhotographerSessionDashboard(
+                    viewModel: coordinator.photographerJobViewModel,
+                    job: job
+                )
+                .padding(.horizontal, DesignSystem.Spacing.lg)
+                .padding(.bottom, DesignSystem.Spacing.sm)
+            }
         }
     }
 
