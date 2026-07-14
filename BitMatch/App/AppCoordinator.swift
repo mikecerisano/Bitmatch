@@ -77,6 +77,7 @@ final class AppCoordinator: ObservableObject {
         sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
         sharedCoordinator.leftURL = fileSelectionViewModel.leftURL
         sharedCoordinator.rightURL = fileSelectionViewModel.rightURL
+        sharedCoordinator.photographerReportContext = makePhotographerReportContext()
 
         progressViewModel.setProgressMessage("Preparing transfer…")
         progressViewModel.startProgressTracking()
@@ -123,6 +124,21 @@ final class AppCoordinator: ObservableObject {
             }
         }
         return true
+    }
+
+    private func makePhotographerReportContext() -> PhotographerReportContext? {
+        guard currentMode == .copyAndVerify,
+              let job = photographerJobViewModel.activeJob,
+              let card = photographerJobViewModel.activeCard,
+              let analysis = photographerJobViewModel.preliminaryAnalysis else { return nil }
+        let warnings = photographerJobViewModel.duplicateWarning.map { [$0.message] } ?? []
+        return PhotographerReportContext(
+            job: job,
+            cardIngestID: card.id,
+            analysis: analysis,
+            verifiedDestinationCount: card.verifiedDestinationCount,
+            warnings: warnings
+        )
     }
 
     func cancelOperation() {

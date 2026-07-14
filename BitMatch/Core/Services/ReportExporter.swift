@@ -11,6 +11,8 @@ import UIKit
 
 // MARK: - Enhanced JSON Report Structures
 struct EnhancedJSONReport: Codable {
+    // Version 3.0 adds the optional photographyJob object. When it is nil,
+    // every pre-existing report field retains its 2.0 meaning.
     let reportVersion: String
     let timestamp: Date
     let jobId: UUID
@@ -24,6 +26,7 @@ struct EnhancedJSONReport: Codable {
     let performance: Performance
     let verification: Verification
     let results: [JSONReportItem]
+    let photographyJob: PhotographerReportPayload?
     
     struct SourceInfo: Codable {
         let path: String
@@ -124,7 +127,8 @@ final class ReportExporter {
                       prefs: ReportPrefs,
                       workers: Int,
                       totalBytesProcessed: Int64,
-                      generateFullReport: Bool = true) async {
+                      generateFullReport: Bool = true,
+                      photographerContext: PhotographerReportContext? = nil) async {
         
         let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
@@ -137,6 +141,9 @@ final class ReportExporter {
         let duration = finished.timeIntervalSince(started)
         let averageSpeed = duration > 0 ? Double(totalBytesProcessed) / duration / 1_048_576 : 0 // MB/s
         let filesPerSecond = duration > 0 ? Double(fileCount) / duration : 0
+        let photographerPayload = photographerContext.flatMap {
+            try? PhotographerReportPayload.make(context: $0, results: results, finishedAt: finished)
+        }
         
         let summary = ReportView.Summary(
             jobID: jobID,
@@ -158,7 +165,8 @@ final class ReportExporter {
             totalBytesProcessed: totalBytesProcessed,
             averageSpeed: averageSpeed,
             clientLogoData: nil,
-            companyLogoData: nil
+            companyLogoData: nil,
+            photographyJob: photographerPayload
         )
         
         let shouldGenerateFullReport = generateFullReport && prefs.makeReport
@@ -190,7 +198,8 @@ final class ReportExporter {
                        workers: workers,
                        filesPerSecond: filesPerSecond,
                        prefs: prefs,
-                       generateFullReport: shouldGenerateFullReport)
+                       generateFullReport: shouldGenerateFullReport,
+                       photographerContext: photographerContext)
     }
     
     #if os(macOS)
@@ -374,7 +383,8 @@ final class ReportExporter {
                                         workers: Int,
                                         filesPerSecond: Double,
                                         prefs: ReportPrefs,
-                                        generateFullReport: Bool) async {
+                                        generateFullReport: Bool,
+                                        photographerContext: PhotographerReportContext?) async {
         
         // Generate default filename
         let formatter = ISO8601DateFormatter()
@@ -425,7 +435,8 @@ final class ReportExporter {
                                  to: csvURL,
                                  started: started,
                                  duration: duration,
-                                 filesPerSecond: filesPerSecond)
+                                 filesPerSecond: filesPerSecond,
+                                 photographerContext: photographerContext)
             
             // Save enhanced JSON report
             let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json").nonConflictingSibling()
@@ -443,7 +454,8 @@ final class ReportExporter {
                 totalBytesProcessed: totalBytesProcessed,
                 duration: duration,
                 workers: workers,
-                prefs: prefs
+                prefs: prefs,
+                photographerContext: photographerContext
             )
             
             // If checksums were used, auto-export checksum file (no dialog)
@@ -563,8 +575,29 @@ final class ReportExporter {
                                           to url: URL,
                                           started: Date,
                                           duration: TimeInterval,
-                                          filesPerSecond: Double) throws {
-        var csvContent = "Status,File Path,Target Path,Details,Timestamp\n"
+                                          filesPerSecond: Double,
+                                          photographerContext: PhotographerReportContext? = nil) throws {
+        let csvContent = try makeEnhancedCSV(
+            results: results,
+            started: started,
+            duration: duration,
+            filesPerSecond: filesPerSecond,
+            photographerContext: photographerContext
+        )
+        try csvContent.data(using: .utf8)?.write(to: url)
+    }
+
+    static func makeEnhancedCSV(
+        results: [ResultRow],
+        started: Date,
+        duration: TimeInterval,
+        filesPerSecond: Double,
+        photographerContext: PhotographerReportContext?
+    ) throws -> String {
+        let payload = try photographerContext.map {
+            try PhotographerReportPayload.make(context: $0, results: results)
+        }
+        var csvContent = "Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp\n"
         
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime]
@@ -573,6 +606,11 @@ final class ReportExporter {
             let status = escapeCSV(result.status)
             let path = escapeCSV(result.path)
             let target = escapeCSV(result.destinationPath ?? result.destination ?? "—")
+            let job = escapeCSV(payload?.jobName ?? "")
+            let photographer = escapeCSV(payload?.card.provenance.photographerName ?? "")
+            let camera = escapeCSV(payload?.card.provenance.cameraName ?? "")
+            let card = payload.map { String(format: "Card %03d", $0.card.provenance.cardNumber) } ?? ""
+            let packagePath = escapeCSV(payload?.card.renderedRelativePath ?? "")
             let details = isMatchStatus(result.status) ? "Verified" : result.status
             
             // Calculate estimated timestamp based on processing speed
@@ -583,7 +621,7 @@ final class ReportExporter {
             let clampedTime = estimatedTime > completionTime ? completionTime : estimatedTime
             let timestamp = dateFormatter.string(from: clampedTime)
             
-            csvContent += "\(status),\(path),\(target),\(details),\(timestamp)\n"
+            csvContent += "\(status),\(path),\(target),\(job),\(photographer),\(camera),\(card),\(packagePath),\(escapeCSV(details)),\(timestamp)\n"
         }
         
         // Add summary at the end
@@ -594,7 +632,7 @@ final class ReportExporter {
         csvContent += "Duration,\(String(format: "%.2f", duration)) seconds\n"
         csvContent += "Files/Second,\(String(format: "%.2f", filesPerSecond))\n"
         
-        try csvContent.data(using: .utf8)?.write(to: url)
+        return csvContent
     }
     
     // MARK: - Enhanced JSON Report Export (FIXED)
@@ -611,8 +649,47 @@ final class ReportExporter {
                                                  totalBytesProcessed: Int64,
                                                  duration: TimeInterval,
                                                  workers: Int,
-                                                 prefs: ReportPrefs) throws {
-        
+                                                 prefs: ReportPrefs,
+                                                 photographerContext: PhotographerReportContext? = nil) throws {
+        let report = try makeEnhancedJSONReport(
+            results: results,
+            jobID: jobID,
+            started: started,
+            finished: finished,
+            mode: mode,
+            sourceURL: sourceURL,
+            destinationURLs: destinationURLs,
+            fileCount: fileCount,
+            matchCount: matchCount,
+            totalBytesProcessed: totalBytesProcessed,
+            duration: duration,
+            workers: workers,
+            prefs: prefs,
+            photographerContext: photographerContext
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(report)
+        try data.write(to: url)
+    }
+
+    static func makeEnhancedJSONReport(
+        results: [ResultRow],
+        jobID: UUID,
+        started: Date,
+        finished: Date,
+        mode: AppMode,
+        sourceURL: URL?,
+        destinationURLs: [URL],
+        fileCount: Int,
+        matchCount: Int,
+        totalBytesProcessed: Int64,
+        duration: TimeInterval,
+        workers: Int,
+        prefs: ReportPrefs,
+        photographerContext: PhotographerReportContext?
+    ) throws -> EnhancedJSONReport {
         // Calculate file extensions breakdown
         var extensions: [String: Int] = [:]
         var largestFile: EnhancedJSONReport.FileInfo?
@@ -726,8 +803,8 @@ final class ReportExporter {
         }
         
         // Create the enhanced report
-        let report = EnhancedJSONReport(
-            reportVersion: "2.0",
+        return EnhancedJSONReport(
+            reportVersion: "3.0",
             timestamp: finished,
             jobId: jobID,
             mode: mode == .copyAndVerify ? "copy-and-verify" : mode == .compareFolders ? "compare-folders" : "master-report",
@@ -761,15 +838,11 @@ final class ReportExporter {
                 issuesByType: issuesByType,
                 checksumCache: nil // Would need to track cache stats during operation
             ),
-            results: results.map { JSONReportItem(from: $0) }
+            results: results.map { JSONReportItem(from: $0) },
+            photographyJob: try photographerContext.map {
+                try PhotographerReportPayload.make(context: $0, results: results, finishedAt: finished)
+            }
         )
-        
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        
-        let data = try encoder.encode(report)
-        try data.write(to: url)
     }
     
     #if os(macOS)

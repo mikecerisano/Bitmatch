@@ -12,6 +12,31 @@ struct CopyVerifyConfig {
     let estimatedFiles: Int
     let estimatedBytes: Int64
     let currentMode: AppMode
+    let photographerContext: PhotographerReportContext?
+
+    init(
+        operationId: UUID,
+        sourceURL: URL,
+        destinationURLs: [URL],
+        verificationMode: VerificationMode,
+        cameraLabelSettings: CameraLabelSettings,
+        reportSettings: ReportPrefs,
+        estimatedFiles: Int,
+        estimatedBytes: Int64,
+        currentMode: AppMode,
+        photographerContext: PhotographerReportContext? = nil
+    ) {
+        self.operationId = operationId
+        self.sourceURL = sourceURL
+        self.destinationURLs = destinationURLs
+        self.verificationMode = verificationMode
+        self.cameraLabelSettings = cameraLabelSettings
+        self.reportSettings = reportSettings
+        self.estimatedFiles = estimatedFiles
+        self.estimatedBytes = estimatedBytes
+        self.currentMode = currentMode
+        self.photographerContext = photographerContext
+    }
 }
 
 /// Callbacks for operation progress and results
@@ -295,7 +320,8 @@ final class CopyVerifyExecutor {
                 prefs: reportConfig.reportSettings,
                 workers: workers,
                 totalBytesProcessed: totalBytesProcessed,
-                generateFullReport: reportConfig.reportSettings.makeReport
+                generateFullReport: reportConfig.reportSettings.makeReport,
+                photographerContext: reportConfig.photographerContext
             )
         }
         #else

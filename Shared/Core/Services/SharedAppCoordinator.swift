@@ -34,6 +34,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var verificationMode: VerificationMode = .standard
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
+    var photographerReportContext: PhotographerReportContext?
 
     // MARK: - Operation State
     @Published var isOperationInProgress = false
@@ -278,7 +279,8 @@ class SharedAppCoordinator: ObservableObject {
             reportSettings: reportSettings,
             estimatedFiles: sourceFolderInfo?.fileCount ?? 100,
             estimatedBytes: sourceFolderInfo?.totalSize ?? 1_000_000_000,
-            currentMode: currentMode
+            currentMode: currentMode,
+            photographerContext: photographerReportContext
         )
 
         let callbacks = CopyVerifyCallbacks(

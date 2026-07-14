@@ -28,18 +28,12 @@ struct ReportView: View {
         let averageSpeed: Double // MB/s
         let clientLogoData: Data?
         let companyLogoData: Data?
+        let photographyJob: PhotographerReportPayload?
     }
 
     let s: Summary
     let rows: [ResultRow]
 
-    private static let mediaExtensions: Set<String> = [
-        "MOV", "MP4", "M4V", "MXF", "R3D", "BRAW", "MPG", "MPEG", "AVI", "WMV",
-        "ARW", "CR2", "CR3", "NEF", "RAF", "RW2", "DNG", "RAW", "SR2", "ORF",
-        "JPG", "JPEG", "PNG", "TIFF", "TIF", "BMP", "HEIC", "HEIF", "GIF",
-        "WAV", "AIFF", "AIF", "MP3", "AAC", "FLAC", "M4A"
-    ]
-    
     private var duration: String {
         let interval = s.finished.timeIntervalSince(s.started)
         let formatter = DateComponentsFormatter()
@@ -86,7 +80,7 @@ struct ReportView: View {
     }
     
     private var manifestPreview: [ResultRow] {
-        ResultPresentation.mediaRows(rows, allowedExtensions: Self.mediaExtensions)
+        rows
     }
 
     private var integritySummary: ResultIntegritySummary {
@@ -117,6 +111,11 @@ struct ReportView: View {
             
             // Summary Section
             summarySection
+
+            if s.photographyJob != nil {
+                Divider().padding(.vertical, 12)
+                photographyJobSection
+            }
             
             Divider().padding(.vertical, 12)
             
@@ -307,6 +306,79 @@ struct ReportView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var photographyJobSection: some View {
+        if let payload = s.photographyJob {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Photography Job")
+                    .font(.system(size: 14, weight: .semibold))
+
+                Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
+                    GridRow {
+                        photographyLabel("Job", payload.jobName)
+                        photographyLabel("Client", payload.clientName)
+                    }
+                    GridRow {
+                        photographyLabel("Event", payload.eventType.rawValue)
+                        photographyLabel("Event date", payload.eventDate.formatted(date: .long, time: .omitted))
+                    }
+                    GridRow {
+                        photographyLabel("Photographer", payload.card.provenance.photographerName)
+                        photographyLabel("Camera", payload.card.provenance.cameraName)
+                    }
+                    GridRow {
+                        photographyLabel("Card", String(format: "Card %03d", payload.card.provenance.cardNumber))
+                        photographyLabel(
+                            "Verified copies",
+                            "\(payload.verifiedDestinationCount) exact / \(payload.requiredLocalCopyCount) required"
+                        )
+                    }
+                    GridRow {
+                        photographyLabel("RAW", "\(payload.companionCounts.raw)")
+                        photographyLabel("JPEG", "\(payload.companionCounts.jpeg)")
+                    }
+                    GridRow {
+                        photographyLabel("Sidecars", "\(payload.companionCounts.sidecar)")
+                        photographyLabel(
+                            "Locally safe",
+                            payload.locallySafeAt?.formatted(date: .abbreviated, time: .standard) ?? "—"
+                        )
+                    }
+                }
+
+                photographyPath("Package", payload.card.renderedRelativePath)
+                photographyPath("Preliminary fingerprint", payload.card.provenance.preliminaryFingerprint ?? "—")
+                photographyPath("Confirmed fingerprint", payload.card.provenance.confirmedFingerprint ?? "—")
+
+                ForEach(Array(payload.warnings.enumerated()), id: \.offset) { _, warning in
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+            }
+        }
+    }
+
+    private func photographyLabel(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 9)).foregroundColor(.secondary)
+            Text(value).font(.system(size: 11, weight: .medium))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func photographyPath(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(title):")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .frame(width: 110, alignment: .trailing)
+            Text(value)
+                .font(.system(size: 9, design: .monospaced))
+                .textSelection(.enabled)
+        }
+    }
     
     @ViewBuilder
     private var environmentSection: some View {
@@ -397,11 +469,11 @@ struct ReportView: View {
     @ViewBuilder
     private var manifestSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Media Files Transferred")
+            Text("Complete Result Manifest")
                 .font(.system(size: 14, weight: .semibold))
             
             if manifestPreview.isEmpty {
-                Text("No media files detected in this run.")
+                Text("No result rows were recorded in this run.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             } else {

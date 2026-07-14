@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Photographer jobs: Add persistent job, photographer, camera, and card identities with reusable folder recipes and preserved local card packages.
+- Safety: Require exact verified local-copy manifests before a card becomes locally safe, and surface duplicate-card fingerprint warnings without discarding sidecars or failed rows.
+- Reporting: Add photographer-aware PDF, CSV, and enhanced JSON provenance with package paths, companion counts, fingerprints, exact-copy evidence, warnings, and complete authoritative results.
+
 ## [0.1.3] - 2026-07-13
 - Safety: Reject files that grow, shrink, or change identity during checksum or byte verification, including mismatch paths.
 - Safety: Build one fail-closed source manifest and use it for preflight counts, bytes, copying, verification, and final results.
