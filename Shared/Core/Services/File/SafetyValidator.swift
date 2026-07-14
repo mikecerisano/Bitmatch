@@ -175,6 +175,55 @@ final class SafetyValidator {
     }
 
     static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
+        guard let components = settings.destinationPathComponents else {
+            return legacyResolvedDestinationRoot(source: source, destination: destination, settings: settings)
+        }
+
+        return components.reduce(destination) { root, component in
+            root.appendingPathComponent(CameraLabelSettings.sanitizePathComponent(component))
+        }
+    }
+
+    static func resolvedDestinationRootChecked(
+        source: URL,
+        destination: URL,
+        settings: CameraLabelSettings
+    ) throws -> URL {
+        guard let components = settings.destinationPathComponents else {
+            return legacyResolvedDestinationRoot(source: source, destination: destination, settings: settings)
+        }
+
+        guard !components.isEmpty else {
+            throw FileOperationError.unsafeOperation("Destination path components cannot be empty")
+        }
+
+        var root = destination
+        for (index, component) in components.enumerated() {
+            let sanitized = CameraLabelSettings.sanitizePathComponent(component)
+            guard sanitized != "untitled" || component == "untitled" else {
+                throw FileOperationError.unsafeOperation(
+                    "Invalid destination path component at index \(index)"
+                )
+            }
+
+            let nextRoot = root.appendingPathComponent(sanitized)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: nextRoot.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue {
+                throw FileOperationError.unsafeOperation(
+                    "\(nextRoot.lastPathComponent) already exists and is not a folder"
+                )
+            }
+            root = nextRoot
+        }
+        return root
+    }
+
+    private static func legacyResolvedDestinationRoot(
+        source: URL,
+        destination: URL,
+        settings: CameraLabelSettings
+    ) -> URL {
         let cardName = source.lastPathComponent
         let labeledCardName = settings.formattedFolderName(for: cardName)
 
@@ -189,7 +238,9 @@ final class SafetyValidator {
     }
 
     static func validateResolvedDestinationRoots(source: URL, destinations: [URL], settings: CameraLabelSettings) throws {
-        let roots = destinations.map { resolvedDestinationRoot(source: source, destination: $0, settings: settings) }
+        let roots = try destinations.map {
+            try resolvedDestinationRootChecked(source: source, destination: $0, settings: settings)
+        }
         let rootPaths = roots.map { canonicalPath($0) }
 
         guard Set(rootPaths).count == rootPaths.count else {

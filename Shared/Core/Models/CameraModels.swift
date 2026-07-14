@@ -66,6 +66,7 @@ struct CameraLabelSettings: Codable {
     var autoNumber: Bool = true
     var groupByCamera: Bool = false
     var generateUniqueName: Bool = true
+    var destinationPathComponents: [String]? = nil
 
     /// Sanitizes a string for safe use as a folder/file name component.
     /// Prevents path traversal attacks and removes dangerous characters.
