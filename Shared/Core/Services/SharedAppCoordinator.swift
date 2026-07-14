@@ -214,6 +214,7 @@ class SharedAppCoordinator: ObservableObject {
     func startOperation() async {
         guard activeStartID == nil, !isOperationInProgress else { return }
         guard let sourceURL = sourceURL, !destinationURLs.isEmpty else {
+            operationState = .failed
             await platformManager.presentAlert(
                 title: "Invalid Selection",
                 message: "Please select a source folder and at least one destination folder."
@@ -257,6 +258,7 @@ class SharedAppCoordinator: ObservableObject {
                 settings: cameraLabelSettings
             )
         } catch {
+            operationState = .failed
             await platformManager.presentError(error)
             return
         }

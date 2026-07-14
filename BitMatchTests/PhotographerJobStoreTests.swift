@@ -127,6 +127,21 @@ struct PhotographerJobStoreTests {
     }
 
     @MainActor
+    @Test func persistentStoreLoadFailureDoesNotCrashAndRepositoryFailsClosed() throws {
+        let persistence = BitMatchPersistenceController(
+            forcedStoreLoadError: NSError(domain: "StoreLoad", code: 1)
+        )
+        let store = CoreDataPhotographerJobStore(persistence: persistence)
+
+        #expect(throws: PhotographerStoreError.persistentStoreUnavailable) {
+            try store.jobs()
+        }
+        #expect(throws: PhotographerStoreError.persistentStoreUnavailable) {
+            try store.save(makeJob(id: uuid(999), name: "Never Saved", updatedAt: date(200)))
+        }
+    }
+
+    @MainActor
     private func makeStore() -> (BitMatchPersistenceController, CoreDataPhotographerJobStore) {
         let persistence = BitMatchPersistenceController(inMemory: true)
         return (

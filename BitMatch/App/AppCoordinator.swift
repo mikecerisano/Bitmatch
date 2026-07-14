@@ -72,18 +72,13 @@ final class AppCoordinator: ObservableObject {
         progressViewModel.setProgressMessage("Preparing transfer…")
         progressViewModel.startProgressTracking()
 
-        if currentMode == .copyAndVerify,
-           photographerJobViewModel.activeCardDraft != nil,
-           fileSelectionViewModel.sourceURL != nil,
-           !fileSelectionViewModel.destinationURLs.isEmpty {
-            photographerJobViewModel.beginIngest(
-                destinationCount: fileSelectionViewModel.destinationURLs.count
-            )
-        }
-
         Task { @MainActor in
             switch currentMode {
-            case .copyAndVerify: await sharedCoordinator.startOperation()
+            case .copyAndVerify:
+                await sharedCoordinator.startOperation()
+                if photographerJobViewModel.activeCard?.localState == .notStarted {
+                    photographerJobViewModel.operationFailed()
+                }
             case .compareFolders: await sharedCoordinator.compareFolders()
             case .masterReport: break
             }
@@ -92,7 +87,6 @@ final class AppCoordinator: ObservableObject {
 
     func cancelOperation() {
         sharedCoordinator.cancelOperation()
-        photographerJobViewModel.cancelIngest()
     }
 
     func togglePause() {
@@ -153,9 +147,7 @@ final class AppCoordinator: ObservableObject {
         if let photographerJobViewModel {
             self.photographerJobViewModel = photographerJobViewModel
         } else {
-            let store = CoreDataPhotographerJobStore(
-                context: BitMatchPersistenceController.shared.container.viewContext
-            )
+            let store = CoreDataPhotographerJobStore(persistence: BitMatchPersistenceController.shared)
             self.photographerJobViewModel = PhotographerJobViewModel(store: store)
         }
         setupFileSelectionBindings()
@@ -240,8 +232,15 @@ final class AppCoordinator: ObservableObject {
                 var msg = prog.currentStage.displayName
                 if let name = prog.currentFile, !name.isEmpty { msg += " — \(name)" }
                 self.progressViewModel.setProgressMessage(msg)
-                self.photographerJobViewModel.updateProgressStage(prog.currentStage)
             }.store(in: &cancellables)
+
+        // Lifecycle consumes every authoritative progress publication. The
+        // throttled subscription above exists only to pace presentation work.
+        sharedCoordinator.$progress.compactMap { $0 }
+            .sink { [weak self] progress in
+                self?.photographerJobViewModel.updateProgressStage(progress.currentStage)
+            }
+            .store(in: &cancellables)
 
         // Map operation state for progress timer management
         sharedCoordinator.$operationState.sink { [weak self] state in
@@ -252,6 +251,16 @@ final class AppCoordinator: ObservableObject {
                 if self.progressViewModel.progressMessage == "Ready" {
                     self.progressViewModel.setProgressMessage("Preparing transfer…")
                 }
+                switch state {
+                case .inProgress, .copying:
+                    self.photographerJobViewModel.beginIngest(
+                        destinationCount: self.sharedCoordinator.destinationURLs.count
+                    )
+                case .verifying:
+                    self.photographerJobViewModel.updateProgressStage(.verifying)
+                default:
+                    break
+                }
             case .completed:
                 self.progressViewModel.stopProgressTracking()
                 self.lastSharedBytesProcessed = 0
@@ -260,6 +269,8 @@ final class AppCoordinator: ObservableObject {
                 self.lastSharedBytesProcessed = 0
                 if state == .cancelled {
                     self.photographerJobViewModel.cancelIngest()
+                } else {
+                    self.photographerJobViewModel.operationFailed()
                 }
             default: break
             }

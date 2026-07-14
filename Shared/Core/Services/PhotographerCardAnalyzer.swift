@@ -13,6 +13,34 @@ struct CardAnalysis: Codable, Equatable, Sendable {
     let fileCount: Int
     let totalBytes: Int64
     let companionGroups: [PhotoCompanionGroup]
+    let sourcePaths: [String]
+
+    init(
+        fingerprint: String,
+        fileCount: Int,
+        totalBytes: Int64,
+        companionGroups: [PhotoCompanionGroup],
+        sourcePaths: [String] = []
+    ) {
+        self.fingerprint = fingerprint
+        self.fileCount = fileCount
+        self.totalBytes = totalBytes
+        self.companionGroups = companionGroups
+        self.sourcePaths = sourcePaths
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case fingerprint, fileCount, totalBytes, companionGroups, sourcePaths
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fingerprint = try container.decode(String.self, forKey: .fingerprint)
+        fileCount = try container.decode(Int.self, forKey: .fileCount)
+        totalBytes = try container.decode(Int64.self, forKey: .totalBytes)
+        companionGroups = try container.decode([PhotoCompanionGroup].self, forKey: .companionGroups)
+        sourcePaths = try container.decodeIfPresent([String].self, forKey: .sourcePaths) ?? []
+    }
 }
 
 enum CardAnalysisError: Error, Equatable {
@@ -77,7 +105,8 @@ enum PhotographerCardAnalyzer {
             fingerprint: digestString(hasher.finalize()),
             fileCount: entries.count,
             totalBytes: entries.reduce(0) { $0 + $1.size },
-            companionGroups: companionGroups
+            companionGroups: companionGroups,
+            sourcePaths: entries.map(\.url.path).sorted()
         )
     }
 

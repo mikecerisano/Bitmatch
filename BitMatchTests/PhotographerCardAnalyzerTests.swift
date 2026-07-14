@@ -11,6 +11,17 @@ struct PhotographerCardAnalyzerTests {
                 PhotographerCardAnalyzer.preliminaryAnalysis(entries: [b, a]).fingerprint)
     }
 
+    @Test func preliminaryAnalysisRetainsSortedAbsoluteSourcePaths() throws {
+        let entries = [
+            FileEntry(url: URL(fileURLWithPath: "/card/Z.JPG"), relativePath: "Z.JPG", size: 5, modificationDate: nil),
+            FileEntry(url: URL(fileURLWithPath: "/card/A.ARW"), relativePath: "A.ARW", size: 10, modificationDate: nil)
+        ]
+
+        let analysis = try PhotographerCardAnalyzer.preliminaryAnalysis(entries: entries)
+
+        #expect(analysis.sourcePaths == ["/card/A.ARW", "/card/Z.JPG"])
+    }
+
     @Test func rawAndJpegWithSameStemFormOneGroup() throws {
         let entries = [
             FileEntry(url: URL(fileURLWithPath: "/c/A.ARW"), relativePath: "A.ARW", size: 10, modificationDate: nil),

@@ -316,8 +316,15 @@ class PreferencesWindowController: NSWindowController {
 
 #if DEBUG
 struct PreferencesWindow_Previews: PreviewProvider {
+    @MainActor
     static var previews: some View {
-        PreferencesWindow(coordinator: AppCoordinator())
+        let persistence = BitMatchPersistenceController(inMemory: true)
+        let store = CoreDataPhotographerJobStore(persistence: persistence)
+        return PreferencesWindow(
+            coordinator: AppCoordinator(
+                photographerJobViewModel: PhotographerJobViewModel(store: store)
+            )
+        )
     }
 }
 #endif

@@ -203,6 +203,135 @@ struct PhotographerJobViewModelTests {
         #expect(store.saveCount == 4)
     }
 
+    @Test func terminalStatesIgnoreDelayedProgressCancellationAndRepeatCompletion() throws {
+        for terminalState in PhotographerLocalState.terminalStates {
+            let store = InMemoryPhotographerJobStore()
+            let viewModel = preparedViewModel(store: store)
+            viewModel.beginIngest(destinationCount: 2)
+            switch terminalState {
+            case .locallySafe:
+                try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary", "Secondary"]))
+            case .issues:
+                try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary"]))
+            case .cancelled:
+                viewModel.cancelIngest()
+            default:
+                Issue.record("Expected terminal state")
+            }
+
+            viewModel.updateProgressStage(.copying)
+            viewModel.updateProgressStage(.verifying)
+            viewModel.cancelIngest()
+            try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary", "Secondary"]))
+
+            #expect(viewModel.activeCard?.localState == terminalState)
+        }
+    }
+
+    @Test func equalDestinationCountsWithDifferentPathSetsAreIssues() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore(), sourcePaths: ["/card/A.ARW", "/card/B.JPG"])
+        viewModel.beginIngest(destinationCount: 2)
+        let rows = [
+            verifiedRow(path: "/card/A.ARW", checksum: "aaa", destination: "Primary"),
+            verifiedRow(path: "/card/B.JPG", checksum: "bbb", destination: "Primary"),
+            verifiedRow(path: "/card/A.ARW", checksum: "aaa", destination: "Secondary"),
+            verifiedRow(path: "/card/C.JPG", checksum: "ccc", destination: "Secondary")
+        ]
+
+        try viewModel.completeIngest(results: rows)
+
+        #expect(viewModel.activeCard?.localState == .issues)
+    }
+
+    @Test func preparedPathMissingFromEveryResultIsIssues() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore(), sourcePaths: ["/card/A.ARW", "/card/B.JPG"])
+        viewModel.beginIngest(destinationCount: 2)
+        let rows = ["Primary", "Secondary"].flatMap { destination in
+            [verifiedRow(path: "/card/A.ARW", checksum: "aaa", destination: destination)]
+        }
+
+        try viewModel.completeIngest(results: rows)
+
+        #expect(viewModel.activeCard?.localState == .issues)
+    }
+
+    @Test func duplicateRowsForOneSourceAreIssues() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+        viewModel.beginIngest(destinationCount: 2)
+        var rows = verifiedRows(destinationNames: ["Primary", "Secondary"])
+        rows.append(verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Secondary"))
+
+        try viewModel.completeIngest(results: rows)
+
+        #expect(viewModel.activeCard?.localState == .issues)
+    }
+
+    @Test func crossDestinationChecksumDisagreementIsIssues() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+        viewModel.beginIngest(destinationCount: 2)
+        let rows = [
+            verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Primary"),
+            verifiedRow(path: "/card/A.ARW", checksum: "different", destination: "Secondary")
+        ]
+
+        try viewModel.completeIngest(results: rows)
+
+        #expect(viewModel.activeCard?.localState == .issues)
+    }
+
+    @Test func blankSourceDestinationOrChecksumIsIssues() throws {
+        let invalidRows = [
+            verifiedRow(path: "   ", checksum: "abc", destination: "Primary"),
+            ResultRow(path: "/card/A.ARW", status: "✅ Verified", size: 100, checksum: "abc", destination: "Primary", destinationPath: "  "),
+            verifiedRow(path: "/card/A.ARW", checksum: " \t", destination: "Primary")
+        ]
+
+        for invalidRow in invalidRows {
+            let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+            viewModel.beginIngest(destinationCount: 2)
+            try viewModel.completeIngest(results: [invalidRow, verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Secondary")])
+            #expect(viewModel.activeCard?.localState == .issues)
+        }
+    }
+
+    @Test func safeTransitionPublishesOnlyAfterDurableSave() throws {
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = preparedViewModel(store: store)
+        viewModel.beginIngest(destinationCount: 2)
+        viewModel.updateProgressStage(.verifying)
+        store.errorOnSave = TestStoreError.saveFailed
+
+        #expect(throws: TestStoreError.saveFailed) {
+            try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary", "Secondary"]))
+        }
+
+        #expect(viewModel.activeCard?.localState == .verifying)
+        #expect(viewModel.activeCard?.locallySafeAt == nil)
+        #expect(viewModel.lastError == TestStoreError.saveFailed.localizedDescription)
+    }
+
+    @Test func canonicalDestinationSelectionIsDeterministic() throws {
+        var analyzedDestinationPaths: [[String]] = []
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = PhotographerJobViewModel(
+            store: store,
+            now: { now },
+            confirmedAnalyzer: { rows in
+                analyzedDestinationPaths.append(rows.compactMap(\.destinationPath))
+                return "confirmed"
+            }
+        )
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony", analysis: analysis("preliminary"))
+        viewModel.beginIngest(destinationCount: 2)
+        let secondary = verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Secondary")
+        let primary = verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Primary")
+
+        try viewModel.completeIngest(results: [secondary, primary])
+
+        #expect(analyzedDestinationPaths == [["/primary/A.ARW"]])
+    }
+
     @Test func resetClearsCardSpecificStateAndKeepsJobForNextCard() throws {
         let store = InMemoryPhotographerJobStore()
         let viewModel = preparedViewModel(store: store)
@@ -222,19 +351,22 @@ struct PhotographerJobViewModelTests {
         PhotographerJobViewModel(store: store, now: { now })
     }
 
-    private func preparedViewModel(store: InMemoryPhotographerJobStore) -> PhotographerJobViewModel {
+    private func preparedViewModel(
+        store: InMemoryPhotographerJobStore,
+        sourcePaths: [String] = ["/card/A.ARW"]
+    ) -> PhotographerJobViewModel {
         let viewModel = makeViewModel(store: store)
         viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
         try! viewModel.prepareCard(
             photographerName: "Mike",
             cameraName: "Sony A7 IV",
-            analysis: analysis("preliminary")
+            analysis: analysis("preliminary", sourcePaths: sourcePaths)
         )
         return viewModel
     }
 
-    private func analysis(_ fingerprint: String) -> CardAnalysis {
-        CardAnalysis(fingerprint: fingerprint, fileCount: 1, totalBytes: 100, companionGroups: [])
+    private func analysis(_ fingerprint: String, sourcePaths: [String] = ["/card/A.ARW"]) -> CardAnalysis {
+        CardAnalysis(fingerprint: fingerprint, fileCount: sourcePaths.count, totalBytes: 100, companionGroups: [], sourcePaths: sourcePaths)
     }
 
     private func verifiedRows(destinationNames: [String]) -> [ResultRow] {
@@ -249,6 +381,27 @@ struct PhotographerJobViewModelTests {
             )
         }
     }
+
+    private func verifiedRow(path: String, checksum: String, destination: String) -> ResultRow {
+        ResultRow(
+            path: path,
+            status: "✅ Verified",
+            size: 100,
+            checksum: checksum,
+            destination: destination,
+            destinationPath: "/\(destination.lowercased())/\((path as NSString).lastPathComponent)"
+        )
+    }
+}
+
+private extension PhotographerLocalState {
+    static let terminalStates: [PhotographerLocalState] = [.locallySafe, .issues, .cancelled]
+}
+
+private enum TestStoreError: LocalizedError {
+    case saveFailed
+
+    var errorDescription: String? { "The test store rejected the save." }
 }
 
 @MainActor
@@ -256,10 +409,12 @@ final class InMemoryPhotographerJobStore: PhotographerJobStore {
     private(set) var storedJobs: [PhotographerJob] = []
     private(set) var storedPresets: [PhotographerPreset] = []
     private(set) var saveCount = 0
+    var errorOnSave: Error?
 
     func jobs() throws -> [PhotographerJob] { storedJobs }
 
     func save(_ job: PhotographerJob) throws {
+        if let errorOnSave { throw errorOnSave }
         saveCount += 1
         if let index = storedJobs.firstIndex(where: { $0.id == job.id }) {
             storedJobs[index] = job

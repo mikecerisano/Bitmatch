@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class AppCoordinatorBindingTests: XCTestCase {
     func testFileSelectionChangeNotifiesOnNextRunLoopTurn() {
-        let coordinator = AppCoordinator()
+        let coordinator = makeTestCoordinator()
         drainMainRunLoop()
         let notificationReceived = NotificationState()
         let notification = coordinator.objectWillChange.sink { _ in
@@ -20,7 +20,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
     }
 
     func testSharedCoordinatorStateChangeNotifiesOnNextRunLoopTurn() {
-        let coordinator = AppCoordinator()
+        let coordinator = makeTestCoordinator()
         drainMainRunLoop()
         let notificationReceived = NotificationState()
         let notification = coordinator.objectWillChange.sink { _ in
@@ -37,7 +37,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
     }
 
     func testFilesPerSecondChangeNotifiesOnNextRunLoopTurn() {
-        let coordinator = AppCoordinator()
+        let coordinator = makeTestCoordinator()
         drainMainRunLoop()
         let notificationReceived = NotificationState()
         let notification = coordinator.objectWillChange.sink { _ in
@@ -54,7 +54,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
     }
 
     func testVerificationModeChangeNotifiesOnNextRunLoopTurn() {
-        let coordinator = AppCoordinator()
+        let coordinator = makeTestCoordinator()
         drainMainRunLoop()
         let notificationReceived = NotificationState()
         let notification = coordinator.objectWillChange.sink { _ in
@@ -126,6 +126,55 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .cancelled)
     }
 
+    func testDelayedVerifyingProgressCannotResurrectCompletedCard() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.sharedCoordinator.operationState = .inProgress
+        coordinator.sharedCoordinator.progress = progress(stage: .copying)
+        coordinator.sharedCoordinator.results = [
+            verifiedRow(destination: "Primary"),
+            verifiedRow(destination: "Secondary")
+        ]
+        coordinator.sharedCoordinator.operationState = .completed(
+            OperationCompletionInfo(success: true, message: "Complete")
+        )
+        coordinator.sharedCoordinator.results = coordinator.sharedCoordinator.results
+        coordinator.sharedCoordinator.progress = progress(stage: .verifying)
+
+        waitForPresentationThrottle()
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .locallySafe)
+    }
+
+    func testDelayedCopyingProgressCannotResurrectCancelledCard() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.sharedCoordinator.operationState = .inProgress
+        coordinator.sharedCoordinator.progress = progress(stage: .verifying)
+        coordinator.sharedCoordinator.operationState = .cancelled
+        coordinator.sharedCoordinator.progress = progress(stage: .copying)
+
+        waitForPresentationThrottle()
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .cancelled)
+    }
+
+    func testAcceptedOperationStateBeginsIngestAndFailedOperationEndsInIssues() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+
+        coordinator.sharedCoordinator.operationState = .inProgress
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .copying)
+
+        coordinator.sharedCoordinator.operationState = .failed
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
+    }
+
+    func testRejectedStartEndsPreparedCardInIssuesWithoutMarkingCopying() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+
+        coordinator.sharedCoordinator.operationState = .failed
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .issues)
+    }
+
     private func makePreparedPhotographerCoordinator() throws -> (AppCoordinator, InMemoryPhotographerJobStore) {
         let store = InMemoryPhotographerJobStore()
         let viewModel = PhotographerJobViewModel(
@@ -144,7 +193,8 @@ final class AppCoordinatorBindingTests: XCTestCase {
                 fingerprint: "preliminary",
                 fileCount: 1,
                 totalBytes: 100,
-                companionGroups: []
+                companionGroups: [],
+                sourcePaths: ["/card/A.ARW"]
             )
         )
         return (AppCoordinator(photographerJobViewModel: viewModel), store)
@@ -179,6 +229,16 @@ final class AppCoordinatorBindingTests: XCTestCase {
             nextTurn.fulfill()
         }
         wait(for: [nextTurn], timeout: 1)
+    }
+
+    private func makeTestCoordinator() -> AppCoordinator {
+        AppCoordinator(photographerJobViewModel: PhotographerJobViewModel(store: InMemoryPhotographerJobStore()))
+    }
+
+    private func waitForPresentationThrottle() {
+        let delayed = expectation(description: "presentation throttle drains")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { delayed.fulfill() }
+        wait(for: [delayed], timeout: 1)
     }
 
     private func assertNotificationReceivedOnNextRunLoopTurn(_ notificationReceived: NotificationState) {

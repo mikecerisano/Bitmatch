@@ -64,9 +64,12 @@ final class PhotographerJobViewModel: ObservableObject {
             createdAt: timestamp,
             updatedAt: timestamp
         )
-        activeJob = job
-        clearCardPreparation()
-        persist(job)
+        do {
+            try persistThrowing(job)
+            clearCardPreparation()
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func prepareCard(
@@ -116,14 +119,13 @@ final class PhotographerJobViewModel: ObservableObject {
         )
 
         job.cardIngests.append(card)
-        activeJob = job
+        try persistThrowing(job)
         selectedPhotographerID = photographer.id
         self.cameraName = cameraName
         activeCardDraft = card
         renderedRecipe = rendered
         preliminaryAnalysis = analysis
         duplicateWarning = warning
-        try persistThrowing(job)
     }
 
     func prepareCard(
@@ -165,36 +167,60 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    func operationFailed() {
+        transitionActiveCard(to: .issues) { card in
+            card.locallySafeAt = nil
+            card.provenance.confirmedFingerprint = nil
+        }
+    }
+
     func completeIngest(results: [ResultRow]) throws {
-        guard let requiredCount = activeJob?.requiredLocalCopyCount else { return }
-        let groups = Dictionary(grouping: results, by: destinationIdentity)
-        let verifiedGroups = groups.values.filter { rows in
-            guard !rows.isEmpty,
-                  Set(rows.map(\.path)).count == activeCard?.fileCount else { return false }
-            return rows.allSatisfy(isVerified)
+        guard let requiredCount = activeJob?.requiredLocalCopyCount,
+              !isActiveCardTerminal else { return }
+        let expectedPaths = preliminaryAnalysis?.sourcePaths ?? []
+        let expectedSet = Set(expectedPaths)
+        let identifiedRows = results.compactMap { row -> (String, ResultRow)? in
+            guard let identity = destinationIdentity(for: row) else { return nil }
+            return (identity, row)
+        }
+        let groups = Dictionary(grouping: identifiedRows, by: \.0)
+            .mapValues { $0.map(\.1) }
+        let manifests = groups.mapValues { rows in
+            rows.reduce(into: [String: String]()) { manifest, row in
+                manifest[row.path] = row.checksum ?? ""
+            }
+        }
+        let hasExactEvidence = !expectedPaths.isEmpty
+            && expectedSet.count == expectedPaths.count
+            && expectedPaths.count == activeCard?.fileCount
+            && identifiedRows.count == results.count
+            && groups.count >= requiredCount
+            && groups.values.allSatisfy { rows in
+                rows.count == expectedPaths.count
+                    && Set(rows.map(\.path)) == expectedSet
+                    && rows.allSatisfy(isVerified)
+            }
+        let checksumsAgree = expectedPaths.allSatisfy { path in
+            let checksums = Set(manifests.values.compactMap { $0[path] })
+            return checksums.count == 1 && checksums.first?.isEmpty == false
         }
 
-        guard verifiedGroups.count >= requiredCount else {
-            transitionActiveCard(to: .issues) { card in
-                card.locallySafeAt = nil
-                card.provenance.confirmedFingerprint = nil
-            }
+        guard hasExactEvidence, checksumsAgree else {
+            operationFailed()
             return
         }
 
-        let canonicalRows = uniqueRowsBySource(Array(verifiedGroups[0]))
+        let canonicalRows = groups.sorted { $0.key < $1.key }.first?.value.sorted { $0.path < $1.path } ?? []
+        let fingerprint: String
         do {
-            let fingerprint = try confirmedAnalyzer(canonicalRows)
-            transitionActiveCard(to: .locallySafe) { card in
-                card.locallySafeAt = self.now()
-                card.provenance.confirmedFingerprint = fingerprint
-            }
+            fingerprint = try confirmedAnalyzer(canonicalRows)
         } catch {
-            transitionActiveCard(to: .issues) { card in
-                card.locallySafeAt = nil
-                card.provenance.confirmedFingerprint = nil
-            }
+            operationFailed()
             throw error
+        }
+        try transitionActiveCardThrowing(to: .locallySafe) { card in
+            card.locallySafeAt = self.now()
+            card.provenance.confirmedFingerprint = fingerprint
         }
     }
 
@@ -262,31 +288,39 @@ final class PhotographerJobViewModel: ObservableObject {
         to state: PhotographerLocalState,
         mutate: (inout CardIngest) -> Void = { _ in }
     ) {
-        guard var job = activeJob,
-              let cardID = activeCardDraft?.id,
-              let index = job.cardIngests.firstIndex(where: { $0.id == cardID }) else { return }
-        guard job.cardIngests[index].localState != state else { return }
-
-        job.cardIngests[index].localState = state
-        mutate(&job.cardIngests[index])
-        activeCardDraft = job.cardIngests[index]
-        activeJob = job
-        persist(job)
-    }
-
-    private func persist(_ job: PhotographerJob) {
         do {
-            try persistThrowing(job)
+            try transitionActiveCardThrowing(to: state, mutate: mutate)
         } catch {
             lastError = error.localizedDescription
         }
     }
 
+    private func transitionActiveCardThrowing(
+        to state: PhotographerLocalState,
+        mutate: (inout CardIngest) -> Void = { _ in }
+    ) throws {
+        guard var job = activeJob,
+              let cardID = activeCardDraft?.id,
+              let index = job.cardIngests.firstIndex(where: { $0.id == cardID }) else { return }
+        let currentState = job.cardIngests[index].localState
+        guard currentState != state, canTransition(from: currentState, to: state) else { return }
+
+        job.cardIngests[index].localState = state
+        mutate(&job.cardIngests[index])
+        do {
+            try persistThrowing(job)
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+        activeCardDraft = job.cardIngests[index]
+    }
+
     private func persistThrowing(_ job: PhotographerJob) throws {
         var updated = job
         updated.updatedAt = now()
-        activeJob = updated
         try store.save(updated)
+        activeJob = updated
         if let index = jobs.firstIndex(where: { $0.id == updated.id }) {
             jobs[index] = updated
         } else {
@@ -296,29 +330,51 @@ final class PhotographerJobViewModel: ObservableObject {
         lastError = nil
     }
 
-    private func destinationIdentity(for row: ResultRow) -> String {
-        if let destinationPath = row.destinationPath, !destinationPath.isEmpty {
-            let pathComponents = URL(fileURLWithPath: destinationPath).pathComponents
+    private func destinationIdentity(for row: ResultRow) -> String? {
+        if let destinationPath = nonblank(row.destinationPath) {
+            let pathComponents = URL(fileURLWithPath: destinationPath).standardized.pathComponents
             if let recipeComponents = renderedRecipe?.components,
                let recipeStart = pathComponents.firstSubsequenceIndex(of: recipeComponents) {
                 let packageEnd = recipeStart + recipeComponents.count
                 return NSString.path(withComponents: Array(pathComponents[..<packageEnd]))
             }
-            return URL(fileURLWithPath: destinationPath).deletingLastPathComponent().path
+            return URL(fileURLWithPath: destinationPath).standardized.deletingLastPathComponent().path
         }
-        if let destination = row.destination, !destination.isEmpty {
+        if let destination = nonblank(row.destination) {
             return destination
         }
-        return "missing-destination-\(row.id.uuidString)"
+        return nil
     }
 
     private func isVerified(_ row: ResultRow) -> Bool {
-        row.isSuccessStatus && !(row.checksum?.isEmpty ?? true) && row.destinationPath != nil
+        row.isSuccessStatus
+            && nonblank(row.path) != nil
+            && nonblank(row.checksum) != nil
+            && nonblank(row.destinationPath) != nil
     }
 
-    private func uniqueRowsBySource(_ rows: [ResultRow]) -> [ResultRow] {
-        var paths = Set<String>()
-        return rows.sorted { $0.path < $1.path }.filter { paths.insert($0.path).inserted }
+    private var isActiveCardTerminal: Bool {
+        guard let state = activeCard?.localState else { return false }
+        return state == .locallySafe || state == .issues || state == .cancelled
+    }
+
+    private func canTransition(from current: PhotographerLocalState, to next: PhotographerLocalState) -> Bool {
+        switch current {
+        case .locallySafe, .issues, .cancelled:
+            return false
+        case .notStarted:
+            return next == .copying || next == .issues || next == .cancelled
+        case .copying:
+            return next == .verifying || next == .locallySafe || next == .issues || next == .cancelled
+        case .verifying:
+            return next == .locallySafe || next == .issues || next == .cancelled
+        }
+    }
+
+    private func nonblank(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 
     private func clearCardPreparation() {

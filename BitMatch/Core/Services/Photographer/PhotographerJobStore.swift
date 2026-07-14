@@ -3,6 +3,7 @@ import Foundation
 
 enum PhotographerStoreError: Error, Equatable {
     case corruptRecord(UUID)
+    case persistentStoreUnavailable
 }
 
 @MainActor
@@ -22,12 +23,20 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     }
 
     private let context: NSManagedObjectContext
+    private let storeIsAvailable: () -> Bool
 
     init(context: NSManagedObjectContext) {
         self.context = context
+        self.storeIsAvailable = { true }
+    }
+
+    init(persistence: BitMatchPersistenceController) {
+        self.context = persistence.container.viewContext
+        self.storeIsAvailable = { persistence.isStoreLoaded }
     }
 
     func jobs() throws -> [PhotographerJob] {
+        try requireStore()
         let request = NSFetchRequest<NSManagedObject>(entityName: Entity.job)
         request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
         return try context.fetch(request).map { record in
@@ -36,14 +45,21 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     }
 
     func save(_ job: PhotographerJob) throws {
-        let record = try record(for: job.id, entityName: Entity.job)
-        record.setValue(job.id, forKey: "id")
-        record.setValue(job.updatedAt, forKey: "updatedAt")
-        record.setValue(try encode(job), forKey: "payload")
-        try saveIfNeeded()
+        try requireStore()
+        do {
+            let record = try record(for: job.id, entityName: Entity.job)
+            record.setValue(job.id, forKey: "id")
+            record.setValue(job.updatedAt, forKey: "updatedAt")
+            record.setValue(try encode(job), forKey: "payload")
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     func deleteJob(id: UUID) throws {
+        try requireStore()
         if let record = try existingRecord(for: id, entityName: Entity.job) {
             context.delete(record)
         }
@@ -51,6 +67,7 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     }
 
     func presets() throws -> [PhotographerPreset] {
+        try requireStore()
         let request = NSFetchRequest<NSManagedObject>(entityName: Entity.preset)
         return try context.fetch(request)
             .map { record in
@@ -62,11 +79,17 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     }
 
     func save(_ preset: PhotographerPreset) throws {
-        let record = try record(for: preset.id, entityName: Entity.preset)
-        record.setValue(preset.id, forKey: "id")
-        record.setValue(Date(), forKey: "updatedAt")
-        record.setValue(try encode(preset), forKey: "payload")
-        try saveIfNeeded()
+        try requireStore()
+        do {
+            let record = try record(for: preset.id, entityName: Entity.preset)
+            record.setValue(preset.id, forKey: "id")
+            record.setValue(Date(), forKey: "updatedAt")
+            record.setValue(try encode(preset), forKey: "payload")
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     private func record(for id: UUID, entityName: String) throws -> NSManagedObject {
@@ -108,6 +131,12 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     private func saveIfNeeded() throws {
         if context.hasChanges {
             try context.save()
+        }
+    }
+
+    private func requireStore() throws {
+        guard storeIsAvailable() else {
+            throw PhotographerStoreError.persistentStoreUnavailable
         }
     }
 }
