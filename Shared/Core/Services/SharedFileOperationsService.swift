@@ -429,8 +429,9 @@ class SharedFileOperationsService: FileOperationsService {
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
         for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
-            // Compute destination root folder, honoring camera grouping settings
-            let destFolder = SafetyValidator.resolvedDestinationRoot(
+            // Re-check the destination layout immediately before creating it so a
+            // post-preflight symlink substitution fails closed.
+            let destFolder = try SafetyValidator.resolvedDestinationRootChecked(
                 source: operation.sourceURL,
                 destination: destinationURL,
                 settings: operation.settings

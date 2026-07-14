@@ -198,7 +198,14 @@ final class SafetyValidator {
         }
 
         var root = destination
+        var firstSymbolicLink: URL?
         for (index, component) in components.enumerated() {
+            guard !containsTraversalComponent(component) else {
+                throw FileOperationError.unsafeOperation(
+                    "Invalid destination path component at index \(index)"
+                )
+            }
+
             let sanitized = CameraLabelSettings.sanitizePathComponent(component)
             guard sanitized != "untitled" || component == "untitled" else {
                 throw FileOperationError.unsafeOperation(
@@ -207,6 +214,10 @@ final class SafetyValidator {
             }
 
             let nextRoot = root.appendingPathComponent(sanitized)
+            if (try? FileManager.default.destinationOfSymbolicLink(atPath: nextRoot.path)) != nil,
+               firstSymbolicLink == nil {
+                firstSymbolicLink = nextRoot
+            }
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: nextRoot.path, isDirectory: &isDirectory),
                !isDirectory.boolValue {
@@ -216,7 +227,71 @@ final class SafetyValidator {
             }
             root = nextRoot
         }
+
+        guard destinationRootIsContained(root, within: destination) else {
+            throw FileOperationError.unsafeOperation("Resolved destination root escapes destination root")
+        }
+        if let firstSymbolicLink {
+            throw FileOperationError.unsafeOperation(
+                "\(firstSymbolicLink.lastPathComponent) is a symbolic link"
+            )
+        }
         return root
+    }
+
+    private static func containsTraversalComponent(_ component: String) -> Bool {
+        var decoded = component
+        var iterations = 0
+        while let next = decoded.removingPercentEncoding,
+              next != decoded,
+              iterations < 5 {
+            decoded = next
+            iterations += 1
+        }
+
+        return decoded
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .contains { segment in
+                let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed == "." || trimmed == ".."
+            }
+    }
+
+    private static func destinationRootIsContained(_ root: URL, within destination: URL) -> Bool {
+        let standardizedRoot = root.standardizedFileURL.path
+        let standardizedDestination = destination.standardizedFileURL.path
+        guard pathIsStrictlyWithin(standardizedRoot, root: standardizedDestination) else {
+            return false
+        }
+
+        let canonicalRoot = canonicalPathResolvingExistingPrefixes(root)
+        let canonicalDestination = canonicalPathResolvingExistingPrefixes(destination)
+        return pathIsStrictlyWithin(canonicalRoot, root: canonicalDestination)
+    }
+
+    private static func canonicalPathResolvingExistingPrefixes(_ url: URL) -> String {
+        var resolved = URL(fileURLWithPath: "/", isDirectory: true)
+
+        for component in url.standardizedFileURL.pathComponents.dropFirst() {
+            let candidate = resolved.appendingPathComponent(component)
+            guard let linkDestination = try? FileManager.default.destinationOfSymbolicLink(
+                atPath: candidate.path
+            ) else {
+                resolved = candidate
+                continue
+            }
+
+            let target: URL
+            if linkDestination.hasPrefix("/") {
+                target = URL(fileURLWithPath: linkDestination)
+            } else {
+                target = candidate.deletingLastPathComponent().appendingPathComponent(linkDestination)
+            }
+            resolved = target.standardizedFileURL.resolvingSymlinksInPath()
+        }
+
+        return resolved.standardizedFileURL.path
     }
 
     private static func legacyResolvedDestinationRoot(
@@ -385,6 +460,13 @@ final class SafetyValidator {
         let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
         let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
         guard candidateComponents.count >= rootComponents.count else { return false }
+        return zip(rootComponents, candidateComponents).allSatisfy(==)
+    }
+
+    private static func pathIsStrictlyWithin(_ candidatePath: String, root rootPath: String) -> Bool {
+        let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
+        let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
+        guard candidateComponents.count > rootComponents.count else { return false }
         return zip(rootComponents, candidateComponents).allSatisfy(==)
     }
 }
