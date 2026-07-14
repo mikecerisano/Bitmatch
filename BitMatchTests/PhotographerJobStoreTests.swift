@@ -16,6 +16,35 @@ struct PhotographerJobStoreTests {
     }
 
     @MainActor
+    @Test func exactVerifiedDestinationCountRoundTrips() throws {
+        let (_, store) = makeStore()
+        var job = makeJob(id: uuid(106), name: "Three Copies", updatedAt: date(200))
+        job.cardIngests = [CardIngest(
+            id: uuid(107),
+            provenance: CardProvenance(
+                photographerID: uuid(108),
+                photographerName: "Mike",
+                cameraName: "Sony",
+                cardNumber: 1,
+                preliminaryFingerprint: "preliminary",
+                confirmedFingerprint: "confirmed"
+            ),
+            sourceDisplayName: "CARD1",
+            renderedRelativePath: "Card-001",
+            localState: .locallySafe,
+            startedAt: date(180),
+            locallySafeAt: date(190),
+            fileCount: 1,
+            totalBytes: 100,
+            verifiedDestinationCount: 3
+        )]
+
+        try store.save(job)
+
+        #expect(try store.jobs().first?.cardIngests.first?.verifiedDestinationCount == 3)
+    }
+
+    @MainActor
     @Test func deletingJobRemovesIt() throws {
         let (_, store) = makeStore()
         let job = makeJob(id: uuid(102), name: "Delete Me", updatedAt: date(200))

@@ -100,12 +100,42 @@ struct PhotographerJobPresentationTests {
     }
 
     @Test func sessionShowsRequiredAndVerifiedCopyCounts() {
-        let job = makeJob(cards: [card(number: 1, state: .locallySafe)], requiredCopies: 2)
+        var completed = card(number: 1, state: .locallySafe)
+        completed.verifiedDestinationCount = 3
+        let job = makeJob(cards: [completed], requiredCopies: 2)
 
         let session = PhotographerSessionPresentation.make(job: job)
 
         #expect(session.requiredCopyTitle == "2 verified local copies required")
-        #expect(session.rows.first?.verifiedCopyTitle == "2 of 2 verified")
+        #expect(session.rows.first?.verifiedCopyTitle == "3 of 2 verified")
+    }
+
+    @Test func startPresentationOwnsEveryPhotographyBlockerString() {
+        let cases: [(PhotographerStartContext, String)] = [
+            (.init(preflightReady: false, isPreparing: false, activeCardState: .notStarted, sourceMatches: true, setupMatches: true, destinationCount: 2, requiredDestinationCount: 2), "Resolve transfer preflight issues"),
+            (.init(preflightReady: true, isPreparing: true, activeCardState: .notStarted, sourceMatches: true, setupMatches: true, destinationCount: 2, requiredDestinationCount: 2), "Card setup is still preparing"),
+            (.init(preflightReady: true, isPreparing: false, activeCardState: nil, sourceMatches: false, setupMatches: false, destinationCount: 2, requiredDestinationCount: 2), "Set up this card before starting"),
+            (.init(preflightReady: true, isPreparing: false, activeCardState: .locallySafe, sourceMatches: true, setupMatches: true, destinationCount: 2, requiredDestinationCount: 2), "Set up the next card before starting"),
+            (.init(preflightReady: true, isPreparing: false, activeCardState: .notStarted, sourceMatches: false, setupMatches: true, destinationCount: 2, requiredDestinationCount: 2), "Source changed; set up the card again"),
+            (.init(preflightReady: true, isPreparing: false, activeCardState: .notStarted, sourceMatches: true, setupMatches: false, destinationCount: 2, requiredDestinationCount: 2), "Setup changed; set up the card again"),
+            (.init(preflightReady: true, isPreparing: false, activeCardState: .notStarted, sourceMatches: true, setupMatches: true, destinationCount: 1, requiredDestinationCount: 2), "Add 1 more destination for this 2-copy job")
+        ]
+
+        for (context, expected) in cases {
+            let presentation = PhotographerStartPresentation.make(context: context)
+            #expect(presentation.blocker == expected)
+            #expect(!presentation.canStart)
+        }
+    }
+
+    @Test func cardIngestDecodesLegacyPayloadWithZeroVerifiedDestinations() throws {
+        let legacy = """
+        {"id":"00000000-0000-0000-0000-000000000202","provenance":{"photographerID":"00000000-0000-0000-0000-000000000201","photographerName":"Mike","cameraName":"Sony","cardNumber":1},"sourceDisplayName":"CARD1","renderedRelativePath":"Card-001","localState":"locallySafe","fileCount":1,"totalBytes":100}
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(CardIngest.self, from: legacy)
+
+        #expect(decoded.verifiedDestinationCount == 0)
     }
 
     @Test func sessionSortsActiveThenNewestCards() {

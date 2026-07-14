@@ -27,6 +27,13 @@ struct TransferPlanView: View {
             optionSummary
             TransferOptionsView(coordinator: coordinator, isExpanded: $optionsExpanded)
             actionArea
+            if let job = coordinator.photographerJobViewModel.dashboardJob,
+               !job.cardIngests.isEmpty {
+                PhotographerSessionDashboard(
+                    viewModel: coordinator.photographerJobViewModel,
+                    job: job
+                )
+            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
@@ -53,7 +60,12 @@ struct TransferPlanView: View {
     }
 
     private var actionArea: some View {
-        let canStart = plan.canStart && coordinator.photographerJobViewModel.activeCardDraft != nil
+        let start = coordinator.photographerJobViewModel.startPresentation(
+            preflightReady: plan.canStart,
+            sourceURL: coordinator.fileSelectionViewModel.sourceURL,
+            destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count
+        )
+        let canStart = start.canStart
         return VStack(alignment: .leading, spacing: 8) {
             if let estimate = coordinator.timeEstimate {
                 Text("Estimated time: \(estimate.formatted) · \(estimate.speedSummary)")
@@ -73,8 +85,8 @@ struct TransferPlanView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(canStart ? Color.green : Color.white.opacity(0.1)))
             .disabled(!canStart)
             .accessibilityLabel(plan.actionTitle)
-            .accessibilityHint(disabledReason ?? "Starts the transfer")
-            if let disabledReason {
+            .accessibilityHint(start.blocker ?? "Starts the transfer")
+            if let disabledReason = start.blocker {
                 Text(disabledReason).font(.system(size: 11)).foregroundColor(.white.opacity(0.58))
             }
         }
@@ -82,16 +94,6 @@ struct TransferPlanView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.035)))
     }
 
-    private var disabledReason: String? {
-        if plan.canStart && coordinator.photographerJobViewModel.activeCardDraft == nil {
-            return "Set up the photography job"
-        }
-        switch plan.status {
-        case .incomplete(let reason), .analyzing(let reason): return reason
-        case .blocked(let reasons): return reasons.first
-        case .ready, .warning: return nil
-        }
-    }
 }
 
 struct TransferPlanSourceCard: View {

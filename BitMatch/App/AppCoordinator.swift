@@ -52,6 +52,15 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - Actions (delegated)
     func startOperation() {
+        if currentMode == .copyAndVerify {
+            let preflightReady = copyAndVerifyPreflightIsReady
+            guard preflightReady,
+                  photographerJobViewModel.isStartEligible(
+                    preflightReady: preflightReady,
+                    sourceURL: fileSelectionViewModel.sourceURL,
+                    destinationCount: fileSelectionViewModel.destinationURLs.count
+                  ) else { return }
+        }
         // Sync macOS VM state into SharedAppCoordinator
         sharedCoordinator.currentMode = currentMode
         var operationSettings = cameraLabelViewModel.destinationLabelSettings
@@ -83,6 +92,37 @@ final class AppCoordinator: ObservableObject {
             case .masterReport: break
             }
         }
+    }
+
+    private var copyAndVerifyPreflightIsReady: Bool {
+        guard let sourceURL = fileSelectionViewModel.sourceURL,
+              !fileSelectionViewModel.destinationURLs.isEmpty,
+              !fileSelectionViewModel.isFetchingSourceInfo else { return false }
+        let destinations = fileSelectionViewModel.destinationURLs
+        let uniquePaths = Set(destinations.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        guard uniquePaths.count == destinations.count,
+              destinations.allSatisfy({ destination in
+                  !SafetyValidator.isProtectedSystemPath(destination)
+                      && SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destination) == nil
+              }) else { return false }
+        do {
+            try SafetyValidator.validateResolvedDestinationRoots(
+                source: sourceURL,
+                destinations: destinations,
+                settings: cameraLabelViewModel.destinationLabelSettings
+            )
+        } catch {
+            return false
+        }
+        if let sourceSize = fileSelectionViewModel.sourceFolderInfo?.totalSize {
+            for destination in destinations {
+                if let available = (try? destination.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity,
+                   Int64(available) < sourceSize + Int64(100 * 1024 * 1024) {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     func cancelOperation() {
@@ -161,6 +201,7 @@ final class AppCoordinator: ObservableObject {
         fileSelectionViewModel.$sourceURL.sink { [weak self] url in
             if let url = url { self?.cameraLabelViewModel.detectCameraWithMemory(at: url) }
             else { self?.cameraLabelViewModel.clearCameraLabel() }
+            self?.photographerJobViewModel.sourceDidChange(to: url)
             self?.updateTimeEstimate()
         }.store(in: &cancellables)
 
@@ -256,7 +297,8 @@ final class AppCoordinator: ObservableObject {
                     switch state {
                     case .inProgress, .copying:
                         self.photographerJobViewModel.beginIngest(
-                            destinationCount: self.sharedCoordinator.destinationURLs.count
+                            destinationCount: self.sharedCoordinator.destinationURLs.count,
+                            sourceURL: self.sharedCoordinator.sourceURL
                         )
                     case .verifying:
                         self.photographerJobViewModel.updateProgressStage(.verifying)

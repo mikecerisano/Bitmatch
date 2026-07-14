@@ -3,6 +3,7 @@ import SwiftUI
 struct PhotographerSessionDashboard: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
     let job: PhotographerJob
+    @AccessibilityFocusState private var accessibilityFocusedCardID: UUID?
 
     private var presentation: PhotographerSessionPresentation {
         PhotographerSessionPresentation.make(job: job)
@@ -33,6 +34,13 @@ struct PhotographerSessionDashboard: View {
                     .onChange(of: viewModel.focusedCardIngestID) { _, id in
                         guard let id else { return }
                         withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        accessibilityFocusedCardID = id
+                    }
+                    .onAppear {
+                        if let id = viewModel.focusedCardIngestID {
+                            proxy.scrollTo(id, anchor: .center)
+                            accessibilityFocusedCardID = id
+                        }
                     }
                 }
             }
@@ -84,6 +92,7 @@ struct PhotographerSessionDashboard: View {
                     : DesignSystem.Colors.background.opacity(0.22))
         )
         .accessibilityElement(children: .combine)
+        .accessibilityFocused($accessibilityFocusedCardID, equals: row.id)
         .accessibilityLabel("\(row.photographerName), \(row.cameraName), \(row.cardTitle), \(row.fileCountTitle), \(row.byteCountTitle), \(row.statusTitle), \(row.verifiedCopyTitle), package route \(row.renderedPath)")
     }
 

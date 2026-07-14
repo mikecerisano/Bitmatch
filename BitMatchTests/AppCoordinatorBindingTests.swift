@@ -87,9 +87,39 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertEqual(coordinator.sharedCoordinator.cameraLabelSettings.label, "Legacy")
     }
 
+    func testCoordinatorRejectsTwoCopyJobWithOneDestinationBeforeTransfer() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.fileSelectionViewModel.destinationURLs = [URL(fileURLWithPath: "/tmp/primary")]
+
+        coordinator.startOperation()
+
+        XCTAssertNil(coordinator.sharedCoordinator.sourceURL)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .notStarted)
+    }
+
+    func testCoordinatorRejectsChangedSourceBeforeTransfer() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.fileSelectionViewModel.sourceURL = URL(fileURLWithPath: "/tmp/other-card")
+
+        coordinator.startOperation()
+
+        XCTAssertNil(coordinator.sharedCoordinator.sourceURL)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .notStarted)
+    }
+
+    func testCoordinatorRejectsStartWhileGenericPreflightIsAnalyzing() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.fileSelectionViewModel.isFetchingSourceInfo = true
+
+        coordinator.startOperation()
+
+        XCTAssertNil(coordinator.sharedCoordinator.sourceURL)
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .notStarted)
+    }
+
     func testPhotographerCardFollowsAuthoritativeProgressStages() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
-        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2, sourceURL: coordinator.fileSelectionViewModel.sourceURL)
 
         coordinator.sharedCoordinator.progress = progress(stage: .verifying)
         drainMainRunLoop()
@@ -99,7 +129,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
     func testTerminalStateWaitsForAuthoritativeResultArray() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
-        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2, sourceURL: coordinator.fileSelectionViewModel.sourceURL)
         coordinator.sharedCoordinator.progress = progress(stage: .verifying)
         drainMainRunLoop()
         coordinator.sharedCoordinator.results = [verifiedRow(destination: "Primary")]
@@ -119,7 +149,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
     func testCancellationCancelsPreparedPhotographerCard() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
-        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2, sourceURL: coordinator.fileSelectionViewModel.sourceURL)
 
         coordinator.cancelOperation()
 
@@ -128,6 +158,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
     func testDelayedVerifyingProgressCannotResurrectCompletedCard() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        primeSharedTransfer(coordinator)
         coordinator.sharedCoordinator.operationState = .inProgress
         coordinator.sharedCoordinator.progress = progress(stage: .copying)
         coordinator.sharedCoordinator.results = [
@@ -147,6 +178,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
     func testDelayedCopyingProgressCannotResurrectCancelledCard() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        primeSharedTransfer(coordinator)
         coordinator.sharedCoordinator.operationState = .inProgress
         coordinator.sharedCoordinator.progress = progress(stage: .verifying)
         coordinator.sharedCoordinator.operationState = .cancelled
@@ -159,6 +191,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
 
     func testAcceptedOperationStateBeginsIngestAndFailedOperationEndsInIssues() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        primeSharedTransfer(coordinator)
 
         coordinator.sharedCoordinator.operationState = .inProgress
         XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .copying)
@@ -209,9 +242,21 @@ final class AppCoordinatorBindingTests: XCTestCase {
             jobName: "Smith Wedding",
             eventDate: Date(timeIntervalSince1970: 100)
         )
+        let sourceURL = URL(fileURLWithPath: "/tmp/card")
+        let signature = PhotographerSetupSignature(
+            clientName: "Smith",
+            jobName: "Smith Wedding",
+            eventDate: Date(timeIntervalSince1970: 100),
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            cardNumber: 1,
+            recipe: .wedding
+        )
         try viewModel.prepareCard(
             photographerName: "Mike",
             cameraName: "Sony A7 IV",
+            sourceURL: sourceURL,
+            setupSignature: signature,
             analysis: CardAnalysis(
                 fingerprint: "preliminary",
                 fileCount: 1,
@@ -220,7 +265,14 @@ final class AppCoordinatorBindingTests: XCTestCase {
                 sourcePaths: ["/card/A.ARW"]
             )
         )
-        return (AppCoordinator(photographerJobViewModel: viewModel), store)
+        let coordinator = AppCoordinator(photographerJobViewModel: viewModel)
+        coordinator.fileSelectionViewModel.sourceURL = sourceURL
+        coordinator.fileSelectionViewModel.isFetchingSourceInfo = false
+        coordinator.fileSelectionViewModel.destinationURLs = [
+            URL(fileURLWithPath: "/tmp/primary"),
+            URL(fileURLWithPath: "/tmp/secondary")
+        ]
+        return (coordinator, store)
     }
 
     private func progress(stage: ProgressStage) -> OperationProgress {
@@ -233,6 +285,11 @@ final class AppCoordinatorBindingTests: XCTestCase {
             speed: nil,
             timeRemaining: nil
         )
+    }
+
+    private func primeSharedTransfer(_ coordinator: AppCoordinator) {
+        coordinator.sharedCoordinator.sourceURL = coordinator.fileSelectionViewModel.sourceURL
+        coordinator.sharedCoordinator.destinationURLs = coordinator.fileSelectionViewModel.destinationURLs
     }
 
     private func verifiedRow(destination: String) -> ResultRow {

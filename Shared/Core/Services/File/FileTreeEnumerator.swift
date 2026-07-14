@@ -1,7 +1,7 @@
 import Foundation
 
 /// Lightweight entry for cached file enumeration (Perf 1)
-struct FileEntry {
+struct FileEntry: Sendable {
     let url: URL
     let relativePath: String
     let size: Int64

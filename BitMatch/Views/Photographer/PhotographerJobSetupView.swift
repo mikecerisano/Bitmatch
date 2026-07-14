@@ -11,7 +11,6 @@ struct PhotographerJobSetupView: View {
     @State private var isExpanded = true
     @State private var customizeLayers = false
     @State private var presetName = ""
-    @State private var setupError: String?
     @State private var didHydrate = false
 
     private var viewModel: PhotographerJobViewModel { coordinator.photographerJobViewModel }
@@ -30,7 +29,20 @@ struct PhotographerJobSetupView: View {
             cameraName: cameraName,
             cardNumber: cardNumber,
             recipe: viewModel.draftRecipe,
-            duplicateWarningText: viewModel.duplicateWarning?.message
+            duplicateWarningText: viewModel.duplicateWarning?.message,
+            hasSource: coordinator.fileSelectionViewModel.sourceURL != nil,
+            isPreparing: viewModel.isPreparing
+        )
+    }
+    private var setupSignature: PhotographerSetupSignature {
+        PhotographerSetupSignature(
+            clientName: clientName.trimmingCharacters(in: .whitespacesAndNewlines),
+            jobName: jobName.trimmingCharacters(in: .whitespacesAndNewlines),
+            eventDate: eventDate,
+            photographerName: photographerName.trimmingCharacters(in: .whitespacesAndNewlines),
+            cameraName: cameraName.trimmingCharacters(in: .whitespacesAndNewlines),
+            cardNumber: cardNumber,
+            recipe: viewModel.draftRecipe
         )
     }
 
@@ -40,7 +52,9 @@ struct PhotographerJobSetupView: View {
             if !isExpanded { duplicateWarning }
             if isExpanded {
                 setupFields
+                    .disabled(viewModel.isPreparing)
                 layerDisclosure
+                    .disabled(viewModel.isPreparing)
                 packageRoute
                 feedback
                 setupAction
@@ -56,6 +70,15 @@ struct PhotographerJobSetupView: View {
                 )
         )
         .onAppear(perform: hydrateOnce)
+        .onChange(of: setupSignature) { _, signature in
+            viewModel.updateSetupSignature(signature)
+        }
+        .onChange(of: viewModel.isPreparing) { wasPreparing, isPreparing in
+            if wasPreparing, !isPreparing, viewModel.activeCardDraft != nil {
+                customizeLayers = false
+                isExpanded = false
+            }
+        }
         .onChange(of: coordinator.fileSelectionViewModel.sourceCameraLabel) { _, label in
             if cameraName.isEmpty, let label { cameraName = label }
         }
@@ -211,7 +234,7 @@ struct PhotographerJobSetupView: View {
     @ViewBuilder
     private var feedback: some View {
         duplicateWarning
-        if let setupError {
+        if let setupError = viewModel.preparationError {
             Label(setupError, systemImage: "exclamationmark.circle.fill")
                 .font(DesignSystem.Typography.caption)
                 .foregroundColor(DesignSystem.Colors.error)
@@ -241,14 +264,23 @@ struct PhotographerJobSetupView: View {
 
     private var setupAction: some View {
         HStack {
-            if coordinator.fileSelectionViewModel.sourceURL == nil {
-                Text("Choose a source card before setup.")
+            if viewModel.isPreparing {
+                ProgressView().controlSize(.small)
+                Text("Preparing card…")
                     .font(DesignSystem.Typography.caption)
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
+                    .foregroundColor(DesignSystem.Colors.textSecondary)
             }
             Spacer()
+            if let state = viewModel.activeCard?.localState,
+               state == .locallySafe || state == .issues || state == .cancelled {
+                Button("Set up next card") {
+                    viewModel.resetForNextCard()
+                    isExpanded = true
+                }
+                .accessibilityHint("Clears the finished card and opens setup for the next card")
+            }
             Button("Set up card", action: setUpCard)
-                .disabled(!presentation.canSetUpCard || coordinator.fileSelectionViewModel.sourceURL == nil)
+                .disabled(!presentation.canSetUpCard)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityHint("Analyzes the selected source and prepares its job package")
         }
@@ -296,23 +328,7 @@ struct PhotographerJobSetupView: View {
     private func setUpCard() {
         guard presentation.canSetUpCard,
               let sourceURL = coordinator.fileSelectionViewModel.sourceURL else { return }
-        do {
-            let entries = try FileTreeEnumerator.enumerateRegularFiles(base: sourceURL)
-            try viewModel.prepareDraftCard(
-                clientName: clientName.trimmingCharacters(in: .whitespacesAndNewlines),
-                jobName: jobName.trimmingCharacters(in: .whitespacesAndNewlines),
-                eventDate: eventDate,
-                photographerName: photographerName.trimmingCharacters(in: .whitespacesAndNewlines),
-                cameraName: cameraName.trimmingCharacters(in: .whitespacesAndNewlines),
-                sourceDisplayName: sourceURL.lastPathComponent,
-                entries: entries
-            )
-            setupError = nil
-            customizeLayers = false
-            isExpanded = false
-        } catch {
-            setupError = error.localizedDescription
-        }
+        viewModel.startPreparingDraftCard(sourceURL: sourceURL, setupSignature: setupSignature)
     }
 
     private func hydrateOnce() {
@@ -331,6 +347,8 @@ struct PhotographerJobSetupView: View {
         } else if let label = coordinator.fileSelectionViewModel.sourceCameraLabel {
             cameraName = label
         }
+        viewModel.sourceDidChange(to: coordinator.fileSelectionViewModel.sourceURL)
+        viewModel.updateSetupSignature(setupSignature)
     }
 }
 

@@ -46,6 +46,7 @@ struct PhotographerJobViewModelTests {
         #expect(preset.name == "Wedding without camera")
         #expect(preset.recipe.layers.first { $0.kind == .camera }?.isEnabled == false)
         #expect(viewModel.presets.contains(preset))
+        #expect(viewModel.draftRecipe == preset.recipe)
     }
 
     @Test func draftSetupCreatesCardWithCustomizedRecipeAndKeepsJobForNextCard() throws {
@@ -172,9 +173,125 @@ struct PhotographerJobViewModelTests {
         let store = InMemoryPhotographerJobStore()
         let viewModel = preparedViewModel(store: store)
 
-        viewModel.beginIngest(destinationCount: 1)
+        let began = viewModel.beginIngest(destinationCount: 1)
 
         #expect(viewModel.lastError == "This job requires 2 verified local destinations.")
+        #expect(!began)
+        #expect(viewModel.activeCard?.localState == .notStarted)
+    }
+
+    @Test func terminalCardsCannotBeginAgainAndRequireNextCardSetup() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+        _ = viewModel.beginIngest(destinationCount: 2)
+        try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary", "Secondary"]))
+
+        let began = viewModel.beginIngest(destinationCount: 2)
+
+        #expect(!began)
+        #expect(viewModel.activeCard?.localState == .locallySafe)
+        #expect(viewModel.startPresentation(preflightReady: true, sourceURL: nil, destinationCount: 2).blocker == "Set up the next card before starting")
+    }
+
+    @Test func changedSourceInvalidatesPreparedCard() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        let source = URL(fileURLWithPath: "/Volumes/CARD1")
+        let signature = setupSignature()
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony A7 IV", sourceURL: source, setupSignature: signature, analysis: analysis("source"))
+
+        viewModel.sourceDidChange(to: URL(fileURLWithPath: "/Volumes/CARD2"))
+        viewModel.sourceDidChange(to: source)
+
+        #expect(!viewModel.isStartEligible(preflightReady: true, sourceURL: source, destinationCount: 2))
+    }
+
+    @Test func everySetupSignatureCategoryInvalidatesPreparation() throws {
+        let original = setupSignature()
+        let variants = [
+            PhotographerSetupSignature(clientName: "Jones", jobName: original.jobName, eventDate: original.eventDate, photographerName: original.photographerName, cameraName: original.cameraName, cardNumber: original.cardNumber, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: "Other", eventDate: original.eventDate, photographerName: original.photographerName, cameraName: original.cameraName, cardNumber: original.cardNumber, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: original.jobName, eventDate: eventDate.addingTimeInterval(86_400), photographerName: original.photographerName, cameraName: original.cameraName, cardNumber: original.cardNumber, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: original.jobName, eventDate: original.eventDate, photographerName: "Sam", cameraName: original.cameraName, cardNumber: original.cardNumber, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: original.jobName, eventDate: original.eventDate, photographerName: original.photographerName, cameraName: "Canon", cardNumber: original.cardNumber, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: original.jobName, eventDate: original.eventDate, photographerName: original.photographerName, cameraName: original.cameraName, cardNumber: 2, recipe: original.recipe),
+            PhotographerSetupSignature(clientName: original.clientName, jobName: original.jobName, eventDate: original.eventDate, photographerName: original.photographerName, cameraName: original.cameraName, cardNumber: original.cardNumber, recipe: FolderRecipe(id: UUID(), name: "Custom", layers: original.recipe.layers))
+        ]
+        for variant in variants {
+            let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+            let source = URL(fileURLWithPath: "/Volumes/CARD1")
+            viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+            try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony A7 IV", sourceURL: source, setupSignature: original, analysis: analysis("sig"))
+            viewModel.updateSetupSignature(variant)
+            viewModel.updateSetupSignature(original)
+            #expect(!viewModel.isStartEligible(preflightReady: true, sourceURL: source, destinationCount: 2))
+        }
+    }
+
+    @Test func exactVerifiedDestinationCountPersistsAndRestoresMostRecentSession() throws {
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = preparedViewModel(store: store)
+        _ = viewModel.beginIngest(destinationCount: 3)
+        try viewModel.completeIngest(results: verifiedRows(destinationNames: ["Primary", "Secondary", "Archive"]))
+
+        let restored = makeViewModel(store: store)
+
+        #expect(restored.activeJob?.id == viewModel.activeJob?.id)
+        #expect(restored.activeJob?.cardIngests.first?.verifiedDestinationCount == 3)
+        #expect(PhotographerSessionPresentation.make(job: try #require(restored.activeJob)).rows.first?.verifiedCopyTitle == "3 of 2 verified")
+    }
+
+    @Test func staleAsyncSetupCompletionAfterSourceChangeIsIgnored() async throws {
+        let gate = AsyncSetupGate()
+        let viewModel = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), now: { self.now }, entryEnumerator: { url in
+            gate.wait()
+            return [FileEntry(url: url.appendingPathComponent("A.ARW"), relativePath: "A.ARW", size: 100)]
+        })
+        let first = URL(fileURLWithPath: "/Volumes/CARD1")
+        viewModel.startPreparingDraftCard(sourceURL: first, setupSignature: setupSignature())
+        await Task.yield()
+
+        viewModel.sourceDidChange(to: URL(fileURLWithPath: "/Volumes/CARD2"))
+        gate.open()
+        await viewModel.waitForSetupForTesting()
+
+        #expect(viewModel.activeCard == nil)
+        #expect(!viewModel.isPreparing)
+    }
+
+    @Test func asyncSetupDoesNotBlockMainActorAndCancellationClearsPreparingState() async {
+        let gate = AsyncSetupGate()
+        let viewModel = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), entryEnumerator: { url in
+            gate.wait()
+            try Task.checkCancellation()
+            return [FileEntry(url: url, relativePath: "A.ARW", size: 100)]
+        })
+
+        viewModel.startPreparingDraftCard(sourceURL: URL(fileURLWithPath: "/Volumes/CARD1"), setupSignature: setupSignature())
+        #expect(viewModel.isPreparing)
+        var mainActorAdvanced = false
+        await Task.yield()
+        mainActorAdvanced = true
+        viewModel.sourceDidChange(to: URL(fileURLWithPath: "/Volumes/CARD2"))
+        gate.open()
+        await viewModel.waitForSetupForTesting()
+
+        #expect(mainActorAdvanced)
+        #expect(!viewModel.isPreparing)
+        #expect(viewModel.activeCard == nil)
+    }
+
+    @Test func duplicateNavigationRevealsAndPublishesDashboardFocusTarget() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony", analysis: analysis("same"))
+        let earlierID = try #require(viewModel.activeCard?.id)
+        viewModel.resetForNextCard()
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony", analysis: analysis("same"))
+
+        viewModel.focusCardIngest(id: earlierID)
+
+        #expect(viewModel.focusedCardIngestID == earlierID)
+        #expect(viewModel.dashboardJob?.cardIngests.contains { $0.id == earlierID } == true)
     }
 
     @Test func destinationPathsDistinguishVolumesWithTheSameDisplayName() throws {
@@ -427,6 +544,10 @@ struct PhotographerJobViewModelTests {
         CardAnalysis(fingerprint: fingerprint, fileCount: sourcePaths.count, totalBytes: 100, companionGroups: [], sourcePaths: sourcePaths)
     }
 
+    private func setupSignature() -> PhotographerSetupSignature {
+        PhotographerSetupSignature(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate, photographerName: "Mike", cameraName: "Sony A7 IV", cardNumber: 1, recipe: .wedding)
+    }
+
     private func verifiedRows(destinationNames: [String]) -> [ResultRow] {
         destinationNames.map { destination in
             ResultRow(
@@ -450,6 +571,12 @@ struct PhotographerJobViewModelTests {
             destinationPath: "/\(destination.lowercased())/\((path as NSString).lastPathComponent)"
         )
     }
+}
+
+private final class AsyncSetupGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    func wait() { semaphore.wait() }
+    func open() { semaphore.signal() }
 }
 
 private extension PhotographerLocalState {

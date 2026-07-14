@@ -88,6 +88,60 @@ struct CardIngest: Identifiable, Codable, Equatable, Sendable {
     var locallySafeAt: Date?
     var fileCount: Int
     var totalBytes: Int64
+    var verifiedDestinationCount: Int
+
+    init(
+        id: UUID,
+        provenance: CardProvenance,
+        sourceDisplayName: String,
+        renderedRelativePath: String,
+        localState: PhotographerLocalState,
+        startedAt: Date?,
+        locallySafeAt: Date?,
+        fileCount: Int,
+        totalBytes: Int64,
+        verifiedDestinationCount: Int = 0
+    ) {
+        self.id = id
+        self.provenance = provenance
+        self.sourceDisplayName = sourceDisplayName
+        self.renderedRelativePath = renderedRelativePath
+        self.localState = localState
+        self.startedAt = startedAt
+        self.locallySafeAt = locallySafeAt
+        self.fileCount = fileCount
+        self.totalBytes = totalBytes
+        self.verifiedDestinationCount = verifiedDestinationCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, provenance, sourceDisplayName, renderedRelativePath, localState
+        case startedAt, locallySafeAt, fileCount, totalBytes, verifiedDestinationCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        provenance = try values.decode(CardProvenance.self, forKey: .provenance)
+        sourceDisplayName = try values.decode(String.self, forKey: .sourceDisplayName)
+        renderedRelativePath = try values.decode(String.self, forKey: .renderedRelativePath)
+        localState = try values.decode(PhotographerLocalState.self, forKey: .localState)
+        startedAt = try values.decodeIfPresent(Date.self, forKey: .startedAt)
+        locallySafeAt = try values.decodeIfPresent(Date.self, forKey: .locallySafeAt)
+        fileCount = try values.decode(Int.self, forKey: .fileCount)
+        totalBytes = try values.decode(Int64.self, forKey: .totalBytes)
+        verifiedDestinationCount = try values.decodeIfPresent(Int.self, forKey: .verifiedDestinationCount) ?? 0
+    }
+}
+
+struct PhotographerSetupSignature: Codable, Equatable, Sendable {
+    let clientName: String
+    let jobName: String
+    let eventDate: Date
+    let photographerName: String
+    let cameraName: String
+    let cardNumber: Int
+    let recipe: FolderRecipe
 }
 
 struct PhotographerJob: Identifiable, Codable, Equatable, Sendable {

@@ -18,7 +18,9 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
         cameraName: String,
         cardNumber: Int,
         recipe: FolderRecipe,
-        duplicateWarningText: String?
+        duplicateWarningText: String?,
+        hasSource: Bool = true,
+        isPreparing: Bool = false
     ) -> Self {
         let cleanClient = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanJob = jobName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,6 +31,8 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
         if cleanJob.isEmpty { blockers.append("Enter a job name") }
         if cleanPhotographer.isEmpty { blockers.append("Enter a photographer") }
         if cleanCamera.isEmpty { blockers.append("Enter a camera") }
+        if !hasSource { blockers.append("Choose a source card") }
+        if isPreparing { blockers.append("Card setup is still preparing") }
 
         let rendered = try? FolderRecipeRenderer.render(
             recipe,
@@ -54,6 +58,49 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
             duplicateWarningText: duplicateWarningText,
             duplicateLinkTitle: duplicateWarningText == nil ? nil : "Show earlier ingest"
         )
+    }
+}
+
+struct PhotographerStartContext: Equatable, Sendable {
+    let preflightReady: Bool
+    let isPreparing: Bool
+    let activeCardState: PhotographerLocalState?
+    let sourceMatches: Bool
+    let setupMatches: Bool
+    let destinationCount: Int
+    let requiredDestinationCount: Int
+}
+
+struct PhotographerStartPresentation: Equatable, Sendable {
+    let blocker: String?
+    var canStart: Bool { blocker == nil }
+
+    static func make(context: PhotographerStartContext) -> Self {
+        let blocker: String?
+        if !context.preflightReady {
+            blocker = "Resolve transfer preflight issues"
+        } else if context.isPreparing {
+            blocker = "Card setup is still preparing"
+        } else if context.activeCardState == nil {
+            blocker = "Set up this card before starting"
+        } else if context.activeCardState != .notStarted {
+            blocker = "Set up the next card before starting"
+        } else if !context.sourceMatches {
+            blocker = "Source changed; set up the card again"
+        } else if !context.setupMatches {
+            blocker = "Setup changed; set up the card again"
+        } else if context.destinationCount < context.requiredDestinationCount {
+            let missing = context.requiredDestinationCount - context.destinationCount
+            let noun = missing == 1 ? "destination" : "destinations"
+            blocker = "Add \(missing) more \(noun) for this \(context.requiredDestinationCount)-copy job"
+        } else {
+            blocker = nil
+        }
+        return Self(blocker: blocker)
+    }
+
+    static func insufficientDestinationError(requiredCount: Int) -> String {
+        "This job requires \(requiredCount) verified local destinations."
     }
 }
 
@@ -116,10 +163,7 @@ struct PhotographerSessionPresentation: Equatable, Sendable {
     let requiredCopyTitle: String
     let rows: [PhotographerCardRowPresentation]
 
-    static func make(
-        job: PhotographerJob,
-        verifiedDestinationCounts: [UUID: Int] = [:]
-    ) -> Self {
+    static func make(job: PhotographerJob) -> Self {
         let sortedCards = job.cardIngests.sorted { lhs, rhs in
             let lhsPending = lhs.localState == .notStarted
             let rhsPending = rhs.localState == .notStarted
@@ -131,10 +175,9 @@ struct PhotographerSessionPresentation: Equatable, Sendable {
         }
         let required = job.requiredLocalCopyCount
         let rows = sortedCards.map { card in
-            let inferredCount = card.localState == .locallySafe ? required : 0
             return PhotographerCardRowPresentation.make(
                 card: card,
-                verifiedDestinationCount: verifiedDestinationCounts[card.id] ?? inferredCount,
+                verifiedDestinationCount: card.verifiedDestinationCount,
                 requiredCopyCount: required
             )
         }

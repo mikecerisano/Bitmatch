@@ -18,8 +18,9 @@ enum FolderLayerMoveDirection: Sendable {
 
 @MainActor
 final class PhotographerJobViewModel: ObservableObject {
-    typealias PreliminaryAnalyzer = ([FileEntry]) throws -> CardAnalysis
-    typealias ConfirmedAnalyzer = ([ResultRow]) throws -> String
+    typealias PreliminaryAnalyzer = @Sendable ([FileEntry]) throws -> CardAnalysis
+    typealias ConfirmedAnalyzer = @Sendable ([ResultRow]) throws -> String
+    typealias EntryEnumerator = @Sendable (URL) throws -> [FileEntry]
 
     @Published private(set) var jobs: [PhotographerJob] = []
     @Published private(set) var presets: [PhotographerPreset] = []
@@ -33,27 +34,47 @@ final class PhotographerJobViewModel: ObservableObject {
     @Published private(set) var lastError: String?
     @Published var draftRecipe = FolderRecipe.wedding
     @Published var focusedCardIngestID: UUID?
+    @Published private(set) var dashboardJobID: UUID?
+    @Published private(set) var isPreparing = false
+    @Published private(set) var preparationError: String?
 
     var activeCard: CardIngest? {
         guard let id = activeCardDraft?.id else { return nil }
         return activeJob?.cardIngests.first { $0.id == id }
     }
 
+    var dashboardJob: PhotographerJob? {
+        guard let dashboardJobID else { return activeJob }
+        if activeJob?.id == dashboardJobID { return activeJob }
+        return jobs.first { $0.id == dashboardJobID }
+    }
+
     private let store: any PhotographerJobStore
     private let now: () -> Date
     private let preliminaryAnalyzer: PreliminaryAnalyzer
     private let confirmedAnalyzer: ConfirmedAnalyzer
+    private let entryEnumerator: EntryEnumerator
+    private var preparedSourcePath: String?
+    private var currentSourcePath: String?
+    private var preparedSetupSignature: PhotographerSetupSignature?
+    private var currentSetupSignature: PhotographerSetupSignature?
+    private var sourcePreparationInvalidated = false
+    private var setupPreparationInvalidated = false
+    private var setupTask: Task<Void, Never>?
+    private var setupGeneration = UUID()
 
     init(
         store: any PhotographerJobStore,
         now: @escaping () -> Date = Date.init,
         preliminaryAnalyzer: @escaping PreliminaryAnalyzer = PhotographerCardAnalyzer.preliminaryAnalysis,
-        confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint
+        confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint,
+        entryEnumerator: @escaping EntryEnumerator = FileTreeEnumerator.enumerateRegularFiles
     ) {
         self.store = store
         self.now = now
         self.preliminaryAnalyzer = preliminaryAnalyzer
         self.confirmedAnalyzer = confirmedAnalyzer
+        self.entryEnumerator = entryEnumerator
         loadJobs()
         loadPresets()
     }
@@ -135,6 +156,39 @@ final class PhotographerJobViewModel: ObservableObject {
         renderedRecipe = rendered
         preliminaryAnalysis = analysis
         duplicateWarning = warning
+        let signature = PhotographerSetupSignature(
+            clientName: job.clientName,
+            jobName: job.jobName,
+            eventDate: job.eventDate,
+            photographerName: photographer.name,
+            cameraName: cameraName,
+            cardNumber: cardNumber,
+            recipe: job.recipe
+        )
+        currentSetupSignature = signature
+        preparedSetupSignature = signature
+    }
+
+    func prepareCard(
+        photographerName: String,
+        cameraName: String,
+        sourceURL: URL,
+        setupSignature: PhotographerSetupSignature,
+        analysis: CardAnalysis
+    ) throws {
+        currentSetupSignature = setupSignature
+        currentSourcePath = standardizedPath(sourceURL)
+        try prepareCard(
+            photographerName: photographerName,
+            cameraName: cameraName,
+            sourceDisplayName: sourceURL.lastPathComponent,
+            analysis: analysis
+        )
+        preparedSourcePath = standardizedPath(sourceURL)
+        preparedSetupSignature = setupSignature
+        currentSetupSignature = setupSignature
+        sourcePreparationInvalidated = false
+        setupPreparationInvalidated = false
     }
 
     func prepareDraftCard(
@@ -164,6 +218,82 @@ final class PhotographerJobViewModel: ObservableObject {
         )
     }
 
+    func startPreparingDraftCard(sourceURL: URL, setupSignature: PhotographerSetupSignature) {
+        guard !isPreparing else { return }
+        setupTask?.cancel()
+        let generation = UUID()
+        setupGeneration = generation
+        isPreparing = true
+        preparationError = nil
+        currentSetupSignature = setupSignature
+        let enumerator = entryEnumerator
+        let analyzer = preliminaryAnalyzer
+        let standardizedSource = sourceURL.standardizedFileURL
+        currentSourcePath = standardizedPath(standardizedSource)
+        setupTask = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                do {
+                    let entries = try enumerator(standardizedSource)
+                    try Task.checkCancellation()
+                    return Result<CardAnalysis, Error>.success(try analyzer(entries))
+                } catch {
+                    return .failure(error)
+                }
+            }
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self, self.setupGeneration == generation else { return }
+            self.isPreparing = false
+            self.setupTask = nil
+            guard self.currentSetupSignature == setupSignature,
+                  self.standardizedPath(standardizedSource) == self.currentSourcePath else { return }
+            switch result {
+            case .success(let analysis):
+                do {
+                    try self.prepareDraftCard(analysis: analysis, sourceURL: standardizedSource, setupSignature: setupSignature)
+                    self.preparationError = nil
+                } catch {
+                    self.preparationError = error.localizedDescription
+                }
+            case .failure(let error):
+                if !(error is CancellationError) { self.preparationError = error.localizedDescription }
+            }
+        }
+    }
+
+    private func prepareDraftCard(
+        analysis: CardAnalysis,
+        sourceURL: URL,
+        setupSignature: PhotographerSetupSignature
+    ) throws {
+        if var job = activeJob,
+           job.clientName == setupSignature.clientName,
+           job.jobName == setupSignature.jobName,
+           job.eventDate == setupSignature.eventDate,
+           job.eventType == .wedding {
+            job.recipe = setupSignature.recipe
+            try persistThrowing(job)
+        } else {
+            draftRecipe = setupSignature.recipe
+            createWeddingJob(clientName: setupSignature.clientName, jobName: setupSignature.jobName, eventDate: setupSignature.eventDate)
+        }
+        try prepareCard(
+            photographerName: setupSignature.photographerName,
+            cameraName: setupSignature.cameraName,
+            sourceURL: sourceURL,
+            setupSignature: setupSignature,
+            analysis: analysis
+        )
+    }
+
+    func waitForSetupForTesting() async {
+        let task = setupTask
+        await task?.value
+    }
+
     func proposedCardNumber(cameraName: String) -> Int {
         guard let activeJob else { return 1 }
         return nextCardNumber(cameraName: cameraName, in: activeJob)
@@ -183,16 +313,62 @@ final class PhotographerJobViewModel: ObservableObject {
         )
     }
 
-    func beginIngest(destinationCount: Int) {
-        guard let job = activeJob else { return }
-        let destinationError = destinationCount < job.requiredLocalCopyCount
-            ? "This job requires " + String(job.requiredLocalCopyCount) + " verified local destinations."
-            : nil
+    @discardableResult
+    func beginIngest(destinationCount: Int, sourceURL: URL? = nil) -> Bool {
+        guard let job = activeJob,
+              isStartEligible(preflightReady: true, sourceURL: sourceURL, destinationCount: destinationCount) else {
+            if let required = activeJob?.requiredLocalCopyCount, destinationCount < required {
+                lastError = PhotographerStartPresentation.insufficientDestinationError(requiredCount: required)
+            }
+            return false
+        }
         transitionActiveCard(to: .copying) { card in
             if card.startedAt == nil { card.startedAt = self.now() }
             card.locallySafeAt = nil
         }
-        lastError = destinationError
+        lastError = nil
+        return activeCard?.localState == .copying
+    }
+
+    func updateSetupSignature(_ signature: PhotographerSetupSignature) {
+        if let preparedSetupSignature, preparedSetupSignature != signature {
+            setupPreparationInvalidated = true
+        }
+        currentSetupSignature = signature
+    }
+
+    func sourceDidChange(to sourceURL: URL?) {
+        let newPath = sourceURL.map(standardizedPath)
+        currentSourcePath = newPath
+        if let preparedSourcePath, preparedSourcePath != newPath {
+            sourcePreparationInvalidated = true
+        }
+        if isPreparing || (preparedSourcePath != nil && preparedSourcePath != newPath) {
+            setupGeneration = UUID()
+            setupTask?.cancel()
+            isPreparing = false
+        }
+    }
+
+    func startPresentation(preflightReady: Bool, sourceURL: URL?, destinationCount: Int) -> PhotographerStartPresentation {
+        let sourceMatches = !sourcePreparationInvalidated && (preparedSourcePath == sourceURL.map(standardizedPath)
+            || (preparedSourcePath == nil && sourceURL == nil)
+        )
+        return PhotographerStartPresentation.make(context: PhotographerStartContext(
+            preflightReady: preflightReady,
+            isPreparing: isPreparing,
+            activeCardState: activeCard?.localState,
+            sourceMatches: sourceMatches,
+            setupMatches: !setupPreparationInvalidated
+                && preparedSetupSignature != nil
+                && preparedSetupSignature == currentSetupSignature,
+            destinationCount: destinationCount,
+            requiredDestinationCount: activeJob?.requiredLocalCopyCount ?? 0
+        ))
+    }
+
+    func isStartEligible(preflightReady: Bool, sourceURL: URL?, destinationCount: Int) -> Bool {
+        startPresentation(preflightReady: preflightReady, sourceURL: sourceURL, destinationCount: destinationCount).canStart
     }
 
     func updateProgressStage(_ stage: ProgressStage) {
@@ -262,6 +438,7 @@ final class PhotographerJobViewModel: ObservableObject {
         try transitionActiveCardThrowing(to: .locallySafe) { card in
             card.locallySafeAt = self.now()
             card.provenance.confirmedFingerprint = fingerprint
+            card.verifiedDestinationCount = groups.count
         }
     }
 
@@ -278,6 +455,7 @@ final class PhotographerJobViewModel: ObservableObject {
     func setDraftLayer(_ id: UUID, isEnabled: Bool) {
         guard let index = draftRecipe.layers.firstIndex(where: { $0.id == id }) else { return }
         draftRecipe.layers[index].isEnabled = isEnabled
+        invalidateSetupPreparationIfNeeded()
     }
 
     func moveDraftLayer(_ id: UUID, direction: FolderLayerMoveDirection) {
@@ -285,6 +463,7 @@ final class PhotographerJobViewModel: ObservableObject {
         let destination = direction == .up ? index - 1 : index + 1
         guard draftRecipe.layers.indices.contains(destination) else { return }
         draftRecipe.layers.swapAt(index, destination)
+        invalidateSetupPreparationIfNeeded()
     }
 
     func saveDraftAsPreset(name: String) {
@@ -305,6 +484,8 @@ final class PhotographerJobViewModel: ObservableObject {
             try store.save(preset)
             presets.append(preset)
             presets.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            draftRecipe = recipe
+            invalidateSetupPreparationIfNeeded()
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -317,15 +498,23 @@ final class PhotographerJobViewModel: ObservableObject {
         } else if let preset = presets.first(where: { $0.id == id }) {
             draftRecipe = preset.recipe
         }
+        invalidateSetupPreparationIfNeeded()
     }
 
     func focusCardIngest(id: UUID) {
+        dashboardJobID = jobs.first { job in
+            job.cardIngests.contains { $0.id == id }
+        }?.id ?? activeJob.flatMap { job in
+            job.cardIngests.contains { $0.id == id } ? job.id : nil
+        }
         focusedCardIngestID = id
     }
 
     private func loadJobs() {
         do {
-            jobs = try store.jobs()
+            jobs = try store.jobs().sorted { $0.updatedAt > $1.updatedAt }
+            activeJob = jobs.first
+            dashboardJobID = activeJob?.id
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -483,8 +672,30 @@ final class PhotographerJobViewModel: ObservableObject {
         renderedRecipe = nil
         preliminaryAnalysis = nil
         duplicateWarning = nil
+        preparedSourcePath = nil
+        preparedSetupSignature = nil
+        currentSetupSignature = nil
+        currentSourcePath = nil
+        sourcePreparationInvalidated = false
+        setupPreparationInvalidated = false
+        setupGeneration = UUID()
+        setupTask?.cancel()
+        setupTask = nil
+        isPreparing = false
+        preparationError = nil
         lastError = nil
     }
+
+    private func standardizedPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
+    private func invalidateSetupPreparationIfNeeded() {
+        if preparedSetupSignature != nil {
+            setupPreparationInvalidated = true
+        }
+    }
+
 }
 
 private extension Array where Element: Equatable {
