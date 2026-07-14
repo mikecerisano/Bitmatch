@@ -35,7 +35,7 @@ struct FolderRecipe: Identifiable, Codable, Equatable, Sendable {
     )
 }
 
-struct FolderRecipeContext: Equatable, Sendable {
+struct FolderRecipeContext: Codable, Equatable, Sendable {
     let eventDate: Date
     let jobName: String
     let photographer: String
@@ -43,12 +43,12 @@ struct FolderRecipeContext: Equatable, Sendable {
     let cardNumber: Int
 }
 
-struct RenderedFolderRecipe: Equatable, Sendable {
+struct RenderedFolderRecipe: Codable, Equatable, Sendable {
     let components: [String]
     var relativePath: String { components.joined(separator: "/") }
 }
 
-enum FolderRecipeError: LocalizedError, Equatable {
+enum FolderRecipeError: LocalizedError, Codable, Equatable, Sendable {
     case missingRequiredValue(String)
     case invalidCardNumber
 
