@@ -19,6 +19,7 @@ final class AppCoordinator: ObservableObject {
     @Published var cameraLabelViewModel = CameraLabelViewModel()
     @Published var settingsViewModel = SettingsViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
+    @Published var photographerJobViewModel: PhotographerJobViewModel
 
     // MARK: - Delegated State
     @Published var currentMode: AppMode = .copyAndVerify
@@ -53,7 +54,15 @@ final class AppCoordinator: ObservableObject {
     func startOperation() {
         // Sync macOS VM state into SharedAppCoordinator
         sharedCoordinator.currentMode = currentMode
-        sharedCoordinator.cameraLabelSettings = cameraLabelViewModel.destinationLabelSettings
+        var operationSettings = cameraLabelViewModel.destinationLabelSettings
+        if photographerJobViewModel.activeCardDraft != nil,
+           let renderedRecipe = photographerJobViewModel.renderedRecipe {
+            operationSettings = PhotographerDestinationResolver.operationSettings(
+                base: operationSettings,
+                renderedRecipe: renderedRecipe
+            )
+        }
+        sharedCoordinator.cameraLabelSettings = operationSettings
         sharedCoordinator.reportSettings = settingsViewModel.prefs
         sharedCoordinator.sourceURL = fileSelectionViewModel.sourceURL
         sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
@@ -62,6 +71,15 @@ final class AppCoordinator: ObservableObject {
 
         progressViewModel.setProgressMessage("Preparing transfer…")
         progressViewModel.startProgressTracking()
+
+        if currentMode == .copyAndVerify,
+           photographerJobViewModel.activeCardDraft != nil,
+           fileSelectionViewModel.sourceURL != nil,
+           !fileSelectionViewModel.destinationURLs.isEmpty {
+            photographerJobViewModel.beginIngest(
+                destinationCount: fileSelectionViewModel.destinationURLs.count
+            )
+        }
 
         Task { @MainActor in
             switch currentMode {
@@ -74,6 +92,7 @@ final class AppCoordinator: ObservableObject {
 
     func cancelOperation() {
         sharedCoordinator.cancelOperation()
+        photographerJobViewModel.cancelIngest()
     }
 
     func togglePause() {
@@ -130,7 +149,15 @@ final class AppCoordinator: ObservableObject {
     }
 
     // MARK: - Initialization
-    init() {
+    init(photographerJobViewModel: PhotographerJobViewModel? = nil) {
+        if let photographerJobViewModel {
+            self.photographerJobViewModel = photographerJobViewModel
+        } else {
+            let store = CoreDataPhotographerJobStore(
+                context: BitMatchPersistenceController.shared.container.viewContext
+            )
+            self.photographerJobViewModel = PhotographerJobViewModel(store: store)
+        }
         setupFileSelectionBindings()
         setupProgressBindings()
         setupSharedCoordinatorBindings()
@@ -213,6 +240,7 @@ final class AppCoordinator: ObservableObject {
                 var msg = prog.currentStage.displayName
                 if let name = prog.currentFile, !name.isEmpty { msg += " — \(name)" }
                 self.progressViewModel.setProgressMessage(msg)
+                self.photographerJobViewModel.updateProgressStage(prog.currentStage)
             }.store(in: &cancellables)
 
         // Map operation state for progress timer management
@@ -230,9 +258,28 @@ final class AppCoordinator: ObservableObject {
             case .failed, .cancelled:
                 self.progressViewModel.stopProgressTracking()
                 self.lastSharedBytesProcessed = 0
+                if state == .cancelled {
+                    self.photographerJobViewModel.cancelIngest()
+                }
             default: break
             }
         }.store(in: &cancellables)
+
+        // CopyVerifyExecutor publishes .completed before its onComplete callback
+        // replaces presentation rows with the complete authoritative array.
+        // Gating on completed here ensures incremental onResult rows are never
+        // treated as terminal evidence.
+        sharedCoordinator.$results.sink { [weak self] authoritativeResults in
+            guard let self,
+                  case .completed = self.sharedCoordinator.operationState,
+                  let state = self.photographerJobViewModel.activeCard?.localState,
+                  state == .copying || state == .verifying else { return }
+            try? self.photographerJobViewModel.completeIngest(results: authoritativeResults)
+        }.store(in: &cancellables)
+
+        photographerJobViewModel.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
 
         Publishers.MergeMany(
             sharedCoordinator.$isOperationInProgress.map { _ in () }.eraseToAnyPublisher(),

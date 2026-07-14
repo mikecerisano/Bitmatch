@@ -72,6 +72,107 @@ final class AppCoordinatorBindingTests: XCTestCase {
         coordinator.sharedCoordinator.verificationMode = originalMode
     }
 
+    func testPreparedPhotographerRecipeIsAppliedBeforeSharedSettingsSynchronization() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        var base = CameraLabelSettings()
+        base.label = "Legacy"
+        coordinator.cameraLabelViewModel.destinationLabelSettings = base
+
+        coordinator.startOperation()
+
+        XCTAssertEqual(
+            coordinator.sharedCoordinator.cameraLabelSettings.destinationPathComponents,
+            coordinator.photographerJobViewModel.renderedRecipe?.components
+        )
+        XCTAssertEqual(coordinator.sharedCoordinator.cameraLabelSettings.label, "Legacy")
+    }
+
+    func testPhotographerCardFollowsAuthoritativeProgressStages() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+
+        coordinator.sharedCoordinator.progress = progress(stage: .verifying)
+        drainMainRunLoop()
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .verifying)
+    }
+
+    func testTerminalStateWaitsForAuthoritativeResultArray() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+        coordinator.sharedCoordinator.progress = progress(stage: .verifying)
+        drainMainRunLoop()
+        coordinator.sharedCoordinator.results = [verifiedRow(destination: "Primary")]
+
+        coordinator.sharedCoordinator.operationState = .completed(
+            OperationCompletionInfo(success: true, message: "Complete")
+        )
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .verifying)
+
+        coordinator.sharedCoordinator.results = [
+            verifiedRow(destination: "Primary"),
+            verifiedRow(destination: "Secondary")
+        ]
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .locallySafe)
+    }
+
+    func testCancellationCancelsPreparedPhotographerCard() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        coordinator.photographerJobViewModel.beginIngest(destinationCount: 2)
+
+        coordinator.cancelOperation()
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .cancelled)
+    }
+
+    private func makePreparedPhotographerCoordinator() throws -> (AppCoordinator, InMemoryPhotographerJobStore) {
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = PhotographerJobViewModel(
+            store: store,
+            now: { Date(timeIntervalSince1970: 200) }
+        )
+        viewModel.createWeddingJob(
+            clientName: "Smith",
+            jobName: "Smith Wedding",
+            eventDate: Date(timeIntervalSince1970: 100)
+        )
+        try viewModel.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            analysis: CardAnalysis(
+                fingerprint: "preliminary",
+                fileCount: 1,
+                totalBytes: 100,
+                companionGroups: []
+            )
+        )
+        return (AppCoordinator(photographerJobViewModel: viewModel), store)
+    }
+
+    private func progress(stage: ProgressStage) -> OperationProgress {
+        OperationProgress(
+            overallProgress: 0.5,
+            currentFile: "A.ARW",
+            filesProcessed: 0,
+            totalFiles: 1,
+            currentStage: stage,
+            speed: nil,
+            timeRemaining: nil
+        )
+    }
+
+    private func verifiedRow(destination: String) -> ResultRow {
+        ResultRow(
+            path: "/card/A.ARW",
+            status: "✅ Verified",
+            size: 100,
+            checksum: "abc",
+            destination: destination,
+            destinationPath: "/\(destination.lowercased())/A.ARW"
+        )
+    }
+
     private func drainMainRunLoop() {
         let nextTurn = expectation(description: "main run loop drains")
         RunLoop.main.perform {
