@@ -42,4 +42,55 @@ struct PhotographerCardAnalyzerTests {
         #expect(try PhotographerCardAnalyzer.preliminaryAnalysis(entries: [earlier, later]).fingerprint ==
                 PhotographerCardAnalyzer.preliminaryAnalysis(entries: [later, earlier]).fingerprint)
     }
+
+    @Test func confirmedFingerprintIsDeterministicForSuccessfulVerifiedRows() throws {
+        let a = ResultRow(
+            path: "/card/A.ARW",
+            status: "✅ Verified",
+            size: 10,
+            checksum: "aaa",
+            destination: nil
+        )
+        let b = ResultRow(
+            path: "/card/B.JPG",
+            status: "✅ Verified",
+            size: 5,
+            checksum: "bbb",
+            destination: nil
+        )
+
+        let forward = try PhotographerCardAnalyzer.confirmedFingerprint(results: [a, b])
+        let reversed = try PhotographerCardAnalyzer.confirmedFingerprint(results: [b, a])
+
+        #expect(forward == reversed)
+        #expect(forward == "b85fb86ec3d1ff98f0445514ec75dc725575ce97383a61d3b6dd59a3fe71388e")
+    }
+
+    @Test func confirmedFingerprintRejectsNonSuccessRow() {
+        let failed = ResultRow(
+            path: "/card/A.ARW",
+            status: "❌ Checksum mismatch",
+            size: 10,
+            checksum: "aaa",
+            destination: nil
+        )
+
+        #expect(throws: CardAnalysisError.incompleteVerification) {
+            try PhotographerCardAnalyzer.confirmedFingerprint(results: [failed])
+        }
+    }
+
+    @Test func confirmedFingerprintRejectsSuccessfulRowWithoutChecksum() {
+        let missingChecksum = ResultRow(
+            path: "/card/A.ARW",
+            status: "✅ Verified",
+            size: 10,
+            checksum: nil,
+            destination: nil
+        )
+
+        #expect(throws: CardAnalysisError.incompleteVerification) {
+            try PhotographerCardAnalyzer.confirmedFingerprint(results: [missingChecksum])
+        }
+    }
 }
