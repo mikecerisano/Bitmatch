@@ -100,6 +100,7 @@ struct PhotographerJobPresentationTests {
     }
 
     @Test func onlyVerifiedChecksumEvidenceIsPresentedAsFullyBackedUp() {
+        let validDigest = String(repeating: "a", count: 64)
         let states: [(RemoteBackupState, RemoteVerificationEvidence, String)] = [
             (.queued, .none, "Remote Queued"),
             (.uploading, .none, "Remote Uploading"),
@@ -108,8 +109,8 @@ struct PhotographerJobPresentationTests {
             (.conflict, .none, "Remote Conflict"),
             (.failed, .none, "Remote Failed"),
             (.verified, .none, "Verification Evidence Missing"),
-            (.verified, .sha256("expected-digest"), "Fully Backed Up"),
-            (.verified, .readBackSHA256("expected-digest"), "Fully Backed Up")
+            (.verified, .sha256(validDigest), "Fully Backed Up"),
+            (.verified, .readBackSHA256(validDigest), "Fully Backed Up")
         ]
 
         for (state, evidence, expectedTitle) in states {
@@ -118,6 +119,23 @@ struct PhotographerJobPresentationTests {
                 evidence: evidence
             )
             #expect(presentation.title == expectedTitle)
+        }
+    }
+
+    @Test func malformedVerifiedEvidenceIsNotPresentedAsFullyBackedUp() {
+        let malformedEvidence: [RemoteVerificationEvidence] = [
+            .sha256("not-a-checksum"),
+            .readBackSHA256(String(repeating: "a", count: 63)),
+            .sha256(String(repeating: "g", count: 64))
+        ]
+
+        for evidence in malformedEvidence {
+            let presentation = RemoteBackupStatusPresentation.make(
+                state: .verified,
+                evidence: evidence
+            )
+            #expect(presentation.title == "Verification Evidence Missing")
+            #expect(!presentation.isFullyBackedUp)
         }
     }
 

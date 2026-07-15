@@ -35,4 +35,30 @@ struct RemoteBackupModelsTests {
             )
         }
     }
+
+    @Test func malformedChecksumEvidenceIsNotConstructedAsVerifiedEvidence() {
+        let validDigest = String(repeating: "a", count: 64)
+        let malformedDigests = [
+            "",
+            "not-a-checksum",
+            String(repeating: "a", count: 63),
+            String(repeating: "g", count: 64),
+            " " + validDigest
+        ]
+
+        for digest in malformedDigests {
+            #expect(RemoteVerificationEvidence(serverSHA256: digest) == nil)
+            #expect(RemoteVerificationEvidence(readBackSHA256: digest) == nil)
+            #expect(RemoteVerificationEvidence.sha256(digest).digest == nil)
+            #expect(RemoteVerificationEvidence.readBackSHA256(digest).digest == nil)
+        }
+    }
+
+    @Test func malformedDecodedChecksumEvidenceBecomesNone() throws {
+        let encodedEvidence = Data(#"{"sha256":{"_0":"not-a-checksum"}}"#.utf8)
+
+        let evidence = try JSONDecoder().decode(RemoteVerificationEvidence.self, from: encodedEvidence)
+
+        #expect(evidence == .none)
+    }
 }

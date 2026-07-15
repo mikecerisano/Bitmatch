@@ -18,12 +18,86 @@ enum RemoteVerificationEvidence: Codable, Equatable, Sendable {
     case readBackSHA256(String)
     case none
 
+    init?(serverSHA256 digest: String) {
+        guard Self.isValidSHA256(digest) else { return nil }
+        self = .sha256(digest)
+    }
+
+    init?(readBackSHA256 digest: String) {
+        guard Self.isValidSHA256(digest) else { return nil }
+        self = .readBackSHA256(digest)
+    }
+
     var digest: String? {
         switch self {
         case .sha256(let digest), .readBackSHA256(let digest):
-            return digest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : digest
+            return Self.isValidSHA256(digest) ? digest : nil
         case .none:
             return nil
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sha256
+        case readBackSHA256
+        case none
+    }
+
+    private enum AssociatedValueKeys: String, CodingKey {
+        case value = "_0"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let keys = [CodingKeys.sha256, .readBackSHA256, .none].filter(container.contains)
+
+        guard keys.count == 1, let key = keys.first else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Remote verification evidence must contain exactly one case."
+                )
+            )
+        }
+
+        switch key {
+        case .sha256:
+            let digest = try container
+                .nestedContainer(keyedBy: AssociatedValueKeys.self, forKey: .sha256)
+                .decode(String.self, forKey: .value)
+            self = Self(serverSHA256: digest) ?? .none
+        case .readBackSHA256:
+            let digest = try container
+                .nestedContainer(keyedBy: AssociatedValueKeys.self, forKey: .readBackSHA256)
+                .decode(String.self, forKey: .value)
+            self = Self(readBackSHA256: digest) ?? .none
+        case .none:
+            self = .none
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case .sha256(let digest):
+            var value = container.nestedContainer(keyedBy: AssociatedValueKeys.self, forKey: .sha256)
+            try value.encode(digest, forKey: .value)
+        case .readBackSHA256(let digest):
+            var value = container.nestedContainer(keyedBy: AssociatedValueKeys.self, forKey: .readBackSHA256)
+            try value.encode(digest, forKey: .value)
+        case .none:
+            _ = container.nestedContainer(keyedBy: AssociatedValueKeys.self, forKey: .none)
+        }
+    }
+
+    private static func isValidSHA256(_ digest: String) -> Bool {
+        guard digest.utf8.count == 64 else { return false }
+
+        return digest.utf8.allSatisfy { byte in
+            (byte >= 48 && byte <= 57)
+                || (byte >= 65 && byte <= 70)
+                || (byte >= 97 && byte <= 102)
         }
     }
 }
