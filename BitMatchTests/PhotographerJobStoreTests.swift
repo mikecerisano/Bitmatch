@@ -224,6 +224,28 @@ struct PhotographerJobStoreTests {
     }
 
     @MainActor
+    @Test func profileDeletionCanBeRetriedWhenKeychainDeletionFails() throws {
+        let credentials = InMemoryRemoteCredentialStore()
+        let (_, store) = makeStore(credentials: credentials.store)
+        let profile = try makeRemoteProfile(id: uuid(404), name: "Retryable")
+
+        try store.save(profile)
+        try credentials.store.save(RemoteCredential(password: "credential"), for: profile.id)
+        credentials.failNextDeletion()
+
+        #expect(throws: RemoteCredentialStoreError.keychainDeleteFailed) {
+            try store.deleteProfile(id: profile.id)
+        }
+        #expect(try store.profiles() == [profile])
+        #expect(credentials.data(for: profile.id) != nil)
+
+        try store.deleteProfile(id: profile.id)
+
+        #expect(try store.profiles().isEmpty)
+        #expect(credentials.data(for: profile.id) == nil)
+    }
+
+    @MainActor
     @Test func remoteQueueItemRoundTrips() throws {
         let (_, store) = makeStore()
         let item = try makeRemoteQueueItem(id: uuid(404))
@@ -260,6 +282,45 @@ struct PhotographerJobStoreTests {
         }
 
         #expect(retryCount == 1)
+    }
+
+    @MainActor
+    @Test func openingPreRemoteBackupStoreMigratesAndLoadsExistingRecords() async throws {
+        let storeURL = URL.temporaryDirectory
+            .appending(path: "BitMatchMigration-\(UUID().uuidString).sqlite")
+        defer {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(at: storeURL.appendingPathExtension("shm"))
+            try? FileManager.default.removeItem(at: storeURL.appendingPathExtension("wal"))
+        }
+
+        let legacyModel = try #require(legacyModel())
+        let legacyContainer = NSPersistentContainer(
+            name: "BitMatch",
+            managedObjectModel: legacyModel
+        )
+        let legacyDescription = NSPersistentStoreDescription(url: storeURL)
+        legacyContainer.persistentStoreDescriptions = [legacyDescription]
+        try await loadPersistentStore(for: legacyContainer)
+
+        let job = makeJob(id: uuid(405), name: "Pre-Remote Store", updatedAt: date(200))
+        let record = NSEntityDescription.insertNewObject(
+            forEntityName: "PhotographerJobRecord",
+            into: legacyContainer.viewContext
+        )
+        record.setValue(job.id, forKey: "id")
+        record.setValue(job.updatedAt, forKey: "updatedAt")
+        record.setValue(try encoded(job), forKey: "payload")
+        try legacyContainer.viewContext.save()
+
+        let persistence = BitMatchPersistenceController(storeURL: storeURL)
+        while !persistence.isStoreLoaded && persistence.persistentStoreLoadError == nil {
+            await Task.yield()
+        }
+
+        #expect(persistence.persistentStoreLoadError == nil)
+        let store = CoreDataPhotographerJobStore(persistence: persistence)
+        #expect(try store.jobs() == [job])
     }
 
     @MainActor
@@ -365,6 +426,36 @@ struct PhotographerJobStoreTests {
         Date(timeIntervalSince1970: seconds)
     }
 
+    private func encoded<Value: Encodable>(_ value: Value) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(value)
+    }
+
+    private func legacyModel() -> NSManagedObjectModel? {
+        let bundle = Bundle(for: BitMatchPersistenceController.self)
+        guard let url = bundle.url(
+            forResource: "BitMatch",
+            withExtension: "mom",
+            subdirectory: "BitMatch.momd"
+        ) else {
+            return nil
+        }
+        return NSManagedObjectModel(contentsOf: url)
+    }
+
+    private func loadPersistentStore(for container: NSPersistentContainer) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            container.loadPersistentStores { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
     private func uuid(_ suffix: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix))!
     }
@@ -372,6 +463,7 @@ struct PhotographerJobStoreTests {
 
 private final class InMemoryRemoteCredentialStore {
     private var dataByAccount: [String: Data] = [:]
+    private var shouldFailNextDeletion = false
 
     lazy var store = RemoteCredentialStore(
         saveData: { [weak self] data, account in
@@ -382,10 +474,19 @@ private final class InMemoryRemoteCredentialStore {
             self?.dataByAccount[account]
         },
         deleteData: { [weak self] account in
-            self?.dataByAccount.removeValue(forKey: account)
-            return self != nil
+            guard let self else { return false }
+            if self.shouldFailNextDeletion {
+                self.shouldFailNextDeletion = false
+                return false
+            }
+            self.dataByAccount.removeValue(forKey: account)
+            return true
         }
     )
+
+    func failNextDeletion() {
+        shouldFailNextDeletion = true
+    }
 
     func data(for profileID: UUID) -> Data? {
         dataByAccount[store.accountName(for: profileID)]

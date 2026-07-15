@@ -165,11 +165,19 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
 
     func deleteProfile(id: UUID) throws {
         try requireStore()
-        if let record = try existingRecord(for: id, entityName: Entity.profile) {
-            context.delete(record)
-        }
-        try saveIfNeeded()
+        // Delete the Keychain value first. If that operation fails, the Core
+        // Data profile remains visible and this cleanup can be retried rather
+        // than leaving an opaque credential with no discoverable owner.
         try credentialStore.deleteCredential(for: id)
+        do {
+            if let record = try existingRecord(for: id, entityName: Entity.profile) {
+                context.delete(record)
+            }
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
     }
 
     func manifests() throws -> [RemoteManifest] {
