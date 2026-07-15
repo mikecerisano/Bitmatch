@@ -291,6 +291,61 @@ struct SharedFileOperationsEdgeCaseTests {
     }
 
     @Test
+    func testPinnedChecksumReuseRejectsMatchingEscapeFileAfterSymlinkSwap() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let temporaryRoot = fm.temporaryDirectory
+                .appendingPathComponent("bitmatch_pinned_checksum_\(UUID().uuidString)")
+            let source = temporaryRoot.appendingPathComponent("Source")
+            let destination = temporaryRoot.appendingPathComponent("Destination")
+            let originalJob = destination.appendingPathComponent("Job")
+            let heldJob = destination.appendingPathComponent("Job-held")
+            let escape = temporaryRoot.appendingPathComponent("Escape")
+            let relativePath = "DCIM/clip.txt"
+            let matchingContents = Data(repeating: 0x53, count: 128)
+            let heldContents = Data(repeating: 0x48, count: 128)
+            try fm.createDirectory(at: source.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+            try fm.createDirectory(at: escape.appendingPathComponent("Card-001/DCIM"), withIntermediateDirectories: true)
+            try matchingContents.write(to: source.appendingPathComponent(relativePath))
+            try matchingContents.write(to: escape.appendingPathComponent("Card-001/\(relativePath)"))
+            defer { try? fm.removeItem(at: temporaryRoot) }
+
+            let pinnedRoot = try PinnedDestinationDirectory.open(
+                destination: destination,
+                rootComponents: ["Job", "Card-001"]
+            )
+            try fm.createDirectory(at: originalJob.appendingPathComponent("Card-001/DCIM"), withIntermediateDirectories: true)
+            try heldContents.write(to: originalJob.appendingPathComponent(relativePath))
+            try fm.moveItem(at: originalJob, to: heldJob)
+            try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
+
+            let errors = AsyncErrorCollector()
+            try await FileCopyService.copyAllSafely(
+                from: source,
+                toPinnedRoot: pinnedRoot,
+                verificationMode: .standard,
+                workers: 1,
+                onProgress: { _, _ in
+                    Issue.record("Escape-tree checksum match must not be reused as verified evidence")
+                },
+                onError: { _, error in
+                    await errors.append(error.localizedDescription)
+                }
+            )
+
+            let capturedErrors = await errors.messages
+            #expect(!capturedErrors.isEmpty)
+            #expect(try Data(contentsOf: heldJob.appendingPathComponent("Card-001/\(relativePath)")) == heldContents)
+            #expect(try Data(contentsOf: escape.appendingPathComponent("Card-001/\(relativePath)")) == matchingContents)
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
     func testSourceMutationDuringCopyDoesNotPublishDestinationFile() async throws {
         try await FileOperationsTestLock.shared.run {
             #if os(macOS)

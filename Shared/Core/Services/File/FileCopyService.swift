@@ -1,6 +1,7 @@
 // FileCopyService.swift - Atomic file copy with streaming enumeration
 // Uses shared AsyncSemaphore from AsyncSemaphore.swift
 import Foundation
+import CryptoKit
 #if canImport(Darwin)
 import Darwin
 
@@ -56,6 +57,18 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
 
     func destinationURL(for relativePath: String) -> URL {
         logicalRootURL.appendingPathComponent(relativePath)
+    }
+
+    /// Opens a destination file below the pinned directory. The returned
+    /// descriptor, not `logicalRootURL`, is the authority for subsequent
+    /// reads. This is deliberately separate from the display URL above.
+    func openRegularFile(at relativeComponents: [String]) throws -> PinnedDestinationFile {
+        guard let name = relativeComponents.last else {
+            throw FileOperationError.unsafeOperation("Invalid destination file path")
+        }
+        let parentFD = try openOrCreateDirectory(at: Array(relativeComponents.dropLast()))
+        defer { _ = Darwin.close(parentFD) }
+        return try PinnedDestinationFile.open(named: name, relativeTo: parentFD)
     }
 
     static func isExistingRegularFile(named name: String, relativeTo parentFD: Int32) throws -> Bool {
@@ -138,6 +151,57 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
               !component.contains("/") else {
             throw FileOperationError.unsafeOperation("Invalid destination path component")
         }
+    }
+
+    private static func posixError(_ message: String) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message + ": " + String(cString: strerror(errno))])
+    }
+}
+
+/// A regular file opened relative to a pinned directory. It owns a descriptor
+/// so symlink swaps of presentation paths cannot redirect checksum or byte
+/// verification reads.
+final class PinnedDestinationFile: @unchecked Sendable {
+    private let fileFD: Int32
+
+    private init(fileFD: Int32) {
+        self.fileFD = fileFD
+    }
+
+    deinit { _ = Darwin.close(fileFD) }
+
+    static func open(named name: String, relativeTo parentFD: Int32) throws -> PinnedDestinationFile {
+        let flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+        let fd = name.withCString { openat(parentFD, $0, flags) }
+        guard fd >= 0 else {
+            if errno == ELOOP {
+                throw FileOperationError.unsafeOperation("Destination file \(name) is a symbolic link")
+            }
+            throw posixError("Unable to open destination file \(name)")
+        }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+            _ = Darwin.close(fd)
+            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+        }
+        return PinnedDestinationFile(fileFD: fd)
+    }
+
+    func snapshot() throws -> stat {
+        var info = stat()
+        guard fstat(fileFD, &info) == 0 else {
+            throw Self.posixError("Unable to inspect pinned destination file")
+        }
+        guard (info.st_mode & S_IFMT) == S_IFREG else {
+            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+        }
+        return info
+    }
+
+    func readingHandle() throws -> FileHandle {
+        let duplicate = Darwin.dup(fileFD)
+        guard duplicate >= 0 else { throw Self.posixError("Unable to duplicate pinned destination file") }
+        return FileHandle(fileDescriptor: duplicate, closeOnDealloc: true)
     }
 
     private static func posixError(_ message: String) -> NSError {
@@ -379,10 +443,10 @@ final class FileCopyService {
                             let filename = components[components.count - 1]
                             let sourceSize = Int64(values.fileSize ?? 0)
                             if try PinnedDestinationDirectory.isExistingRegularFile(named: filename, relativeTo: parentFD) {
-                                let destinationURL = pinnedRoot.destinationURL(for: relativePath)
+                                let destinationFile = try PinnedDestinationFile.open(named: filename, relativeTo: parentFD)
                                 if try await canReuseExistingDestinationFile(
                                     source: fileURL,
-                                    destination: destinationURL,
+                                    destination: destinationFile,
                                     sourceSize: sourceSize,
                                     verificationMode: verificationMode
                                 ) {
@@ -804,6 +868,240 @@ final class FileCopyService {
 
         return true
     }
+
+    #if canImport(Darwin)
+    private static func canReuseExistingDestinationFile(
+        source: URL,
+        destination: PinnedDestinationFile,
+        sourceSize: Int64,
+        verificationMode: VerificationMode
+    ) async throws -> Bool {
+        let destinationInfo = try destination.snapshot()
+        guard Int64(destinationInfo.st_size) == sourceSize else {
+            throw existingDestinationConflictError("Existing destination file differs in size")
+        }
+
+        if verificationMode == .quick {
+            throw existingDestinationConflictError(
+                "Quick mode cannot prove an existing destination file matches; choose Standard verification or an empty destination"
+            )
+        }
+
+        guard try await checksumsMatch(
+            source: source,
+            pinnedDestination: destination,
+            verificationMode: verificationMode
+        ) else {
+            throw existingDestinationConflictError("Existing destination file checksum differs; refusing to overwrite it")
+        }
+
+        return true
+    }
+
+    /// Verifies a destination file by opening it below `pinnedRoot`. The URL
+    /// returned to callers remains presentation metadata; no destination read
+    /// follows that URL after the directory has been pinned.
+    static func verifyPinnedDestinationFile(
+        source: URL,
+        pinnedRoot: PinnedDestinationDirectory,
+        relativePath: String,
+        verificationMode: VerificationMode
+    ) async throws -> VerificationResult {
+        guard let components = safeRelativeComponents(relativePath) else {
+            throw FileOperationError.unsafeOperation("Invalid destination file path")
+        }
+        let destination = try pinnedRoot.openRegularFile(at: components)
+        let startTime = Date()
+
+        if verificationMode == .paranoid {
+            let matches = try await byteComparison(source: source, pinnedDestination: destination)
+            return VerificationResult(
+                sourceChecksum: "byte-comparison",
+                destinationChecksum: "byte-comparison",
+                matches: matches,
+                checksumType: .sha256,
+                processingTime: Date().timeIntervalSince(startTime),
+                fileSize: try sourceFileSize(source)
+            )
+        }
+
+        let checksumTypes = verificationMode.checksumTypes
+        guard !checksumTypes.isEmpty else {
+            throw FileOperationError.unsafeOperation("Verification mode does not provide a checksum")
+        }
+        var combinedMatches = true
+        var firstResult: VerificationResult?
+        var primaryResult: VerificationResult?
+        var totalProcessing: TimeInterval = 0
+        for type in checksumTypes {
+            let result = try await checksumVerification(
+                source: source,
+                pinnedDestination: destination,
+                type: type
+            )
+            combinedMatches = combinedMatches && result.matches
+            totalProcessing += result.processingTime
+            if firstResult == nil { firstResult = result }
+            if type == .sha256 { primaryResult = result }
+        }
+        guard let base = primaryResult ?? firstResult else {
+            throw FileOperationError.unsafeOperation("Verification mode does not provide a checksum")
+        }
+        return VerificationResult(
+            sourceChecksum: base.sourceChecksum,
+            destinationChecksum: base.destinationChecksum,
+            matches: combinedMatches,
+            checksumType: base.checksumType,
+            processingTime: totalProcessing,
+            fileSize: base.fileSize
+        )
+    }
+
+    private static func checksumsMatch(
+        source: URL,
+        pinnedDestination: PinnedDestinationFile,
+        verificationMode: VerificationMode
+    ) async throws -> Bool {
+        let types = verificationMode.checksumTypes
+        guard !types.isEmpty else { return false }
+        for type in types {
+            let result = try await checksumVerification(
+                source: source,
+                pinnedDestination: pinnedDestination,
+                type: type
+            )
+            if !result.matches { return false }
+        }
+        return true
+    }
+
+    private static func checksumVerification(
+        source: URL,
+        pinnedDestination: PinnedDestinationFile,
+        type: ChecksumAlgorithm
+    ) async throws -> VerificationResult {
+        let startTime = Date()
+        let sourceChecksum = try await SharedChecksumService.shared.generateChecksum(
+            for: source,
+            type: type,
+            useCache: false,
+            progressCallback: nil
+        )
+        let destinationChecksum = try await pinnedDestinationChecksum(pinnedDestination, type: type)
+        return VerificationResult(
+            sourceChecksum: sourceChecksum,
+            destinationChecksum: destinationChecksum,
+            matches: sourceChecksum.caseInsensitiveCompare(destinationChecksum) == .orderedSame,
+            checksumType: type,
+            processingTime: Date().timeIntervalSince(startTime),
+            fileSize: try sourceFileSize(source)
+        )
+    }
+
+    private static func pinnedDestinationChecksum(
+        _ destination: PinnedDestinationFile,
+        type: ChecksumAlgorithm
+    ) async throws -> String {
+        switch type {
+        case .md5:
+            var hasher = Insecure.MD5()
+            try await readPinnedDestination(destination) { hasher.update(data: $0) }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        case .sha1:
+            var hasher = Insecure.SHA1()
+            try await readPinnedDestination(destination) { hasher.update(data: $0) }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        case .sha256:
+            var hasher = SHA256()
+            try await readPinnedDestination(destination) { hasher.update(data: $0) }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    private static func readPinnedDestination(
+        _ destination: PinnedDestinationFile,
+        consume: (Data) -> Void
+    ) async throws {
+        let initial = try destination.snapshot()
+        let handle = try destination.readingHandle()
+        defer { closeFileHandle(handle, context: "pinned destination") }
+        var bytesRead: Int64 = 0
+        while true {
+            try Task.checkCancellation()
+            if let pauseCheck = SharedChecksumService.pauseCheck { try await pauseCheck() }
+            let data = try handle.read(upToCount: 1024 * 1024) ?? Data()
+            if data.isEmpty { break }
+            consume(data)
+            bytesRead += Int64(data.count)
+        }
+        let final = try destination.snapshot()
+        guard bytesRead == Int64(initial.st_size), pinnedFileRemainedStable(initial, final) else {
+            throw NSError(
+                domain: "FileCopyService",
+                code: -11,
+                userInfo: [NSLocalizedDescriptionKey: "Pinned destination file changed while reading"]
+            )
+        }
+    }
+
+    private static func byteComparison(source: URL, pinnedDestination: PinnedDestinationFile) async throws -> Bool {
+        let sourceAttributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        let sourceSize = (sourceAttributes[.size] as? NSNumber)?.int64Value ?? -1
+        let sourceIdentity = fileIdentity(from: sourceAttributes)
+        let sourceModificationDate = sourceAttributes[.modificationDate] as? Date
+        let destinationInitial = try pinnedDestination.snapshot()
+        guard sourceSize == Int64(destinationInitial.st_size) else { return false }
+
+        let sourceHandle = try FileHandle(forReadingFrom: source)
+        let destinationHandle = try pinnedDestination.readingHandle()
+        defer {
+            closeFileHandle(sourceHandle, context: source.path)
+            closeFileHandle(destinationHandle, context: "pinned destination")
+        }
+
+        var bytesRead: Int64 = 0
+        while bytesRead < sourceSize {
+            try Task.checkCancellation()
+            if let pauseCheck = SharedChecksumService.pauseCheck { try await pauseCheck() }
+            let sourceData = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
+            let destinationData = try destinationHandle.read(upToCount: 64 * 1024) ?? Data()
+            guard !sourceData.isEmpty, !destinationData.isEmpty else {
+                throw NSError(domain: "FileCopyService", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
+            }
+            if sourceData != destinationData { return false }
+            bytesRead += Int64(sourceData.count)
+        }
+
+        let sourceTrailingData = try sourceHandle.read(upToCount: 1) ?? Data()
+        let destinationTrailingData = try destinationHandle.read(upToCount: 1) ?? Data()
+        let destinationFinal = try pinnedDestination.snapshot()
+        guard sourceTrailingData.isEmpty,
+              destinationTrailingData.isEmpty,
+              sourceRemainedStable(
+                initialSize: sourceSize,
+                initialModificationDate: sourceModificationDate,
+                initialIdentity: sourceIdentity,
+                finalAttributes: try FileManager.default.attributesOfItem(atPath: source.path)
+              ),
+              pinnedFileRemainedStable(destinationInitial, destinationFinal) else {
+            throw NSError(domain: "FileCopyService", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
+        }
+        return true
+    }
+
+    private static func sourceFileSize(_ source: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        return (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private static func pinnedFileRemainedStable(_ initial: stat, _ final: stat) -> Bool {
+        initial.st_dev == final.st_dev
+            && initial.st_ino == final.st_ino
+            && initial.st_size == final.st_size
+            && initial.st_mtimespec.tv_sec == final.st_mtimespec.tv_sec
+            && initial.st_mtimespec.tv_nsec == final.st_mtimespec.tv_nsec
+    }
+    #endif
 
     fileprivate static func existingDestinationConflictError(_ reason: String) -> NSError {
         NSError(
