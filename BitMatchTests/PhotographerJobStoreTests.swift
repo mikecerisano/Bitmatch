@@ -185,11 +185,149 @@ struct PhotographerJobStoreTests {
     }
 
     @MainActor
-    private func makeStore() -> (BitMatchPersistenceController, CoreDataPhotographerJobStore) {
+    @Test func remoteProfileRoundTripsWithoutCredentialInCoreDataPayload() throws {
+        let credentials = InMemoryRemoteCredentialStore()
+        let (persistence, store) = makeStore(credentials: credentials.store)
+        let profile = try makeRemoteProfile(id: uuid(401), name: "Studio SFTP")
+        let password = "not-in-core-data"
+
+        try credentials.store.save(RemoteCredential(password: password), for: profile.id)
+        try store.save(profile)
+
+        #expect(try store.profiles() == [profile])
+        #expect(credentials.data(for: profile.id) != nil)
+
+        let request = NSFetchRequest<NSManagedObject>(entityName: "RemoteDestinationProfileRecord")
+        let record = try #require(persistence.container.viewContext.fetch(request).first)
+        let payload = try #require(record.value(forKey: "payload") as? Data)
+        #expect(!String(decoding: payload, as: UTF8.self).contains(password))
+        #expect(record.value(forKey: "credentialAccount") as? String == credentials.store.accountName(for: profile.id))
+    }
+
+    @MainActor
+    @Test func deletingOneRemoteProfileDeletesOnlyItsKeychainCredential() throws {
+        let credentials = InMemoryRemoteCredentialStore()
+        let (_, store) = makeStore(credentials: credentials.store)
+        let first = try makeRemoteProfile(id: uuid(402), name: "Primary")
+        let second = try makeRemoteProfile(id: uuid(403), name: "Archive")
+
+        try store.save(first)
+        try store.save(second)
+        try credentials.store.save(RemoteCredential(password: "first"), for: first.id)
+        try credentials.store.save(RemoteCredential(password: "second"), for: second.id)
+
+        try store.deleteProfile(id: first.id)
+
+        #expect(try store.profiles() == [second])
+        #expect(credentials.data(for: first.id) == nil)
+        #expect(credentials.data(for: second.id) != nil)
+    }
+
+    @MainActor
+    @Test func remoteQueueItemRoundTrips() throws {
+        let (_, store) = makeStore()
+        let item = try makeRemoteQueueItem(id: uuid(404))
+
+        try store.save(item)
+
+        #expect(try store.queueItems() == [item])
+    }
+
+    @MainActor
+    @Test func remoteManifestRoundTrips() throws {
+        let (_, store) = makeStore()
+        let manifest = try makeRemoteManifest(id: uuid(410))
+
+        try store.save(manifest)
+
+        #expect(try store.manifests() == [manifest])
+    }
+
+    @MainActor
+    @Test func unavailableCoreDataRetriesThroughExistingReadinessCallback() async throws {
+        let persistence = BitMatchPersistenceController(inMemory: true, deferStoreLoad: true)
+        let store = CoreDataPhotographerJobStore(persistence: persistence)
+        var retryCount = 0
+
+        #expect(!store.isAvailable)
+        store.whenAvailable {
+            retryCount += 1
+        }
+
+        persistence.loadPersistentStore()
+        while !store.isAvailable {
+            await Task.yield()
+        }
+
+        #expect(retryCount == 1)
+    }
+
+    @MainActor
+    private func makeStore(
+        credentials: RemoteCredentialStore = RemoteCredentialStore()
+    ) -> (BitMatchPersistenceController, CoreDataPhotographerJobStore) {
         let persistence = BitMatchPersistenceController(inMemory: true)
         return (
             persistence,
-            CoreDataPhotographerJobStore(context: persistence.container.viewContext)
+            CoreDataPhotographerJobStore(
+                context: persistence.container.viewContext,
+                credentialStore: credentials
+            )
+        )
+    }
+
+    private func makeRemoteProfile(id: UUID, name: String) throws -> RemoteDestinationProfile {
+        RemoteDestinationProfile(
+            id: id,
+            name: name,
+            host: "sftp.example.com",
+            port: 22,
+            username: "mike",
+            root: try RemoteRelativePath(components: ["Backups", name]),
+            verificationMode: .sha256
+        )
+    }
+
+    private func makeRemoteQueueItem(id: UUID) throws -> RemoteQueueItem {
+        let root = try RemoteRelativePath(components: ["Jobs", "Smith"])
+        return RemoteQueueItem(
+            id: id,
+            jobID: uuid(405),
+            cardIngestID: uuid(406),
+            destinationProfileID: uuid(407),
+            manifestID: uuid(408),
+            manifestEntryID: uuid(409),
+            localArtifactBookmarkReference: "remote-artifact.404",
+            localArtifactRelativePath: root,
+            remoteRelativePath: try root.appending("Card-001"),
+            temporaryRemoteRelativePath: try root.appending(".bitmatch-upload-404"),
+            state: .queued,
+            uploadedByteCount: 0,
+            retryCount: 0,
+            nextAttemptAt: nil,
+            verificationEvidence: .none,
+            errorSummary: nil,
+            createdAt: date(200),
+            updatedAt: date(200)
+        )
+    }
+
+    private func makeRemoteManifest(id: UUID) throws -> RemoteManifest {
+        try RemoteManifest(
+            id: id,
+            jobID: uuid(411),
+            cardIngestID: uuid(412),
+            destinationProfileID: uuid(413),
+            packageRelativePath: RemoteRelativePath(components: ["Jobs", "Smith"]),
+            entries: [
+                RemoteManifestEntry(
+                    id: uuid(414),
+                    relativePath: RemoteRelativePath(components: ["Card-001", "IMG_0001.ARW"]),
+                    byteCount: 1_024,
+                    sha256: String(repeating: "a", count: 64)
+                )
+            ],
+            createdAt: date(200)
         )
     }
 
@@ -229,5 +367,27 @@ struct PhotographerJobStoreTests {
 
     private func uuid(_ suffix: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", suffix))!
+    }
+}
+
+private final class InMemoryRemoteCredentialStore {
+    private var dataByAccount: [String: Data] = [:]
+
+    lazy var store = RemoteCredentialStore(
+        saveData: { [weak self] data, account in
+            self?.dataByAccount[account] = data
+            return self != nil
+        },
+        loadData: { [weak self] account in
+            self?.dataByAccount[account]
+        },
+        deleteData: { [weak self] account in
+            self?.dataByAccount.removeValue(forKey: account)
+            return self != nil
+        }
+    )
+
+    func data(for profileID: UUID) -> Data? {
+        dataByAccount[store.accountName(for: profileID)]
     }
 }

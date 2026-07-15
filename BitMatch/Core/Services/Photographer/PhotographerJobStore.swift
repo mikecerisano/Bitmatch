@@ -13,6 +13,15 @@ protocol PhotographerJobStore {
     func deleteJob(id: UUID) throws
     func presets() throws -> [PhotographerPreset]
     func save(_ preset: PhotographerPreset) throws
+    func profiles() throws -> [RemoteDestinationProfile]
+    func save(_ profile: RemoteDestinationProfile) throws
+    func deleteProfile(id: UUID) throws
+    func manifests() throws -> [RemoteManifest]
+    func save(_ manifest: RemoteManifest) throws
+    func deleteManifest(id: UUID) throws
+    func queueItems() throws -> [RemoteQueueItem]
+    func save(_ item: RemoteQueueItem) throws
+    func deleteQueueItem(id: UUID) throws
     var isAvailable: Bool { get }
     func whenAvailable(_ action: @escaping () -> Void)
 }
@@ -20,6 +29,15 @@ protocol PhotographerJobStore {
 extension PhotographerJobStore {
     var isAvailable: Bool { true }
     func whenAvailable(_: @escaping () -> Void) {}
+    func profiles() throws -> [RemoteDestinationProfile] { [] }
+    func save(_: RemoteDestinationProfile) throws {}
+    func deleteProfile(id _: UUID) throws {}
+    func manifests() throws -> [RemoteManifest] { [] }
+    func save(_: RemoteManifest) throws {}
+    func deleteManifest(id _: UUID) throws {}
+    func queueItems() throws -> [RemoteQueueItem] { [] }
+    func save(_: RemoteQueueItem) throws {}
+    func deleteQueueItem(id _: UUID) throws {}
 }
 
 @MainActor
@@ -27,20 +45,32 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     private enum Entity {
         static let job = "PhotographerJobRecord"
         static let preset = "PhotographerPresetRecord"
+        static let profile = "RemoteDestinationProfileRecord"
+        static let manifest = "RemoteManifestRecord"
+        static let queueItem = "RemoteQueueItemRecord"
     }
 
     private let context: NSManagedObjectContext
+    private let credentialStore: RemoteCredentialStore
     private let storeIsAvailable: () -> Bool
     private let registerWhenAvailable: (@escaping () -> Void) -> Void
 
-    init(context: NSManagedObjectContext) {
+    init(
+        context: NSManagedObjectContext,
+        credentialStore: RemoteCredentialStore = RemoteCredentialStore()
+    ) {
         self.context = context
+        self.credentialStore = credentialStore
         self.storeIsAvailable = { true }
         self.registerWhenAvailable = { _ in }
     }
 
-    init(persistence: BitMatchPersistenceController) {
+    init(
+        persistence: BitMatchPersistenceController,
+        credentialStore: RemoteCredentialStore = RemoteCredentialStore()
+    ) {
         self.context = persistence.container.viewContext
+        self.credentialStore = credentialStore
         self.storeIsAvailable = { persistence.isStoreLoaded }
         self.registerWhenAvailable = { action in persistence.whenStoreReady(action) }
     }
@@ -106,6 +136,102 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
             context.rollback()
             throw error
         }
+    }
+
+    func profiles() throws -> [RemoteDestinationProfile] {
+        try requireStore()
+        let request = NSFetchRequest<NSManagedObject>(entityName: Entity.profile)
+        return try context.fetch(request)
+            .map { record in try decode(RemoteDestinationProfile.self, from: record) }
+            .sorted { lhs, rhs in
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    func save(_ profile: RemoteDestinationProfile) throws {
+        try requireStore()
+        do {
+            let record = try record(for: profile.id, entityName: Entity.profile)
+            record.setValue(profile.id, forKey: "id")
+            record.setValue(Date(), forKey: "updatedAt")
+            record.setValue(credentialStore.accountName(for: profile.id), forKey: "credentialAccount")
+            record.setValue(try encode(profile), forKey: "payload")
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    func deleteProfile(id: UUID) throws {
+        try requireStore()
+        if let record = try existingRecord(for: id, entityName: Entity.profile) {
+            context.delete(record)
+        }
+        try saveIfNeeded()
+        try credentialStore.deleteCredential(for: id)
+    }
+
+    func manifests() throws -> [RemoteManifest] {
+        try requireStore()
+        let request = NSFetchRequest<NSManagedObject>(entityName: Entity.manifest)
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        return try context.fetch(request).map { record in
+            try decode(RemoteManifest.self, from: record)
+        }
+    }
+
+    func save(_ manifest: RemoteManifest) throws {
+        try requireStore()
+        do {
+            let record = try record(for: manifest.id, entityName: Entity.manifest)
+            record.setValue(manifest.id, forKey: "id")
+            record.setValue(manifest.createdAt, forKey: "createdAt")
+            record.setValue(try encode(manifest), forKey: "payload")
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    func deleteManifest(id: UUID) throws {
+        try requireStore()
+        if let record = try existingRecord(for: id, entityName: Entity.manifest) {
+            context.delete(record)
+        }
+        try saveIfNeeded()
+    }
+
+    func queueItems() throws -> [RemoteQueueItem] {
+        try requireStore()
+        let request = NSFetchRequest<NSManagedObject>(entityName: Entity.queueItem)
+        request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
+        return try context.fetch(request).map { record in
+            try decode(RemoteQueueItem.self, from: record)
+        }
+    }
+
+    func save(_ item: RemoteQueueItem) throws {
+        try requireStore()
+        do {
+            let record = try record(for: item.id, entityName: Entity.queueItem)
+            record.setValue(item.id, forKey: "id")
+            record.setValue(item.updatedAt, forKey: "updatedAt")
+            record.setValue(try encode(item), forKey: "payload")
+            try saveIfNeeded()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
+    func deleteQueueItem(id: UUID) throws {
+        try requireStore()
+        if let record = try existingRecord(for: id, entityName: Entity.queueItem) {
+            context.delete(record)
+        }
+        try saveIfNeeded()
     }
 
     private func record(for id: UUID, entityName: String) throws -> NSManagedObject {

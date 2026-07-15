@@ -13,9 +13,28 @@
         <attribute name="payload" optional="NO" attributeType="Binary"/>
         <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
+    <entity name="RemoteDestinationProfileRecord" representedClassName="RemoteDestinationProfileRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="credentialAccount" optional="NO" attributeType="String"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="payload" optional="NO" attributeType="Binary"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="RemoteManifestRecord" representedClassName="RemoteManifestRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="payload" optional="NO" attributeType="Binary"/>
+    </entity>
+    <entity name="RemoteQueueItemRecord" representedClassName="RemoteQueueItemRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="payload" optional="NO" attributeType="Binary"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
     <elements>
         <element name="Item" positionX="-63" positionY="-18" width="128" height="44"/>
         <element name="PhotographerJobRecord" positionX="-63" positionY="45" width="128" height="89"/>
         <element name="PhotographerPresetRecord" positionX="-63" positionY="144" width="128" height="89"/>
+        <element name="RemoteDestinationProfileRecord" positionX="116" positionY="45" width="128" height="104"/>
+        <element name="RemoteManifestRecord" positionX="116" positionY="159" width="128" height="89"/>
+        <element name="RemoteQueueItemRecord" positionX="116" positionY="258" width="128" height="89"/>
     </elements>
 </model>
