@@ -89,6 +89,7 @@ struct CardIngest: Identifiable, Codable, Equatable, Sendable {
     var fileCount: Int
     var totalBytes: Int64
     var verifiedDestinationCount: Int
+    var remoteBackupSummaries: [UUID: RemoteBackupCardSummary]
 
     init(
         id: UUID,
@@ -100,7 +101,8 @@ struct CardIngest: Identifiable, Codable, Equatable, Sendable {
         locallySafeAt: Date?,
         fileCount: Int,
         totalBytes: Int64,
-        verifiedDestinationCount: Int = 0
+        verifiedDestinationCount: Int = 0,
+        remoteBackupSummaries: [UUID: RemoteBackupCardSummary] = [:]
     ) {
         self.id = id
         self.provenance = provenance
@@ -112,11 +114,12 @@ struct CardIngest: Identifiable, Codable, Equatable, Sendable {
         self.fileCount = fileCount
         self.totalBytes = totalBytes
         self.verifiedDestinationCount = verifiedDestinationCount
+        self.remoteBackupSummaries = remoteBackupSummaries
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, provenance, sourceDisplayName, renderedRelativePath, localState
-        case startedAt, locallySafeAt, fileCount, totalBytes, verifiedDestinationCount
+        case startedAt, locallySafeAt, fileCount, totalBytes, verifiedDestinationCount, remoteBackupSummaries
     }
 
     init(from decoder: Decoder) throws {
@@ -131,6 +134,7 @@ struct CardIngest: Identifiable, Codable, Equatable, Sendable {
         fileCount = try values.decode(Int.self, forKey: .fileCount)
         totalBytes = try values.decode(Int64.self, forKey: .totalBytes)
         verifiedDestinationCount = try values.decodeIfPresent(Int.self, forKey: .verifiedDestinationCount) ?? 0
+        remoteBackupSummaries = try values.decodeIfPresent([UUID: RemoteBackupCardSummary].self, forKey: .remoteBackupSummaries) ?? [:]
     }
 }
 
@@ -154,6 +158,7 @@ struct PhotographerJob: Identifiable, Codable, Equatable, Sendable {
     var recipe: FolderRecipe
     var requiredLocalCopyCount: Int
     var cardIngests: [CardIngest]
+    var remoteBackupConfiguration: RemoteBackupConfiguration? = nil
     var createdAt: Date
     var updatedAt: Date
 }

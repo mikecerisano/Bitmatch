@@ -99,6 +99,28 @@ struct PhotographerJobPresentationTests {
         #expect(row.statusSymbol == "checkmark.shield.fill")
     }
 
+    @Test func onlyVerifiedChecksumEvidenceIsPresentedAsFullyBackedUp() {
+        let states: [(RemoteBackupState, RemoteVerificationEvidence, String)] = [
+            (.queued, .none, "Remote Queued"),
+            (.uploading, .none, "Remote Uploading"),
+            (.uploadedUnverified, .none, "Uploaded · Unverified"),
+            (.paused, .none, "Remote Paused"),
+            (.conflict, .none, "Remote Conflict"),
+            (.failed, .none, "Remote Failed"),
+            (.verified, .none, "Verification Evidence Missing"),
+            (.verified, .sha256("expected-digest"), "Fully Backed Up"),
+            (.verified, .readBackSHA256("expected-digest"), "Fully Backed Up")
+        ]
+
+        for (state, evidence, expectedTitle) in states {
+            let presentation = RemoteBackupStatusPresentation.make(
+                state: state,
+                evidence: evidence
+            )
+            #expect(presentation.title == expectedTitle)
+        }
+    }
+
     @Test func sessionShowsRequiredAndVerifiedCopyCounts() {
         var completed = card(number: 1, state: .locallySafe)
         completed.verifiedDestinationCount = 3

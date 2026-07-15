@@ -107,6 +107,47 @@ struct PhotographerStartPresentation: Equatable, Sendable {
     }
 }
 
+struct RemoteBackupStatusPresentation: Equatable, Sendable {
+    let title: String
+    let symbol: String
+    let isFullyBackedUp: Bool
+    let isWarning: Bool
+
+    static func make(summary: RemoteBackupCardSummary) -> Self {
+        make(state: summary.state, evidence: summary.verificationEvidence)
+    }
+
+    static func make(
+        state: RemoteBackupState,
+        evidence: RemoteVerificationEvidence
+    ) -> Self {
+        switch state {
+        case .queued:
+            return Self(title: "Remote Queued", symbol: "clock", isFullyBackedUp: false, isWarning: false)
+        case .uploading:
+            return Self(title: "Remote Uploading", symbol: "arrow.up.circle", isFullyBackedUp: false, isWarning: false)
+        case .retrying:
+            return Self(title: "Remote Retrying", symbol: "arrow.clockwise", isFullyBackedUp: false, isWarning: true)
+        case .paused:
+            return Self(title: "Remote Paused", symbol: "pause.circle", isFullyBackedUp: false, isWarning: true)
+        case .uploadedUnverified:
+            return Self(title: "Uploaded · Unverified", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true)
+        case .verifying:
+            return Self(title: "Remote Verifying", symbol: "checkmark.shield", isFullyBackedUp: false, isWarning: false)
+        case .verified where evidence.digest != nil:
+            return Self(title: "Fully Backed Up", symbol: "checkmark.icloud.fill", isFullyBackedUp: true, isWarning: false)
+        case .verified:
+            return Self(title: "Verification Evidence Missing", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true)
+        case .failed:
+            return Self(title: "Remote Failed", symbol: "exclamationmark.triangle.fill", isFullyBackedUp: false, isWarning: true)
+        case .cancelled:
+            return Self(title: "Remote Cancelled", symbol: "xmark.circle.fill", isFullyBackedUp: false, isWarning: true)
+        case .conflict:
+            return Self(title: "Remote Conflict", symbol: "arrow.triangle.branch", isFullyBackedUp: false, isWarning: true)
+        }
+    }
+}
+
 struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
     let id: UUID
     let photographerName: String
@@ -119,6 +160,7 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
     let statusSymbol: String
     let verifiedDestinationCount: Int
     let verifiedCopyTitle: String
+    let remoteBackupPresentations: [UUID: RemoteBackupStatusPresentation]
 
     static func make(
         card: CardIngest,
@@ -140,7 +182,8 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
             statusTitle: status.title,
             statusSymbol: status.symbol,
             verifiedDestinationCount: verifiedDestinationCount,
-            verifiedCopyTitle: copyTitle
+            verifiedCopyTitle: copyTitle,
+            remoteBackupPresentations: card.remoteBackupSummaries.mapValues(RemoteBackupStatusPresentation.make)
         )
     }
 
