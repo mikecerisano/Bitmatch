@@ -69,6 +69,7 @@ struct PhotographerStartContext: Equatable, Sendable {
     let setupMatches: Bool
     let destinationCount: Int
     let requiredDestinationCount: Int
+    let verificationMode: VerificationMode
 }
 
 struct PhotographerStartPresentation: Equatable, Sendable {
@@ -85,6 +86,8 @@ struct PhotographerStartPresentation: Equatable, Sendable {
             blocker = "Set up this card before starting"
         } else if context.activeCardState != .notStarted {
             blocker = "Set up the next card before starting"
+        } else if context.verificationMode == .quick {
+            blocker = "Photographer ingests require Standard, Thorough, or Paranoid verification; Quick mode cannot establish locally safe evidence."
         } else if !context.sourceMatches {
             blocker = "Source changed; set up the card again"
         } else if !context.setupMatches {

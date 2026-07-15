@@ -153,8 +153,10 @@ struct ReportView: View {
             // Success Badge or Issues Summary
             Spacer(minLength: 20)
             
-            if issueCount == 0 {
+            if Self.shouldShowSuccessBadge(issueCount: issueCount, photographyJob: s.photographyJob) {
                 successBadge
+            } else if let notice = Self.photographerVerificationNotice(for: s.photographyJob) {
+                incompletePhotographerVerificationSummary(notice: notice)
             } else {
                 issuesSummaryTable
             }
@@ -350,6 +352,12 @@ struct ReportView: View {
                 photographyPath("Package", payload.card.renderedRelativePath)
                 photographyPath("Preliminary fingerprint", payload.card.provenance.preliminaryFingerprint ?? "—")
                 photographyPath("Confirmed fingerprint", payload.card.provenance.confirmedFingerprint ?? "—")
+
+                if let notice = Self.photographerVerificationNotice(for: payload) {
+                    Label(notice, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.orange)
+                }
 
                 ForEach(Array(payload.warnings.enumerated()), id: \.offset) { _, warning in
                     Label(warning, systemImage: "exclamationmark.triangle.fill")
@@ -642,6 +650,45 @@ struct ReportView: View {
             )
             Spacer()
         }
+    }
+
+    static func shouldShowSuccessBadge(
+        issueCount: Int,
+        photographyJob: PhotographerReportPayload?
+    ) -> Bool {
+        issueCount == 0 && (photographyJob?.isLocallySafe ?? true)
+    }
+
+    static func photographerVerificationNotice(
+        for payload: PhotographerReportPayload?
+    ) -> String? {
+        guard let payload, !payload.isLocallySafe else { return nil }
+        return "Photographer verification incomplete — this card is not locally safe."
+    }
+
+    private func incompletePhotographerVerificationSummary(notice: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("VERIFICATION INCOMPLETE")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.orange)
+                Text(notice)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.orange.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+                )
+        )
     }
     
     @ViewBuilder

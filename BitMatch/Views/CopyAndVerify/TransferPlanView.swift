@@ -63,7 +63,8 @@ struct TransferPlanView: View {
         let start = coordinator.photographerJobViewModel.startPresentation(
             preflightReady: plan.canStart,
             sourceURL: coordinator.fileSelectionViewModel.sourceURL,
-            destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count
+            destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count,
+            verificationMode: coordinator.verificationMode
         )
         let canStart = start.canStart
         return VStack(alignment: .leading, spacing: 8) {

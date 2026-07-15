@@ -156,6 +156,20 @@ struct PhotographerJobStoreTests {
     }
 
     @MainActor
+    @Test func missingRequiredCoreDataAttributesReportCorruptionInsteadOfForceCastCrash() throws {
+        let (persistence, store) = makeStore()
+        let record = NSEntityDescription.insertNewObject(
+            forEntityName: "PhotographerJobRecord",
+            into: persistence.container.viewContext
+        )
+        record.setValue(date(200), forKey: "updatedAt")
+
+        #expect(throws: PhotographerStoreError.corruptRecord(nil)) {
+            try store.jobs()
+        }
+    }
+
+    @MainActor
     @Test func persistentStoreLoadFailureDoesNotCrashAndRepositoryFailsClosed() throws {
         let persistence = BitMatchPersistenceController(
             forcedStoreLoadError: NSError(domain: "StoreLoad", code: 1)

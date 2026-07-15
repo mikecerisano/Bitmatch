@@ -133,6 +133,13 @@ final class PhotographerJobViewModel: ObservableObject {
                 cardNumber: cardNumber
             )
         )
+        if job.cardIngests.contains(where: { card in
+            card.id != pendingCard?.id
+                && portablePackageRoute(card.renderedRelativePath)
+                    == portablePackageRoute(rendered.relativePath)
+        }) {
+            throw PhotographerJobViewModelError.duplicatePackageRoute(rendered.relativePath)
+        }
         let warning = duplicateWarning(
             for: analysis.fingerprint,
             excludingCardID: pendingCard?.id
@@ -337,12 +344,20 @@ final class PhotographerJobViewModel: ObservableObject {
     }
 
     @discardableResult
-    func beginIngest(destinationCount: Int, sourceURL: URL? = nil) -> Bool {
-        guard let job = activeJob,
-              isStartEligible(preflightReady: true, sourceURL: sourceURL, destinationCount: destinationCount) else {
-            if let required = activeJob?.requiredLocalCopyCount, destinationCount < required {
-                lastError = PhotographerStartPresentation.insufficientDestinationError(requiredCount: required)
-            }
+    func beginIngest(
+        destinationCount: Int,
+        sourceURL: URL? = nil,
+        verificationMode: VerificationMode = .standard
+    ) -> Bool {
+        guard activeJob != nil else { return false }
+        let presentation = startPresentation(
+            preflightReady: true,
+            sourceURL: sourceURL,
+            destinationCount: destinationCount,
+            verificationMode: verificationMode
+        )
+        guard presentation.canStart else {
+            lastError = presentation.blocker
             return false
         }
         transitionActiveCard(to: .copying) { card in
@@ -373,7 +388,12 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
-    func startPresentation(preflightReady: Bool, sourceURL: URL?, destinationCount: Int) -> PhotographerStartPresentation {
+    func startPresentation(
+        preflightReady: Bool,
+        sourceURL: URL?,
+        destinationCount: Int,
+        verificationMode: VerificationMode = .standard
+    ) -> PhotographerStartPresentation {
         let sourceMatches = !sourcePreparationInvalidated && (preparedSourcePath == sourceURL.map(standardizedPath)
             || (preparedSourcePath == nil && sourceURL == nil)
         )
@@ -386,12 +406,23 @@ final class PhotographerJobViewModel: ObservableObject {
                 && preparedSetupSignature != nil
                 && preparedSetupSignature == currentSetupSignature,
             destinationCount: destinationCount,
-            requiredDestinationCount: activeJob?.requiredLocalCopyCount ?? 0
+            requiredDestinationCount: activeJob?.requiredLocalCopyCount ?? 0,
+            verificationMode: verificationMode
         ))
     }
 
-    func isStartEligible(preflightReady: Bool, sourceURL: URL?, destinationCount: Int) -> Bool {
-        startPresentation(preflightReady: preflightReady, sourceURL: sourceURL, destinationCount: destinationCount).canStart
+    func isStartEligible(
+        preflightReady: Bool,
+        sourceURL: URL?,
+        destinationCount: Int,
+        verificationMode: VerificationMode = .standard
+    ) -> Bool {
+        startPresentation(
+            preflightReady: preflightReady,
+            sourceURL: sourceURL,
+            destinationCount: destinationCount,
+            verificationMode: verificationMode
+        ).canStart
     }
 
     func updateProgressStage(_ stage: ProgressStage) {
@@ -420,7 +451,8 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
-    func completeIngest(results: [ResultRow]) throws {
+    @discardableResult
+    func completeIngest(results: [ResultRow]) throws -> PhotographerFinalizationResult {
         guard var job = activeJob else {
             throw PhotographerJobViewModelError.noActiveJob
         }
@@ -432,7 +464,9 @@ final class PhotographerJobViewModel: ObservableObject {
             throw PhotographerJobViewModelError.missingPreliminaryAnalysis
         }
         let currentCard = job.cardIngests[cardIndex]
-        guard currentCard.localState == .copying || currentCard.localState == .verifying else { return }
+        guard currentCard.localState == .copying || currentCard.localState == .verifying else {
+            return finalizationResult(job: job, cardID: cardID, analysis: analysis)
+        }
 
         let context = PhotographerReportContext(
             job: job,
@@ -475,6 +509,11 @@ final class PhotographerJobViewModel: ObservableObject {
             throw error
         }
         activeCardDraft = finalized.card
+        return finalizationResult(
+            job: activeJob ?? job,
+            cardID: cardID,
+            analysis: analysis
+        )
     }
 
     func cancelIngest() {
@@ -547,10 +586,40 @@ final class PhotographerJobViewModel: ObservableObject {
 
     private func loadJobs() {
         do {
-            jobs = try store.jobs().sorted { $0.updatedAt > $1.updatedAt }
+            var recoveredCardCount = 0
+            let loadedJobs = try store.jobs()
+            let recoveredJobs = try loadedJobs.map { job -> PhotographerJob in
+                var recovered = job
+                var changed = false
+
+                for index in recovered.cardIngests.indices where [
+                    PhotographerLocalState.notStarted,
+                    .copying,
+                    .verifying
+                ].contains(recovered.cardIngests[index].localState) {
+                    recovered.cardIngests[index].localState = .issues
+                    recovered.cardIngests[index].locallySafeAt = nil
+                    recovered.cardIngests[index].provenance.confirmedFingerprint = nil
+                    recovered.cardIngests[index].verifiedDestinationCount = 0
+                    recoveredCardCount += 1
+                    changed = true
+                }
+
+                if changed {
+                    recovered.updatedAt = now()
+                    try store.save(recovered)
+                }
+                return recovered
+            }
+
+            jobs = recoveredJobs.sorted { $0.updatedAt > $1.updatedAt }
             activeJob = jobs.first
             dashboardJobID = activeJob?.id
-            lastError = nil
+            if recoveredCardCount > 0 {
+                lastError = "Recovered \(recoveredCardCount) interrupted photographer \(recoveredCardCount == 1 ? "card" : "cards") and marked them as issues. Set up a new card to retry."
+            } else {
+                lastError = nil
+            }
         } catch {
             lastError = error.localizedDescription
         }
@@ -586,6 +655,17 @@ final class PhotographerJobViewModel: ObservableObject {
         return (priorNumbers.max() ?? 0) + 1
     }
 
+    private func portablePackageRoute(_ route: String) -> String {
+        route
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { component in
+                String(component)
+                    .precomposedStringWithCanonicalMapping
+                    .lowercased(with: Locale(identifier: "en_US_POSIX"))
+            }
+            .joined(separator: "/")
+    }
+
     private func duplicateWarning(
         for fingerprint: String,
         excludingCardID: UUID? = nil
@@ -609,6 +689,25 @@ final class PhotographerJobViewModel: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func finalizationResult(
+        job: PhotographerJob,
+        cardID: UUID,
+        analysis: CardAnalysis
+    ) -> PhotographerFinalizationResult {
+        let card = job.cardIngests.first { $0.id == cardID }
+        let context = PhotographerReportContext(
+            job: job,
+            cardIngestID: cardID,
+            analysis: analysis,
+            verifiedDestinationCount: card?.verifiedDestinationCount ?? 0,
+            warnings: duplicateWarning.map { [$0.message] } ?? []
+        )
+        return PhotographerFinalizationResult(
+            context: context,
+            locallySafe: card?.localState == .locallySafe
+        )
     }
 
     private func transitionActiveCard(
@@ -726,12 +825,15 @@ enum PhotographerJobViewModelError: LocalizedError, Equatable {
     case noActiveJob
     case noActiveCard
     case missingPreliminaryAnalysis
+    case duplicatePackageRoute(String)
 
     var errorDescription: String? {
         switch self {
         case .noActiveJob: return "Create or select a photographer job first."
         case .noActiveCard: return "Prepare a photographer card before completing ingest."
         case .missingPreliminaryAnalysis: return "Card analysis is required before completing ingest."
+        case .duplicatePackageRoute(let path):
+            return "Another card in this job already uses the package route \(path). Change the folder layers before retrying."
         }
     }
 }

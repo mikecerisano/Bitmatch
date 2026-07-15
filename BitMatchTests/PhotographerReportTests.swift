@@ -249,6 +249,22 @@ struct PhotographerReportTests {
         #expect(payload.results.last?.successful == false)
     }
 
+    @Test func unsafePhotographyPayloadSuppressesSuccessBadgeAndStatesIncompleteVerification() throws {
+        let payload = try PhotographerReportPayload.make(
+            context: staleContext(),
+            results: exactTwoDestinationResults(),
+            finishedAt: locallySafeAt
+        )
+
+        #expect(payload.card.localState == .issues)
+        #expect(payload.results.allSatisfy(\.successful))
+        #expect(!ReportView.shouldShowSuccessBadge(issueCount: 0, photographyJob: payload))
+        #expect(
+            ReportView.photographerVerificationNotice(for: payload) ==
+                "Photographer verification incomplete — this card is not locally safe."
+        )
+    }
+
     @Test func flatWrongAndEscapedPackageFoldersNeverCertifyFinalEvidence() throws {
         let sourceRows = exactTwoDestinationResults()
         let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
@@ -299,7 +315,7 @@ struct PhotographerReportTests {
 
         let finalizer: PhotographerReportFinalizer = { _ in
             order.append("lifecycle")
-            return expectedContext
+            return PhotographerFinalizationResult(context: expectedContext, locallySafe: false)
         }
         let failedFinalizer: PhotographerReportFinalizer = { _ in
             order.append("failed lifecycle")
@@ -323,10 +339,13 @@ struct PhotographerReportTests {
 
         #expect(completed.didPersist)
         #expect(completed.context == expectedContext)
+        #expect(completed.locallySafe == false)
         #expect(completedWithoutContext.didPersist)
         #expect(completedWithoutContext.context == nil)
+        #expect(completedWithoutContext.locallySafe == nil)
         #expect(!failed.didPersist)
         #expect(failed.context == nil)
+        #expect(failed.locallySafe == nil)
         #expect(order == ["lifecycle", "nil lifecycle", "failed lifecycle"])
         #expect(throws: CancellationError.self) {
             try CopyVerifyExecutor.photographerLifecycleAfterAuthoritativeCompletion(

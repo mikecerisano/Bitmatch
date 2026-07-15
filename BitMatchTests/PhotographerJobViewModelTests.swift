@@ -181,6 +181,30 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.activeCard?.localState == .notStarted)
     }
 
+    @Test func preparedPhotographerCardBlocksQuickModeWithConcreteStartError() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+
+        let presentation = viewModel.startPresentation(
+            preflightReady: true,
+            sourceURL: nil,
+            destinationCount: 2,
+            verificationMode: .quick
+        )
+        let began = viewModel.beginIngest(
+            destinationCount: 2,
+            verificationMode: .quick
+        )
+
+        #expect(!presentation.canStart)
+        #expect(
+            presentation.blocker ==
+                "Photographer ingests require Standard, Thorough, or Paranoid verification; Quick mode cannot establish locally safe evidence."
+        )
+        #expect(!began)
+        #expect(viewModel.activeCard?.localState == .notStarted)
+        #expect(viewModel.lastError == presentation.blocker)
+    }
+
     @Test func terminalCardsCannotBeginAgainAndRequireNextCardSetup() throws {
         let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
         _ = viewModel.beginIngest(destinationCount: 2)
@@ -283,6 +307,38 @@ struct PhotographerJobViewModelTests {
         #expect(PhotographerSessionPresentation.make(job: try #require(restored.activeJob)).rows.first?.verifiedCopyTitle == "3 of 2 verified")
     }
 
+    @Test func loadingInterruptedCardDurablyDowngradesItAndClearsSafetyEvidence() throws {
+        let store = InMemoryPhotographerJobStore()
+        let original = preparedViewModel(store: store)
+        var job = try #require(original.activeJob)
+        var stale = try #require(job.cardIngests.first)
+        stale.localState = .verifying
+        stale.locallySafeAt = now
+        stale.provenance.confirmedFingerprint = "stale-confirmed-fingerprint"
+        stale.verifiedDestinationCount = 2
+        job.cardIngests = [stale]
+        try store.save(job)
+
+        let recovered = makeViewModel(store: store)
+        let recoveredCard = try #require(recovered.activeJob?.cardIngests.first)
+
+        #expect(recoveredCard.localState == .issues)
+        #expect(recoveredCard.locallySafeAt == nil)
+        #expect(recoveredCard.provenance.confirmedFingerprint == nil)
+        #expect(recoveredCard.verifiedDestinationCount == 0)
+        #expect(store.storedJobs.first?.cardIngests.first == recoveredCard)
+        #expect(recovered.activeCardDraft == nil)
+        #expect(recovered.lastError?.contains("Recovered") == true)
+
+        try recovered.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            analysis: analysis("retry")
+        )
+        #expect(recovered.activeJob?.cardIngests.count == 2)
+        #expect(recovered.activeCard?.localState == .notStarted)
+    }
+
     @Test func staleAsyncSetupCompletionAfterSourceChangeIsIgnored() async throws {
         let gate = AsyncSetupGate()
         let viewModel = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), now: { self.now }, entryEnumerator: { url in
@@ -335,6 +391,58 @@ struct PhotographerJobViewModelTests {
 
         #expect(viewModel.focusedCardIngestID == earlierID)
         #expect(viewModel.dashboardJob?.cardIngests.contains { $0.id == earlierID } == true)
+    }
+
+    @Test func duplicatePortablePackageRouteIsRejectedWhenCardLayerIsDisabled() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        let cardLayerID = try #require(
+            viewModel.draftRecipe.layers.first { $0.kind == .cardNumber }?.id
+        )
+        viewModel.setDraftLayer(cardLayerID, isEnabled: false)
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+        try viewModel.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            analysis: analysis("first")
+        )
+        viewModel.resetForNextCard()
+
+        do {
+            try viewModel.prepareCard(
+                photographerName: "Mike",
+                cameraName: "Sony A7 IV",
+                analysis: analysis("second")
+            )
+            Issue.record("Expected duplicate portable package route to be rejected")
+        } catch PhotographerJobViewModelError.duplicatePackageRoute(let path) {
+            #expect(path == "1970-01-01_Smith-Wedding/Originals/Mike/Sony-A7-IV")
+        }
+
+        #expect(viewModel.activeJob?.cardIngests.count == 1)
+    }
+
+    @Test func reconfiguringTheSamePendingCardMayKeepItsPortablePackageRoute() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        let cardLayerID = try #require(
+            viewModel.draftRecipe.layers.first { $0.kind == .cardNumber }?.id
+        )
+        viewModel.setDraftLayer(cardLayerID, isEnabled: false)
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
+        try viewModel.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            analysis: analysis("first")
+        )
+        let originalID = try #require(viewModel.activeCard?.id)
+
+        try viewModel.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            analysis: analysis("reconfigured")
+        )
+
+        #expect(viewModel.activeCard?.id == originalID)
+        #expect(viewModel.activeJob?.cardIngests.count == 1)
     }
 
     @Test func destinationPathsDistinguishVolumesWithTheSameDisplayName() throws {

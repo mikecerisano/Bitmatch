@@ -1,7 +1,16 @@
 // CopyVerifyExecutor.swift - Handles copy and verify operation execution
 import Foundation
 
-typealias PhotographerReportFinalizer = @MainActor ([ResultRow]) throws -> PhotographerReportContext?
+struct PhotographerFinalizationResult {
+    /// The post-persistence context used to retain photographer provenance in
+    /// reports, including reports for cards that did not become locally safe.
+    let context: PhotographerReportContext?
+    /// The persisted card verdict. A configured photographer finalizer must
+    /// explicitly certify this before raw copy rows can complete successfully.
+    let locallySafe: Bool
+}
+
+typealias PhotographerReportFinalizer = @MainActor ([ResultRow]) throws -> PhotographerFinalizationResult
 
 /// Configuration for a copy/verify operation
 struct CopyVerifyConfig {
@@ -57,6 +66,13 @@ final class CopyVerifyExecutor {
     struct PhotographerLifecycleFinalization {
         let context: PhotographerReportContext?
         let didPersist: Bool
+        /// `nil` means no photographer finalizer was configured for this
+        /// ordinary copy. A configured finalizer must return `true`.
+        let locallySafe: Bool?
+
+        var permitsSuccessfulCompletion: Bool {
+            didPersist && (locallySafe ?? true)
+        }
     }
 
     // MARK: - Dependencies
@@ -248,10 +264,15 @@ final class CopyVerifyExecutor {
                 return try finalizer(allResults)
             }
         )
-        let succeeded = fileResultsSucceeded && photographerLifecycle.didPersist
-        let completionMessage = photographerLifecycle.didPersist
-            ? fileResultsMessage
-            : "\(fileResultsMessage); photographer lifecycle finalization failed"
+        let succeeded = fileResultsSucceeded && photographerLifecycle.permitsSuccessfulCompletion
+        let completionMessage: String
+        if !photographerLifecycle.didPersist {
+            completionMessage = "\(fileResultsMessage); photographer lifecycle finalization failed"
+        } else if photographerLifecycle.locallySafe == false {
+            completionMessage = "\(fileResultsMessage); photographer verification is incomplete"
+        } else {
+            completionMessage = fileResultsMessage
+        }
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
@@ -350,13 +371,14 @@ final class CopyVerifyExecutor {
     }
 
     static func photographerLifecycleAfterAuthoritativeCompletion(
-        completion: @MainActor () throws -> PhotographerReportContext?
+        completion: @MainActor () throws -> PhotographerFinalizationResult?
     ) throws -> PhotographerLifecycleFinalization {
         do {
-            let context = try completion()
+            let result = try completion()
             return PhotographerLifecycleFinalization(
-                context: context,
-                didPersist: true
+                context: result?.context,
+                didPersist: true,
+                locallySafe: result?.locallySafe
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -365,7 +387,7 @@ final class CopyVerifyExecutor {
                 "Photographer lifecycle finalization failed; exporting without photographer context: \(error.localizedDescription)",
                 category: .transfer
             )
-            return PhotographerLifecycleFinalization(context: nil, didPersist: false)
+            return PhotographerLifecycleFinalization(context: nil, didPersist: false, locallySafe: nil)
         }
     }
 

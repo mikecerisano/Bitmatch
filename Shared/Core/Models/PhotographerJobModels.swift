@@ -232,6 +232,16 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
     let warnings: [String]
     let results: [Result]
 
+    var isLocallySafe: Bool {
+        card.localState == .locallySafe
+            && locallySafeAt != nil
+            && card.locallySafeAt != nil
+            && !(card.provenance.confirmedFingerprint ?? "").isEmpty
+            && requiredLocalCopyCount > 0
+            && verifiedDestinationCount == requiredLocalCopyCount
+            && card.verifiedDestinationCount == verifiedDestinationCount
+    }
+
     static func make(
         context: PhotographerReportContext,
         results: [ResultRow]

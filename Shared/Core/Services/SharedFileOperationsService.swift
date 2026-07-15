@@ -429,14 +429,25 @@ class SharedFileOperationsService: FileOperationsService {
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
         for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
-            // Re-check the destination layout immediately before creating it so a
-            // post-preflight symlink substitution fails closed.
-            let destFolder = try SafetyValidator.resolvedDestinationRootChecked(
+            // Pin the selected destination and every recipe component before
+            // copying. Subsequent directory creation and publish are relative
+            // to that descriptor, never a re-resolved pathname.
+            let checkedDestinationFolder = try SafetyValidator.resolvedDestinationRootChecked(
                 source: operation.sourceURL,
                 destination: destinationURL,
                 settings: operation.settings
             )
-            try fileSystem.createDirectory(at: destFolder)
+            let rootComponents: [String]
+            if let configuredComponents = operation.settings.destinationPathComponents {
+                rootComponents = configuredComponents.map(CameraLabelSettings.sanitizePathComponent)
+            } else {
+                rootComponents = [checkedDestinationFolder.lastPathComponent]
+            }
+            let pinnedDestination = try PinnedDestinationDirectory.open(
+                destination: destinationURL,
+                rootComponents: rootComponents
+            )
+            let destFolder = pinnedDestination.logicalRootURL
 
             SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
             do {
@@ -450,7 +461,7 @@ class SharedFileOperationsService: FileOperationsService {
             SharedLogger.info("→ Begin copy to dest #\(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
             try await FileCopyService.copyAllSafely(
                 from: operation.sourceURL,
-                toRoot: destFolder,
+                toPinnedRoot: pinnedDestination,
                 verificationMode: operation.verificationMode,
                 workers: copyWorkers,
                 preEnumeratedFiles: sourceFileURLs,

@@ -52,6 +52,39 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
         XCTAssertEqual(harness.terminalInfo?.success, false)
     }
+
+    func testUnsafePersistedPhotographerVerdictDowngradesCompletionWithoutDiscardingRows() async throws {
+        let success = FileOperationResult(
+            sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            success: true,
+            error: nil,
+            fileSize: 10,
+            verificationResult: VerificationResult(
+                sourceChecksum: "checksum",
+                destinationChecksum: "checksum",
+                matches: true,
+                checksumType: .sha256,
+                processingTime: 0,
+                fileSize: 10
+            ),
+            processingTime: 0
+        )
+        let harness = ExecutorHarness(
+            returnedResults: [success],
+            emittedResults: [],
+            lifecycleCompletion: { _ in
+                PhotographerFinalizationResult(context: nil, locallySafe: false)
+            }
+        )
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.completedRows.count, 1)
+        XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
+        XCTAssertEqual(harness.terminalInfo?.success, false)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("photographer verification is incomplete") == true)
+    }
 }
 
 @MainActor
@@ -65,7 +98,7 @@ private final class ExecutorHarness {
     init(
         returnedResults: [FileOperationResult],
         emittedResults: [FileOperationResult],
-        lifecycleCompletion: (@MainActor ([ResultRow]) throws -> Void)? = nil
+        lifecycleCompletion: (@MainActor ([ResultRow]) throws -> PhotographerFinalizationResult)? = nil
     ) {
         let fileOperations = ExecutorFileOperationsService(
             returnedResults: returnedResults,
@@ -89,12 +122,7 @@ private final class ExecutorHarness {
             estimatedFiles: returnedResults.count,
             estimatedBytes: returnedResults.reduce(0) { $0 + $1.fileSize },
             currentMode: .copyAndVerify,
-            photographerReportFinalizer: lifecycleCompletion.map { completion in
-                { rows in
-                    try completion(rows)
-                    return nil
-                }
-            }
+            photographerReportFinalizer: lifecycleCompletion
         )
     }
 

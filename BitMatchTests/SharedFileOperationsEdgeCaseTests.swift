@@ -247,6 +247,50 @@ struct SharedFileOperationsEdgeCaseTests {
     }
 
     @Test
+    func testPinnedDestinationKeepsDescendantCreationAndPublishOutOfSwappedSymlink() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let temporaryRoot = fm.temporaryDirectory
+                .appendingPathComponent("bitmatch_pinned_destination_\(UUID().uuidString)")
+            let source = temporaryRoot.appendingPathComponent("Source")
+            let destination = temporaryRoot.appendingPathComponent("Destination")
+            let originalJob = destination.appendingPathComponent("Job")
+            let heldJob = destination.appendingPathComponent("Job-held")
+            let escape = temporaryRoot.appendingPathComponent("Escape")
+            try fm.createDirectory(at: source.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+            try fm.createDirectory(at: escape, withIntermediateDirectories: true)
+            try Data("pinned contents".utf8).write(to: source.appendingPathComponent("DCIM/clip.txt"))
+            defer { try? fm.removeItem(at: temporaryRoot) }
+
+            let pinnedRoot = try PinnedDestinationDirectory.open(
+                destination: destination,
+                rootComponents: ["Job", "Card-001"]
+            )
+            try fm.moveItem(at: originalJob, to: heldJob)
+            try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
+
+            try await FileCopyService.copyAllSafely(
+                from: source,
+                toPinnedRoot: pinnedRoot,
+                verificationMode: .quick,
+                workers: 1,
+                onProgress: { _, _ in },
+                onError: { _, error in
+                    Issue.record("Pinned copy unexpectedly failed: \(error.localizedDescription)")
+                }
+            )
+
+            #expect(fm.fileExists(atPath: heldJob.appendingPathComponent("Card-001/DCIM/clip.txt").path))
+            #expect(!fm.fileExists(atPath: escape.appendingPathComponent("Card-001/DCIM/clip.txt").path))
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
     func testSourceMutationDuringCopyDoesNotPublishDestinationFile() async throws {
         try await FileOperationsTestLock.shared.run {
             #if os(macOS)

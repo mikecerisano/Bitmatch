@@ -3,6 +3,147 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+
+/// Owns an already-open destination directory.  All writes below this point use
+/// descriptor-relative calls so renaming a pathname after setup cannot redirect
+/// a copy outside the selected destination.
+final class PinnedDestinationDirectory: @unchecked Sendable {
+    let logicalRootURL: URL
+    private let directoryFD: Int32
+
+    private init(logicalRootURL: URL, directoryFD: Int32) {
+        self.logicalRootURL = logicalRootURL
+        self.directoryFD = directoryFD
+    }
+
+    deinit { _ = Darwin.close(directoryFD) }
+
+    static func open(destination: URL, rootComponents: [String]) throws -> PinnedDestinationDirectory {
+        let destinationFD = try openDirectory(atPath: destination.path, description: "selected destination")
+        var currentFD = destinationFD
+        var logicalRoot = destination
+        do {
+            for component in rootComponents {
+                try validate(component: component)
+                let childFD = try openOrCreateDirectory(named: component, relativeTo: currentFD)
+                _ = Darwin.close(currentFD)
+                currentFD = childFD
+                logicalRoot.appendPathComponent(component, isDirectory: true)
+            }
+            return PinnedDestinationDirectory(logicalRootURL: logicalRoot, directoryFD: currentFD)
+        } catch {
+            _ = Darwin.close(currentFD)
+            throw error
+        }
+    }
+
+    func openOrCreateDirectory(at relativeComponents: [String]) throws -> Int32 {
+        var currentFD = Darwin.dup(directoryFD)
+        guard currentFD >= 0 else { throw Self.posixError("Unable to duplicate pinned destination directory") }
+        do {
+            for component in relativeComponents {
+                try Self.validate(component: component)
+                let childFD = try Self.openOrCreateDirectory(named: component, relativeTo: currentFD)
+                _ = Darwin.close(currentFD)
+                currentFD = childFD
+            }
+            return currentFD
+        } catch {
+            _ = Darwin.close(currentFD)
+            throw error
+        }
+    }
+
+    func destinationURL(for relativePath: String) -> URL {
+        logicalRootURL.appendingPathComponent(relativePath)
+    }
+
+    static func isExistingRegularFile(named name: String, relativeTo parentFD: Int32) throws -> Bool {
+        var info = stat()
+        let status = name.withCString { fstatat(parentFD, $0, &info, AT_SYMLINK_NOFOLLOW) }
+        if status == 0 {
+            guard (info.st_mode & S_IFMT) == S_IFREG else {
+                throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+            }
+            return true
+        }
+        guard errno == ENOENT else { throw posixError("Unable to inspect destination item") }
+        return false
+    }
+
+    static func createTemporaryFile(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
+        let flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC
+        let fd = name.withCString { openat(parentFD, $0, flags, 0o600) }
+        guard fd >= 0 else { throw posixError("Unable to create temporary destination file") }
+        return fd
+    }
+
+    static func removeItem(named name: String, relativeTo parentFD: Int32) {
+        _ = name.withCString { unlinkat(parentFD, $0, 0) }
+    }
+
+    /// `linkat` plus removal is an atomic no-replace publication in the same
+    /// pinned directory. Unlike `renameat`, it cannot overwrite a destination
+    /// file that appeared while the copy was in progress.
+    static func publishTemporaryFile(named temporaryName: String, as name: String, relativeTo parentFD: Int32) throws {
+        let status = temporaryName.withCString { temporaryNamePointer in
+            name.withCString { namePointer in
+                linkat(parentFD, temporaryNamePointer, parentFD, namePointer, 0)
+            }
+        }
+        guard status == 0 else { throw posixError("Destination file appeared during copy; refusing to overwrite it") }
+        removeItem(named: temporaryName, relativeTo: parentFD)
+    }
+
+    private static func openDirectory(atPath path: String, description: String) throws -> Int32 {
+        let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        let fd = path.withCString { Darwin.open($0, flags) }
+        guard fd >= 0 else {
+            if errno == ELOOP {
+                throw FileOperationError.unsafeOperation("\(description) is a symbolic link")
+            }
+            throw posixError("Unable to open \(description)")
+        }
+        return fd
+    }
+
+    private static func openOrCreateDirectory(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
+        let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+        let openExisting = { name.withCString { openat(parentFD, $0, flags) } }
+        var fd = openExisting()
+        if fd < 0 && errno == ENOENT {
+            let created = name.withCString { mkdirat(parentFD, $0, 0o755) }
+            if created != 0 && errno != EEXIST { throw posixError("Unable to create destination directory") }
+            fd = openExisting()
+        }
+        guard fd >= 0 else {
+            if errno == ELOOP {
+                throw FileOperationError.unsafeOperation("Destination component \(name) is a symbolic link")
+            }
+            throw posixError("Unable to open destination directory \(name)")
+        }
+
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+            _ = Darwin.close(fd)
+            throw FileOperationError.unsafeOperation("Destination component \(name) is not a folder")
+        }
+        return fd
+    }
+
+    private static func validate(component: String) throws {
+        guard !component.isEmpty,
+              component != ".",
+              component != "..",
+              !component.contains("/") else {
+            throw FileOperationError.unsafeOperation("Invalid destination path component")
+        }
+    }
+
+    private static func posixError(_ message: String) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message + ": " + String(cString: strerror(errno))])
+    }
+}
 #endif
 
 final class FileCopyService {
@@ -179,6 +320,96 @@ final class FileCopyService {
         }
     }
 
+    #if canImport(Darwin)
+    /// Descriptor-pinned variant for local destinations. The pathname is used
+    /// only for display/reporting; directory creation and publication stay on
+    /// the directory descriptor owned by `pinnedRoot`.
+    static func copyAllSafely(
+        from src: URL,
+        toPinnedRoot pinnedRoot: PinnedDestinationDirectory,
+        verificationMode: VerificationMode,
+        workers: Int,
+        preEnumeratedFiles: [URL]? = nil,
+        pauseCheck: (@Sendable () async throws -> Void)? = nil,
+        onProgress: @escaping (String, Int64) async -> Void,
+        onError: @escaping (String, Error) async -> Void
+    ) async throws {
+        try await createDirectoryTreeSafely(from: src, in: pinnedRoot, onError: onError)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            let nextFile: @Sendable () async -> URL?
+            if let preEnumeratedFiles {
+                let arraySource = _ArraySource(preEnumeratedFiles)
+                nextFile = { await arraySource.next() }
+            } else {
+                let enumerator = _EnumeratorSource(base: src)
+                nextFile = { await enumerator.nextRegularFile() }
+            }
+
+            for _ in 0..<max(1, workers) {
+                group.addTask {
+                    while true {
+                        try Task.checkCancellation()
+                        if let pauseCheck { try await pauseCheck() }
+                        guard let fileURL = await nextFile() else { break }
+                        let relativePath = relativePath(of: fileURL, below: src)
+                        guard let components = safeRelativeComponents(relativePath) else {
+                            await onError(relativePath, NSError(
+                                domain: "FileCopyService",
+                                code: NSFileWriteNoPermissionError,
+                                userInfo: [NSLocalizedDescriptionKey: "Path contains traversal component"]
+                            ))
+                            continue
+                        }
+
+                        let resolvedSource = fileURL.resolvingSymlinksInPath()
+                        guard pathIsWithin(resolvedSource.path, root: src.resolvingSymlinksInPath().path) else {
+                            await onError(relativePath, NSError(
+                                domain: "FileCopyService",
+                                code: NSFileWriteNoPermissionError,
+                                userInfo: [NSLocalizedDescriptionKey: "Source file resolves outside source directory"]
+                            ))
+                            continue
+                        }
+
+                        do {
+                            let values = try fileURL.resourceValues(forKeys: [.fileSizeKey])
+                            let parentFD = try pinnedRoot.openOrCreateDirectory(at: Array(components.dropLast()))
+                            defer { _ = Darwin.close(parentFD) }
+                            let filename = components[components.count - 1]
+                            let sourceSize = Int64(values.fileSize ?? 0)
+                            if try PinnedDestinationDirectory.isExistingRegularFile(named: filename, relativeTo: parentFD) {
+                                let destinationURL = pinnedRoot.destinationURL(for: relativePath)
+                                if try await canReuseExistingDestinationFile(
+                                    source: fileURL,
+                                    destination: destinationURL,
+                                    sourceSize: sourceSize,
+                                    verificationMode: verificationMode
+                                ) {
+                                    await onProgress(relativePath, sourceSize)
+                                    continue
+                                }
+                            }
+                            try await copyFileSecurely(
+                                from: fileURL,
+                                toPinnedParent: parentFD,
+                                filename: filename,
+                                pauseCheck: pauseCheck
+                            )
+                            await onProgress(relativePath, sourceSize)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            await onError(relativePath, error)
+                        }
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
+    #endif
+
     private static func copyFileSecurely(
         from source: URL,
         to destination: URL,
@@ -318,6 +549,85 @@ final class FileCopyService {
         }
     }
 
+    #if canImport(Darwin)
+    private static func copyFileSecurely(
+        from source: URL,
+        toPinnedParent parentFD: Int32,
+        filename: String,
+        pauseCheck: (@Sendable () async throws -> Void)?
+    ) async throws {
+        let fm = FileManager.default
+        let sourceHandle = try FileHandle(forReadingFrom: source)
+        defer { closeFileHandle(sourceHandle, context: source.path) }
+
+        let temporaryName = ".bitmatch.tmp." + UUID().uuidString
+        let temporaryFD = try PinnedDestinationDirectory.createTemporaryFile(named: temporaryName, relativeTo: parentFD)
+        let destinationHandle = FileHandle(fileDescriptor: temporaryFD, closeOnDealloc: false)
+        var published = false
+        var destinationClosed = false
+        defer {
+            if !destinationClosed {
+                closeFileHandle(destinationHandle, context: temporaryName)
+            }
+            if !published {
+                PinnedDestinationDirectory.removeItem(named: temporaryName, relativeTo: parentFD)
+            }
+        }
+
+        let sourceAttributes = try fm.attributesOfItem(atPath: source.path)
+        let sourceSize = (sourceAttributes[.size] as? NSNumber)?.int64Value ?? 0
+        let sourceModificationDate = sourceAttributes[.modificationDate] as? Date
+        let sourceIdentity = fileIdentity(from: sourceAttributes)
+        var reachedEOF = false
+        while !reachedEOF {
+            try Task.checkCancellation()
+            if let pauseCheck { try await pauseCheck() }
+            let data = try sourceHandle.read(upToCount: 4 * 1024 * 1024) ?? Data()
+            if data.isEmpty {
+                reachedEOF = true
+            } else {
+                try destinationHandle.write(contentsOf: data)
+            }
+        }
+        #if compiler(>=5.7)
+        if #available(iOS 16.0, macOS 13.0, *) {
+            try destinationHandle.synchronize()
+        } else {
+            destinationHandle.synchronizeFile()
+        }
+        #else
+        destinationHandle.synchronizeFile()
+        #endif
+
+        var temporaryInfo = stat()
+        guard fstat(temporaryFD, &temporaryInfo) == 0,
+              Int64(temporaryInfo.st_size) == sourceSize else {
+            throw NSError(domain: "FileCopyService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Size mismatch after copy"])
+        }
+        let finalSourceAttributes = try fm.attributesOfItem(atPath: source.path)
+        guard sourceRemainedStable(
+            initialSize: sourceSize,
+            initialModificationDate: sourceModificationDate,
+            initialIdentity: sourceIdentity,
+            finalAttributes: finalSourceAttributes
+        ) else {
+            throw NSError(domain: "FileCopyService", code: -4, userInfo: [NSLocalizedDescriptionKey: "Source file changed during copy; destination was not modified"])
+        }
+
+        if let sourceModificationDate {
+            var times = [timespec(tv_sec: Int(sourceModificationDate.timeIntervalSince1970), tv_nsec: 0),
+                         timespec(tv_sec: Int(sourceModificationDate.timeIntervalSince1970), tv_nsec: 0)]
+            if futimens(temporaryFD, &times) != 0 {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Unable to preserve destination modification date"])
+            }
+        }
+        try destinationHandle.close()
+        destinationClosed = true
+        try PinnedDestinationDirectory.publishTemporaryFile(named: temporaryName, as: filename, relativeTo: parentFD)
+        published = true
+    }
+    #endif
+
     private static func createDirectoryTreeSafely(
         from sourceRoot: URL,
         toRoot destinationRoot: URL,
@@ -386,6 +696,62 @@ final class FileCopyService {
         }
     }
 
+    #if canImport(Darwin)
+    private static func createDirectoryTreeSafely(
+        from sourceRoot: URL,
+        in pinnedRoot: PinnedDestinationDirectory,
+        onError: @escaping (String, Error) async -> Void
+    ) async throws {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+        guard let enumerator = fm.enumerator(
+            at: sourceRoot,
+            includingPropertiesForKeys: keys,
+            options: []
+        ) else { return }
+
+        while let item = enumerator.nextObject() as? URL {
+            try Task.checkCancellation()
+            guard let values = try? item.resourceValues(forKeys: Set(keys)),
+                  values.isSymbolicLink != true,
+                  values.isDirectory == true else { continue }
+            let relative = relativePath(of: item, below: sourceRoot)
+            guard let components = safeRelativeComponents(relative) else {
+                await onError(relative, NSError(
+                    domain: "FileCopyService",
+                    code: NSFileWriteNoPermissionError,
+                    userInfo: [NSLocalizedDescriptionKey: "Directory path contains traversal component"]
+                ))
+                continue
+            }
+            do {
+                let fd = try pinnedRoot.openOrCreateDirectory(at: components)
+                _ = Darwin.close(fd)
+            } catch {
+                await onError(relative, error)
+            }
+        }
+    }
+    #endif
+
+    private static func relativePath(of fileURL: URL, below root: URL) -> String {
+        let sourcePath = root.path
+        let filePath = fileURL.path
+        if filePath.hasPrefix(sourcePath + "/") {
+            return String(filePath.dropFirst(sourcePath.count + 1))
+        }
+        return fileURL.lastPathComponent
+    }
+
+    private static func safeRelativeComponents(_ relativePath: String) -> [String]? {
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty,
+              components.allSatisfy({ $0 != "." && $0 != ".." && !$0.contains("\0") }) else {
+            return nil
+        }
+        return components
+    }
+
     private static func closeFileHandle(_ handle: FileHandle, context: String) {
         do {
             try handle.close()
@@ -439,7 +805,7 @@ final class FileCopyService {
         return true
     }
 
-    private static func existingDestinationConflictError(_ reason: String) -> NSError {
+    fileprivate static func existingDestinationConflictError(_ reason: String) -> NSError {
         NSError(
             domain: "FileCopyService",
             code: NSFileWriteFileExistsError,

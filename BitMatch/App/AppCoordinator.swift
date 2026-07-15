@@ -58,7 +58,8 @@ final class AppCoordinator: ObservableObject {
                   photographerJobViewModel.isStartEligible(
                     preflightReady: preflightReady,
                     sourceURL: fileSelectionViewModel.sourceURL,
-                    destinationCount: fileSelectionViewModel.destinationURLs.count
+                    destinationCount: fileSelectionViewModel.destinationURLs.count,
+                    verificationMode: verificationMode
                   ) else { return }
         }
         // Sync macOS VM state into SharedAppCoordinator
@@ -159,11 +160,7 @@ final class AppCoordinator: ObservableObject {
                   state == .copying || state == .verifying else {
                 throw PhotographerReportError.cardNotReady
             }
-            try self.photographerJobViewModel.completeIngest(results: results)
-            guard let context = self.makePhotographerReportContext() else {
-                throw PhotographerReportError.cardNotReady
-            }
-            return context
+            return try self.photographerJobViewModel.completeIngest(results: results)
         }
     }
 
@@ -340,7 +337,8 @@ final class AppCoordinator: ObservableObject {
                     case .inProgress, .copying:
                         self.photographerJobViewModel.beginIngest(
                             destinationCount: self.sharedCoordinator.destinationURLs.count,
-                            sourceURL: self.sharedCoordinator.sourceURL
+                            sourceURL: self.sharedCoordinator.sourceURL,
+                            verificationMode: self.verificationMode
                         )
                     case .verifying:
                         self.photographerJobViewModel.updateProgressStage(.verifying)

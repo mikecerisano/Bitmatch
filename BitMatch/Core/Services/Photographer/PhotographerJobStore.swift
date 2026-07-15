@@ -2,7 +2,7 @@ import CoreData
 import Foundation
 
 enum PhotographerStoreError: Error, Equatable {
-    case corruptRecord(UUID)
+    case corruptRecord(UUID?)
     case persistentStoreUnavailable
 }
 
@@ -116,8 +116,10 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
         _ type: Value.Type,
         from record: NSManagedObject
     ) throws -> Value {
-        let id = record.value(forKey: "id") as! UUID
-        let payload = record.value(forKey: "payload") as! Data
+        let id = record.value(forKey: "id") as? UUID
+        guard let id, let payload = record.value(forKey: "payload") as? Data else {
+            throw PhotographerStoreError.corruptRecord(id)
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
