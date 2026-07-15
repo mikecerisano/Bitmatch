@@ -101,6 +101,21 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertTrue(coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
     }
 
+    func testCompletedPhotographerCardDoesNotArmLaterOrdinaryCopyLifecycle() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+        XCTAssertTrue(coordinator.photographerJobViewModel.beginIngest(
+            destinationCount: 2,
+            sourceURL: coordinator.fileSelectionViewModel.sourceURL
+        ))
+        try coordinator.photographerJobViewModel.completeIngest(results: [
+            verifiedRow(destination: "Primary"),
+            verifiedRow(destination: "Secondary")
+        ])
+
+        XCTAssertEqual(coordinator.photographerJobViewModel.activeCard?.localState, .locallySafe)
+        XCTAssertFalse(coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
+    }
+
     func testCoordinatorRejectsTwoCopyJobWithOneDestinationBeforeTransfer() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
         coordinator.fileSelectionViewModel.destinationURLs = [URL(fileURLWithPath: "/tmp/primary")]

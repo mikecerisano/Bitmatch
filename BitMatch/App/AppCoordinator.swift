@@ -131,6 +131,7 @@ final class AppCoordinator: ObservableObject {
 
     private func makePhotographerReportContext() -> PhotographerReportContext? {
         guard currentMode == .copyAndVerify,
+              photographerJobViewModel.hasPreparedIngestAwaitingStart,
               let job = photographerJobViewModel.activeJob,
               let card = photographerJobViewModel.activeCard,
               let analysis = photographerJobViewModel.preliminaryAnalysis else { return nil }
@@ -146,6 +147,7 @@ final class AppCoordinator: ObservableObject {
 
     private func configurePhotographerReportLifecycle() {
         guard currentMode == .copyAndVerify,
+              photographerJobViewModel.hasPreparedIngestAwaitingStart,
               let jobID = photographerJobViewModel.activeJob?.id,
               let cardID = photographerJobViewModel.activeCard?.id,
               photographerJobViewModel.preliminaryAnalysis != nil else {
