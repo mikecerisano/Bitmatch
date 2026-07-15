@@ -89,6 +89,18 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertEqual(coordinator.sharedCoordinator.cameraLabelSettings.label, "Legacy")
     }
 
+    func testNormalCopyDoesNotRequirePhotographerCardPreparation() {
+        let coordinator = makeTestCoordinator()
+
+        XCTAssertFalse(coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
+    }
+
+    func testPreparedPhotographerCardRequiresPhotographerStartEligibility() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+
+        XCTAssertTrue(coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
+    }
+
     func testCoordinatorRejectsTwoCopyJobWithOneDestinationBeforeTransfer() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
         coordinator.fileSelectionViewModel.destinationURLs = [URL(fileURLWithPath: "/tmp/primary")]

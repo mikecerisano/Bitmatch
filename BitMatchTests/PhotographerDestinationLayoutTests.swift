@@ -125,6 +125,7 @@ struct PhotographerDestinationLayoutTests {
         )
 
         #expect(root.path == "/Volumes/SSD/A Cam/CARD")
+        #expect(SafetyValidator.destinationRootComponents(source: source, settings: settings) == ["A Cam", "CARD"])
     }
 
     @Test func resolvedRootOverlappingSourceIsRejected() {

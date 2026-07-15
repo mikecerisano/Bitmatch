@@ -13,6 +13,13 @@ protocol PhotographerJobStore {
     func deleteJob(id: UUID) throws
     func presets() throws -> [PhotographerPreset]
     func save(_ preset: PhotographerPreset) throws
+    var isAvailable: Bool { get }
+    func whenAvailable(_ action: @escaping () -> Void)
+}
+
+extension PhotographerJobStore {
+    var isAvailable: Bool { true }
+    func whenAvailable(_: @escaping () -> Void) {}
 }
 
 @MainActor
@@ -24,15 +31,24 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
 
     private let context: NSManagedObjectContext
     private let storeIsAvailable: () -> Bool
+    private let registerWhenAvailable: (@escaping () -> Void) -> Void
 
     init(context: NSManagedObjectContext) {
         self.context = context
         self.storeIsAvailable = { true }
+        self.registerWhenAvailable = { _ in }
     }
 
     init(persistence: BitMatchPersistenceController) {
         self.context = persistence.container.viewContext
         self.storeIsAvailable = { persistence.isStoreLoaded }
+        self.registerWhenAvailable = { action in persistence.whenStoreReady(action) }
+    }
+
+    var isAvailable: Bool { storeIsAvailable() }
+
+    func whenAvailable(_ action: @escaping () -> Void) {
+        registerWhenAvailable(action)
     }
 
     func jobs() throws -> [PhotographerJob] {

@@ -43,6 +43,13 @@ final class PhotographerJobViewModel: ObservableObject {
         return activeJob?.cardIngests.first { $0.id == id }
     }
 
+    /// A photographer card changes the transfer contract only while it is
+    /// deliberately prepared and waiting to begin. Completed or failed cards
+    /// remain visible in the dashboard, but never block ordinary transfers.
+    var hasPreparedIngestAwaitingStart: Bool {
+        activeCard?.localState == .notStarted
+    }
+
     var dashboardJob: PhotographerJob? {
         guard let dashboardJobID else { return activeJob }
         if activeJob?.id == dashboardJobID { return activeJob }
@@ -77,6 +84,13 @@ final class PhotographerJobViewModel: ObservableObject {
         self.entryEnumerator = entryEnumerator
         loadJobs()
         loadPresets()
+        if !store.isAvailable {
+            store.whenAvailable { [weak self] in
+                guard let self else { return }
+                self.loadJobs()
+                self.loadPresets()
+            }
+        }
     }
 
     func createWeddingJob(clientName: String, jobName: String, eventDate: Date) {

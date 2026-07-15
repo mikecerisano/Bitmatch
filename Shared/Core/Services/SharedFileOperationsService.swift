@@ -432,17 +432,15 @@ class SharedFileOperationsService: FileOperationsService {
             // Pin the selected destination and every recipe component before
             // copying. Subsequent directory creation and publish are relative
             // to that descriptor, never a re-resolved pathname.
-            let checkedDestinationFolder = try SafetyValidator.resolvedDestinationRootChecked(
+            _ = try SafetyValidator.resolvedDestinationRootChecked(
                 source: operation.sourceURL,
                 destination: destinationURL,
                 settings: operation.settings
             )
-            let rootComponents: [String]
-            if let configuredComponents = operation.settings.destinationPathComponents {
-                rootComponents = configuredComponents.map(CameraLabelSettings.sanitizePathComponent)
-            } else {
-                rootComponents = [checkedDestinationFolder.lastPathComponent]
-            }
+            let rootComponents = SafetyValidator.destinationRootComponents(
+                source: operation.sourceURL,
+                settings: operation.settings
+            )
             let pinnedDestination = try PinnedDestinationDirectory.open(
                 destination: destinationURL,
                 rootComponents: rootComponents

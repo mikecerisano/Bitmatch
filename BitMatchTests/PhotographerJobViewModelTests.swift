@@ -23,6 +23,30 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.jobs == [job])
     }
 
+    @Test func reloadsPersistedJobsWhenStoreBecomesAvailableAfterLaunch() throws {
+        let job = PhotographerJob(
+            id: UUID(),
+            eventDate: eventDate,
+            clientName: "Smith",
+            jobName: "Recovered Wedding",
+            eventType: .wedding,
+            photographers: [],
+            recipe: .wedding,
+            requiredLocalCopyCount: 2,
+            cardIngests: [],
+            createdAt: eventDate,
+            updatedAt: now
+        )
+        let store = DeferredPhotographerJobStore(storedJobs: [job])
+        let viewModel = PhotographerJobViewModel(store: store)
+
+        #expect(viewModel.jobs.isEmpty)
+        store.becomeAvailable()
+
+        #expect(viewModel.activeJob?.id == job.id)
+        #expect(viewModel.jobs == [job])
+    }
+
     @Test func draftLayerControlsToggleAndReorderTheWeddingRecipe() throws {
         let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
         let photographerID = try #require(viewModel.draftRecipe.layers.first { $0.kind == .photographer }?.id)
@@ -783,5 +807,61 @@ final class InMemoryPhotographerJobStore: PhotographerJobStore {
         } else {
             storedPresets.append(preset)
         }
+    }
+}
+
+@MainActor
+private final class DeferredPhotographerJobStore: PhotographerJobStore {
+    private(set) var storedJobs: [PhotographerJob]
+    private var observers: [() -> Void] = []
+    private var available = false
+
+    init(storedJobs: [PhotographerJob]) {
+        self.storedJobs = storedJobs
+    }
+
+    var isAvailable: Bool { available }
+
+    func whenAvailable(_ action: @escaping () -> Void) {
+        if available {
+            action()
+        } else {
+            observers.append(action)
+        }
+    }
+
+    func becomeAvailable() {
+        available = true
+        let pendingObservers = observers
+        observers.removeAll()
+        pendingObservers.forEach { $0() }
+    }
+
+    func jobs() throws -> [PhotographerJob] {
+        guard available else { throw PhotographerStoreError.persistentStoreUnavailable }
+        return storedJobs
+    }
+
+    func save(_ job: PhotographerJob) throws {
+        guard available else { throw PhotographerStoreError.persistentStoreUnavailable }
+        if let index = storedJobs.firstIndex(where: { $0.id == job.id }) {
+            storedJobs[index] = job
+        } else {
+            storedJobs.append(job)
+        }
+    }
+
+    func deleteJob(id: UUID) throws {
+        guard available else { throw PhotographerStoreError.persistentStoreUnavailable }
+        storedJobs.removeAll { $0.id == id }
+    }
+
+    func presets() throws -> [PhotographerPreset] {
+        guard available else { throw PhotographerStoreError.persistentStoreUnavailable }
+        return []
+    }
+
+    func save(_: PhotographerPreset) throws {
+        guard available else { throw PhotographerStoreError.persistentStoreUnavailable }
     }
 }

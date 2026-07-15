@@ -75,9 +75,11 @@ final class SafetyValidator {
             throw FileOperationError.unsafeOperation(safetyIssue)
         }
 
-        // Create destination directory if it doesn't exist, after validating the intended path.
-        if !fm.fileExists(atPath: destination.path) {
-            try fm.createDirectory(at: destination, withIntermediateDirectories: true, attributes: nil)
+        // The destination is a user-selected existing folder. Requiring it to
+        // exist prevents path-based creation before the later descriptor pin.
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: destination.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw FileOperationError.destinationNotWritable(destination.path)
         }
 
         // Verify it's accessible
@@ -175,13 +177,28 @@ final class SafetyValidator {
     }
 
     static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
-        guard let components = settings.destinationPathComponents else {
-            return legacyResolvedDestinationRoot(source: source, destination: destination, settings: settings)
+        return destinationRootComponents(source: source, settings: settings).reduce(destination) { root, component in
+            root.appendingPathComponent(component)
+        }
+    }
+
+    /// The exact relative layout used below every selected destination. Keeping
+    /// this separate from URL resolution lets descriptor-pinned writes preserve
+    /// legacy camera-grouping behavior without re-resolving a pathname later.
+    static func destinationRootComponents(source: URL, settings: CameraLabelSettings) -> [String] {
+        if let components = settings.destinationPathComponents {
+            return components.map(CameraLabelSettings.sanitizePathComponent)
         }
 
-        return components.reduce(destination) { root, component in
-            root.appendingPathComponent(CameraLabelSettings.sanitizePathComponent(component))
+        let cardName = source.lastPathComponent
+        if settings.groupByCamera {
+            let raw = settings.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
+            return [group, cardName]
         }
+
+        let labeledCardName = settings.formattedFolderName(for: cardName)
+        return [labeledCardName.isEmpty ? cardName : labeledCardName]
     }
 
     static func resolvedDestinationRootChecked(
@@ -190,7 +207,7 @@ final class SafetyValidator {
         settings: CameraLabelSettings
     ) throws -> URL {
         guard let components = settings.destinationPathComponents else {
-            return legacyResolvedDestinationRoot(source: source, destination: destination, settings: settings)
+            return resolvedDestinationRoot(source: source, destination: destination, settings: settings)
         }
 
         guard !components.isEmpty else {
@@ -292,24 +309,6 @@ final class SafetyValidator {
         }
 
         return resolved.standardizedFileURL.path
-    }
-
-    private static func legacyResolvedDestinationRoot(
-        source: URL,
-        destination: URL,
-        settings: CameraLabelSettings
-    ) -> URL {
-        let cardName = source.lastPathComponent
-        let labeledCardName = settings.formattedFolderName(for: cardName)
-
-        if settings.groupByCamera {
-            let raw = settings.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let group = raw.isEmpty ? "Camera" : CameraLabelSettings.sanitizePathComponent(raw)
-            return destination.appendingPathComponent(group).appendingPathComponent(cardName)
-        }
-
-        let folderName = labeledCardName.isEmpty ? cardName : labeledCardName
-        return destination.appendingPathComponent(folderName)
     }
 
     static func validateResolvedDestinationRoots(source: URL, destinations: [URL], settings: CameraLabelSettings) throws {

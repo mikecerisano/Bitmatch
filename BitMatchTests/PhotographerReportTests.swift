@@ -187,6 +187,33 @@ struct PhotographerReportTests {
         #expect(payload.results.count == 4)
     }
 
+    @Test func persistedSafeContextWithMoreThanRequiredVerifiedDestinationsKeepsSafeVerdict() throws {
+        let rows = threeDestinationResults()
+        let expectedFingerprint = try PhotographerCardAnalyzer.confirmedFingerprint(
+            results: Array(rows.prefix(2)).sorted { $0.path < $1.path }
+        )
+        var context = staleContext()
+        var job = context.job
+        var card = job.cardIngests[0]
+        card.localState = .locallySafe
+        card.locallySafeAt = locallySafeAt
+        card.provenance.confirmedFingerprint = expectedFingerprint
+        card.verifiedDestinationCount = 3
+        job.cardIngests[0] = card
+        context = PhotographerReportContext(
+            job: job,
+            cardIngestID: context.cardIngestID,
+            analysis: context.analysis,
+            verifiedDestinationCount: 3,
+            warnings: context.warnings
+        )
+
+        let payload = try PhotographerReportPayload.make(context: context, results: rows)
+
+        #expect(payload.verifiedDestinationCount == 3)
+        #expect(payload.isLocallySafe)
+    }
+
     @Test func staleStartContextWithMissingSidecarRemainsUnsafeAndRetainsFailure() throws {
         let context = staleContext()
         var rows = exactTwoDestinationResults()
@@ -556,6 +583,27 @@ struct PhotographerReportTests {
                 )
             ]
         }
+    }
+
+    private func threeDestinationResults() -> [ResultRow] {
+        exactTwoDestinationResults() + [
+            ResultRow(
+                path: "/CARD/DCIM/100MEDIA/DSC0001.ARW",
+                status: "✅ Verified",
+                size: 100,
+                checksum: "raw-checksum",
+                destination: "LOCAL-C",
+                destinationPath: "/Volumes/LOCAL-C/2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001/DSC0001.ARW"
+            ),
+            ResultRow(
+                path: "/CARD/DCIM/100MEDIA/DSC0001.XMP",
+                status: "✅ Verified",
+                size: 1,
+                checksum: "xmp-checksum",
+                destination: "LOCAL-C",
+                destinationPath: "/Volumes/LOCAL-C/2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001/DSC0001.XMP"
+            )
+        ]
     }
 
     private func persistedSafeContext(

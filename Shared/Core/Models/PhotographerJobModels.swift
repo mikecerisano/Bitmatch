@@ -238,7 +238,7 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
             && card.locallySafeAt != nil
             && !(card.provenance.confirmedFingerprint ?? "").isEmpty
             && requiredLocalCopyCount > 0
-            && verifiedDestinationCount == requiredLocalCopyCount
+            && verifiedDestinationCount >= requiredLocalCopyCount
             && card.verifiedDestinationCount == verifiedDestinationCount
     }
 

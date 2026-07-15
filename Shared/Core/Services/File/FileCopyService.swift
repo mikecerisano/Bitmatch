@@ -20,7 +20,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
     deinit { _ = Darwin.close(directoryFD) }
 
     static func open(destination: URL, rootComponents: [String]) throws -> PinnedDestinationDirectory {
-        let destinationFD = try openDirectory(atPath: destination.path, description: "selected destination")
+        let destinationFD = try openDirectory(at: destination, description: "selected destination")
         var currentFD = destinationFD
         var logicalRoot = destination
         do {
@@ -108,16 +108,35 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
         removeItem(named: temporaryName, relativeTo: parentFD)
     }
 
-    private static func openDirectory(atPath path: String, description: String) throws -> Int32 {
+    /// Descends from `/` one descriptor at a time so `O_NOFOLLOW` protects
+    /// every selected-destination component, not merely the final one.
+    private static func openDirectory(at url: URL, description: String) throws -> Int32 {
         let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-        let fd = path.withCString { Darwin.open($0, flags) }
-        guard fd >= 0 else {
-            if errno == ELOOP {
-                throw FileOperationError.unsafeOperation("\(description) is a symbolic link")
-            }
-            throw posixError("Unable to open \(description)")
+        let components = url.standardizedFileURL.pathComponents
+        guard components.first == "/" else {
+            throw FileOperationError.unsafeOperation("\(description) must be an absolute folder")
         }
-        return fd
+
+        var currentFD = "/".withCString { Darwin.open($0, flags) }
+        guard currentFD >= 0 else { throw posixError("Unable to open filesystem root") }
+        do {
+            for component in components.dropFirst() {
+                try validate(component: component)
+                let childFD = component.withCString { openat(currentFD, $0, flags) }
+                guard childFD >= 0 else {
+                    if errno == ELOOP {
+                        throw FileOperationError.unsafeOperation("\(description) contains a symbolic link")
+                    }
+                    throw posixError("Unable to open \(description) component \(component)")
+                }
+                _ = Darwin.close(currentFD)
+                currentFD = childFD
+            }
+            return currentFD
+        } catch {
+            _ = Darwin.close(currentFD)
+            throw error
+        }
     }
 
     private static func openOrCreateDirectory(named name: String, relativeTo parentFD: Int32) throws -> Int32 {

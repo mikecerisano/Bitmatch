@@ -5,6 +5,30 @@ import Testing
 struct SharedFileOperationsEdgeCaseTests {
 
     @Test
+    func testPinnedDestinationRejectsSymlinkedIntermediateSelectedFolder() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let temporaryRoot = fm.temporaryDirectory
+                .appendingPathComponent("bitmatch_intermediate_symlink_\(UUID().uuidString)")
+            let selectedParent = temporaryRoot.appendingPathComponent("selected-parent")
+            let escape = temporaryRoot.appendingPathComponent("escape")
+            let selectedDestination = selectedParent.appendingPathComponent("backup")
+            try fm.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+            try fm.createDirectory(at: escape.appendingPathComponent("backup"), withIntermediateDirectories: true)
+            try fm.createSymbolicLink(at: selectedParent, withDestinationURL: escape)
+            defer { try? fm.removeItem(at: temporaryRoot) }
+
+            #expect(throws: FileOperationError.unsafeOperation("selected destination contains a symbolic link")) {
+                try PinnedDestinationDirectory.open(destination: selectedDestination, rootComponents: [])
+            }
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
     func testEstimatedSizeHeadroomOverflowThrowsTypedError() async throws {
         try await FileOperationsTestLock.shared.run {
             #if os(macOS)

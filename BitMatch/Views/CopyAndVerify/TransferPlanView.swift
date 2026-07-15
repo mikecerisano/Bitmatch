@@ -60,13 +60,15 @@ struct TransferPlanView: View {
     }
 
     private var actionArea: some View {
-        let start = coordinator.photographerJobViewModel.startPresentation(
-            preflightReady: plan.canStart,
-            sourceURL: coordinator.fileSelectionViewModel.sourceURL,
-            destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count,
-            verificationMode: coordinator.verificationMode
-        )
-        let canStart = start.canStart
+        let photographerStart = coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
+            ? coordinator.photographerJobViewModel.startPresentation(
+                preflightReady: plan.canStart,
+                sourceURL: coordinator.fileSelectionViewModel.sourceURL,
+                destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count,
+                verificationMode: coordinator.verificationMode
+            )
+            : nil
+        let canStart = photographerStart?.canStart ?? plan.canStart
         return VStack(alignment: .leading, spacing: 8) {
             if let estimate = coordinator.timeEstimate {
                 Text("Estimated time: \(estimate.formatted) · \(estimate.speedSummary)")
@@ -86,8 +88,8 @@ struct TransferPlanView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(canStart ? Color.green : Color.white.opacity(0.1)))
             .disabled(!canStart)
             .accessibilityLabel(plan.actionTitle)
-            .accessibilityHint(start.blocker ?? "Starts the transfer")
-            if let disabledReason = start.blocker {
+            .accessibilityHint(photographerStart?.blocker ?? "Starts the transfer")
+            if let disabledReason = photographerStart?.blocker {
                 Text(disabledReason).font(.system(size: 11)).foregroundColor(.white.opacity(0.58))
             }
         }

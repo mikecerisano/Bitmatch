@@ -54,18 +54,20 @@ final class AppCoordinator: ObservableObject {
     func startOperation() {
         if currentMode == .copyAndVerify {
             let preflightReady = copyAndVerifyPreflightIsReady
-            guard preflightReady,
-                  photographerJobViewModel.isStartEligible(
+            guard preflightReady else { return }
+            if photographerJobViewModel.hasPreparedIngestAwaitingStart {
+                guard photographerJobViewModel.isStartEligible(
                     preflightReady: preflightReady,
                     sourceURL: fileSelectionViewModel.sourceURL,
                     destinationCount: fileSelectionViewModel.destinationURLs.count,
                     verificationMode: verificationMode
-                  ) else { return }
+                ) else { return }
+            }
         }
         // Sync macOS VM state into SharedAppCoordinator
         sharedCoordinator.currentMode = currentMode
         var operationSettings = cameraLabelViewModel.destinationLabelSettings
-        if photographerJobViewModel.activeCardDraft != nil,
+        if photographerJobViewModel.hasPreparedIngestAwaitingStart,
            let renderedRecipe = photographerJobViewModel.renderedRecipe {
             operationSettings = PhotographerDestinationResolver.operationSettings(
                 base: operationSettings,
