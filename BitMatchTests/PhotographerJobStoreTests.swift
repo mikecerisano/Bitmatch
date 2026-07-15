@@ -236,13 +236,59 @@ struct PhotographerJobStoreTests {
         #expect(throws: RemoteCredentialStoreError.keychainDeleteFailed) {
             try store.deleteProfile(id: profile.id)
         }
-        #expect(try store.profiles() == [profile])
+        #expect(try store.profiles().isEmpty)
         #expect(credentials.data(for: profile.id) != nil)
 
         try store.deleteProfile(id: profile.id)
 
         #expect(try store.profiles().isEmpty)
         #expect(credentials.data(for: profile.id) == nil)
+    }
+
+    @MainActor
+    @Test func profileDeletionRemainsHiddenWhenFinalCoreDataSaveFails() throws {
+        let credentials = InMemoryRemoteCredentialStore()
+        let persistence = BitMatchPersistenceController(inMemory: true)
+        var saveCount = 0
+        let store = CoreDataPhotographerJobStore(
+            context: persistence.container.viewContext,
+            credentialStore: credentials.store,
+            saveContext: { context in
+                saveCount += 1
+                if saveCount == 3 {
+                    throw NSError(domain: "PhotographerJobStoreTests", code: 1)
+                }
+                try context.save()
+            }
+        )
+        let profile = try makeRemoteProfile(id: uuid(405), name: "Final Save Failure")
+
+        try store.save(profile)
+        try credentials.store.save(RemoteCredential(password: "credential"), for: profile.id)
+
+        var didFail = false
+        do {
+            try store.deleteProfile(id: profile.id)
+        } catch {
+            didFail = true
+        }
+
+        #expect(didFail)
+        #expect(try store.profiles().isEmpty)
+        #expect(credentials.data(for: profile.id) == nil)
+
+        let reloadedStore = CoreDataPhotographerJobStore(
+            context: persistence.container.viewContext,
+            credentialStore: credentials.store,
+            saveContext: { context in
+                saveCount += 1
+                try context.save()
+            }
+        )
+
+        #expect(try reloadedStore.profiles().isEmpty)
+        let request = NSFetchRequest<NSManagedObject>(entityName: "RemoteDestinationProfileRecord")
+        #expect(try persistence.container.viewContext.fetch(request).isEmpty)
     }
 
     @MainActor

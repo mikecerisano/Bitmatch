@@ -4,6 +4,7 @@ import Foundation
 enum PhotographerStoreError: Error, Equatable {
     case corruptRecord(UUID?)
     case persistentStoreUnavailable
+    case profileDeletionPending(UUID)
 }
 
 @MainActor
@@ -54,25 +55,34 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     private let credentialStore: RemoteCredentialStore
     private let storeIsAvailable: () -> Bool
     private let registerWhenAvailable: (@escaping () -> Void) -> Void
+    private let saveContext: (NSManagedObjectContext) throws -> Void
 
     init(
         context: NSManagedObjectContext,
-        credentialStore: RemoteCredentialStore = RemoteCredentialStore()
+        credentialStore: RemoteCredentialStore = RemoteCredentialStore(),
+        saveContext: @escaping (NSManagedObjectContext) throws -> Void = { try $0.save() }
     ) {
         self.context = context
         self.credentialStore = credentialStore
         self.storeIsAvailable = { true }
         self.registerWhenAvailable = { _ in }
+        self.saveContext = saveContext
+        retryPendingProfileDeletions()
     }
 
     init(
         persistence: BitMatchPersistenceController,
-        credentialStore: RemoteCredentialStore = RemoteCredentialStore()
+        credentialStore: RemoteCredentialStore = RemoteCredentialStore(),
+        saveContext: @escaping (NSManagedObjectContext) throws -> Void = { try $0.save() }
     ) {
         self.context = persistence.container.viewContext
         self.credentialStore = credentialStore
         self.storeIsAvailable = { persistence.isStoreLoaded }
         self.registerWhenAvailable = { action in persistence.whenStoreReady(action) }
+        self.saveContext = saveContext
+        persistence.whenStoreReady { [weak self] in
+            self?.retryPendingProfileDeletions()
+        }
     }
 
     var isAvailable: Bool { storeIsAvailable() }
@@ -141,6 +151,7 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
     func profiles() throws -> [RemoteDestinationProfile] {
         try requireStore()
         let request = NSFetchRequest<NSManagedObject>(entityName: Entity.profile)
+        request.predicate = NSPredicate(format: "pendingDeletion == NO")
         return try context.fetch(request)
             .map { record in try decode(RemoteDestinationProfile.self, from: record) }
             .sorted { lhs, rhs in
@@ -152,9 +163,13 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
         try requireStore()
         do {
             let record = try record(for: profile.id, entityName: Entity.profile)
+            guard !isProfileDeletionPending(record) else {
+                throw PhotographerStoreError.profileDeletionPending(profile.id)
+            }
             record.setValue(profile.id, forKey: "id")
             record.setValue(Date(), forKey: "updatedAt")
             record.setValue(credentialStore.accountName(for: profile.id), forKey: "credentialAccount")
+            record.setValue(false, forKey: "pendingDeletion")
             record.setValue(try encode(profile), forKey: "payload")
             try saveIfNeeded()
         } catch {
@@ -165,14 +180,28 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
 
     func deleteProfile(id: UUID) throws {
         try requireStore()
-        // Delete the Keychain value first. If that operation fails, the Core
-        // Data profile remains visible and this cleanup can be retried rather
-        // than leaving an opaque credential with no discoverable owner.
+        guard let record = try existingRecord(for: id, entityName: Entity.profile) else {
+            try credentialStore.deleteCredential(for: id)
+            return
+        }
+
+        // Commit an invisible cleanup marker before touching the Keychain. If
+        // either later step fails, this durable record retains the credential
+        // account name and is retried when the store next becomes ready or the
+        // caller asks to delete this profile again.
+        if !isProfileDeletionPending(record) {
+            record.setValue(true, forKey: "pendingDeletion")
+            do {
+                try saveIfNeeded()
+            } catch {
+                context.rollback()
+                throw error
+            }
+        }
+
         try credentialStore.deleteCredential(for: id)
         do {
-            if let record = try existingRecord(for: id, entityName: Entity.profile) {
-                context.delete(record)
-            }
+            context.delete(record)
             try saveIfNeeded()
         } catch {
             context.rollback()
@@ -282,7 +311,24 @@ final class CoreDataPhotographerJobStore: PhotographerJobStore {
 
     private func saveIfNeeded() throws {
         if context.hasChanges {
-            try context.save()
+            try saveContext(context)
+        }
+    }
+
+    private func isProfileDeletionPending(_ record: NSManagedObject) -> Bool {
+        record.value(forKey: "pendingDeletion") as? Bool ?? false
+    }
+
+    private func retryPendingProfileDeletions() {
+        guard isAvailable else { return }
+        let request = NSFetchRequest<NSManagedObject>(entityName: Entity.profile)
+        request.predicate = NSPredicate(format: "pendingDeletion == YES")
+
+        guard let pendingIDs = try? context.fetch(request).compactMap({ $0.value(forKey: "id") as? UUID }) else {
+            return
+        }
+        for id in pendingIDs {
+            try? deleteProfile(id: id)
         }
     }
 
