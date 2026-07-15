@@ -163,28 +163,28 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
 /// verification reads.
 final class PinnedDestinationFile: @unchecked Sendable {
     private let fileFD: Int32
+    private let parentFD: Int32
+    private let name: String
 
-    private init(fileFD: Int32) {
+    private init(fileFD: Int32, parentFD: Int32, name: String) {
         self.fileFD = fileFD
+        self.parentFD = parentFD
+        self.name = name
     }
 
-    deinit { _ = Darwin.close(fileFD) }
+    deinit {
+        _ = Darwin.close(fileFD)
+        _ = Darwin.close(parentFD)
+    }
 
     static func open(named name: String, relativeTo parentFD: Int32) throws -> PinnedDestinationFile {
-        let flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC
-        let fd = name.withCString { openat(parentFD, $0, flags) }
-        guard fd >= 0 else {
-            if errno == ELOOP {
-                throw FileOperationError.unsafeOperation("Destination file \(name) is a symbolic link")
-            }
-            throw posixError("Unable to open destination file \(name)")
+        let fileFD = try openRegularFile(named: name, relativeTo: parentFD)
+        let retainedParentFD = Darwin.dup(parentFD)
+        guard retainedParentFD >= 0 else {
+            _ = Darwin.close(fileFD)
+            throw posixError("Unable to retain pinned destination parent directory")
         }
-        var info = stat()
-        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
-            _ = Darwin.close(fd)
-            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
-        }
-        return PinnedDestinationFile(fileFD: fd)
+        return PinnedDestinationFile(fileFD: fileFD, parentFD: retainedParentFD, name: name)
     }
 
     func snapshot() throws -> stat {
@@ -198,10 +198,37 @@ final class PinnedDestinationFile: @unchecked Sendable {
         return info
     }
 
+    /// A fresh `openat` is required for every reader. `dup` would retain the
+    /// same open-file description and its current offset, so a second Thorough
+    /// checksum could otherwise start at EOF.
     func readingHandle() throws -> FileHandle {
-        let duplicate = Darwin.dup(fileFD)
-        guard duplicate >= 0 else { throw Self.posixError("Unable to duplicate pinned destination file") }
-        return FileHandle(fileDescriptor: duplicate, closeOnDealloc: true)
+        let expected = try snapshot()
+        let readerFD = try Self.openRegularFile(named: name, relativeTo: parentFD)
+        var actual = stat()
+        guard fstat(readerFD, &actual) == 0,
+              actual.st_dev == expected.st_dev,
+              actual.st_ino == expected.st_ino else {
+            _ = Darwin.close(readerFD)
+            throw FileCopyService.existingDestinationConflictError("Pinned destination file changed before reading")
+        }
+        return FileHandle(fileDescriptor: readerFD, closeOnDealloc: true)
+    }
+
+    private static func openRegularFile(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
+        let flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+        let fd = name.withCString { openat(parentFD, $0, flags) }
+        guard fd >= 0 else {
+            if errno == ELOOP {
+                throw FileOperationError.unsafeOperation("Destination file \(name) is a symbolic link")
+            }
+            throw posixError("Unable to open destination file \(name)")
+        }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+            _ = Darwin.close(fd)
+            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+        }
+        return fd
     }
 
     private static func posixError(_ message: String) -> NSError {

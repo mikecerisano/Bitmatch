@@ -346,6 +346,42 @@ struct SharedFileOperationsEdgeCaseTests {
     }
 
     @Test
+    func testPinnedThoroughVerificationReadsDestinationIndependentlyPerAlgorithm() async throws {
+        try await FileOperationsTestLock.shared.run {
+            #if os(macOS)
+            let fm = FileManager.default
+            let temporaryRoot = fm.temporaryDirectory
+                .appendingPathComponent("bitmatch_pinned_thorough_\(UUID().uuidString)")
+            let source = temporaryRoot.appendingPathComponent("Source")
+            let destination = temporaryRoot.appendingPathComponent("Destination")
+            let relativePath = "DCIM/multi-byte-clip.bin"
+            let contents = Data((0..<4099).map { UInt8($0 % 251) })
+            try fm.createDirectory(at: source.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+            try fm.createDirectory(at: destination.appendingPathComponent("Card-001/DCIM"), withIntermediateDirectories: true)
+            try contents.write(to: source.appendingPathComponent(relativePath))
+            try contents.write(to: destination.appendingPathComponent("Card-001/\(relativePath)"))
+            defer { try? fm.removeItem(at: temporaryRoot) }
+
+            let pinnedRoot = try PinnedDestinationDirectory.open(
+                destination: destination,
+                rootComponents: ["Card-001"]
+            )
+            let result = try await FileCopyService.verifyPinnedDestinationFile(
+                source: source.appendingPathComponent(relativePath),
+                pinnedRoot: pinnedRoot,
+                relativePath: relativePath,
+                verificationMode: .thorough
+            )
+
+            #expect(result.matches)
+            #expect(result.fileSize == Int64(contents.count))
+            #else
+            #expect(true)
+            #endif
+        }
+    }
+
+    @Test
     func testSourceMutationDuringCopyDoesNotPublishDestinationFile() async throws {
         try await FileOperationsTestLock.shared.run {
             #if os(macOS)
