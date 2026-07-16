@@ -620,11 +620,23 @@ final class PhotographerJobViewModel: ObservableObject {
         let expectedBytes = try items.reduce(Int64(0)) { (total, item) throws -> Int64 in
             total + (try remoteManifestEntryByteCount(for: item))
         }
-        let state = items.contains(where: { $0.state == .paused }) ? RemoteBackupState.paused
-            : items.contains(where: { $0.state == .retrying }) ? .retrying
-            : items.contains(where: { $0.state == .uploading }) ? .uploading
-            : items.contains(where: { $0.state == .queued }) ? .queued
-            : items[0].state
+        // A card is fully backed up only when every manifest entry has durable
+        // verified evidence. Never let the first item conceal a later conflict,
+        // failure, or upload-only terminal state.
+        let state: RemoteBackupState
+        let allVerified = items.allSatisfy {
+            $0.state == .verified && RemoteBackupStatusPresentation.make(state: $0.state, evidence: $0.verificationEvidence).isFullyBackedUp
+        }
+        if allVerified { state = .verified }
+        else if items.contains(where: { $0.state == .conflict }) { state = .conflict }
+        else if items.contains(where: { $0.state == .failed }) { state = .failed }
+        else if items.contains(where: { $0.state == .cancelled }) { state = .cancelled }
+        else if items.contains(where: { $0.state == .uploadedUnverified }) { state = .uploadedUnverified }
+        else if items.contains(where: { $0.state == .verifying }) { state = .verifying }
+        else if items.contains(where: { $0.state == .paused }) { state = .paused }
+        else if items.contains(where: { $0.state == .retrying }) { state = .retrying }
+        else if items.contains(where: { $0.state == .uploading }) { state = .uploading }
+        else { state = .queued }
         job.cardIngests[cardIndex].remoteBackupSummaries[targetID] = RemoteBackupCardSummary(
             targetID: targetID,
             state: state,
@@ -632,7 +644,7 @@ final class PhotographerJobViewModel: ObservableObject {
             uploadedFileCount: items.filter { $0.state == .uploadedUnverified || $0.state == .verified }.count,
             totalByteCount: expectedBytes,
             uploadedByteCount: totalBytes,
-            verificationEvidence: items.first?.verificationEvidence ?? .none,
+            verificationEvidence: allVerified ? items[0].verificationEvidence : .none,
             remotePath: items.first?.remoteRelativePath,
             errorSummary: items.compactMap(\.errorSummary).first,
             updatedAt: now()
