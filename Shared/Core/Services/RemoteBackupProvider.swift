@@ -50,6 +50,7 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
     case hostKeyMismatch
     case unsafePath
     case bookmarkUnavailable
+    case localArtifactNotVerified
     case permissionDenied
     case manifestUnavailable
     case resumeOffsetMismatch(local: Int64, remote: Int64)
@@ -95,6 +96,8 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
             return "The remote backup path is unsafe."
         case .bookmarkUnavailable:
             return "The local backup artifact can no longer be accessed."
+        case .localArtifactNotVerified:
+            return "Remote backup requires a verified local package artifact."
         case .permissionDenied:
             return "Permission to access the remote backup destination was denied."
         case .manifestUnavailable:

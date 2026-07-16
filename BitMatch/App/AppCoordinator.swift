@@ -20,6 +20,7 @@ final class AppCoordinator: ObservableObject {
     @Published var settingsViewModel = SettingsViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
     @Published var photographerJobViewModel: PhotographerJobViewModel
+    private var remoteBackupQueue: RemoteBackupQueue?
 
     // MARK: - Delegated State
     @Published var currentMode: AppMode = .copyAndVerify
@@ -172,6 +173,40 @@ final class AppCoordinator: ObservableObject {
         sharedCoordinator.cancelOperation()
     }
 
+    // MARK: - Remote backup bridge
+
+    func selectRemoteProfile(_ profileID: UUID?) {
+        photographerJobViewModel.selectRemoteProfile(profileID)
+    }
+
+    func queueRemoteBackup(for cardIngestID: UUID) {
+        do {
+            _ = try photographerJobViewModel.queueRemoteBackup(
+                for: cardIngestID,
+                results: sharedCoordinator.results
+            )
+            // Task 3's queue resolves its local artifact before provider
+            // creation. Restoring here makes newly durable items visible to
+            // that queue without starting an upload (the provider arrives in
+            // Task 5).
+            if let remoteBackupQueue {
+                Task { try? await remoteBackupQueue.restore() }
+            }
+        } catch {
+            // The view model records this as remote-only feedback. In
+            // particular, never invoke operationFailed() here: final local
+            // evidence is authoritative and independent of remote queueing.
+        }
+    }
+
+    func pauseRemoteBackup(for cardIngestID: UUID) {
+        photographerJobViewModel.pauseRemoteBackup(for: cardIngestID)
+    }
+
+    func retryRemoteBackup(for cardIngestID: UUID) {
+        photographerJobViewModel.retryRemoteBackup(for: cardIngestID)
+    }
+
     func togglePause() {
         Task { await sharedCoordinator.togglePause() }
     }
@@ -231,7 +266,18 @@ final class AppCoordinator: ObservableObject {
             self.photographerJobViewModel = photographerJobViewModel
         } else {
             let store = CoreDataPhotographerJobStore(persistence: BitMatchPersistenceController.shared)
-            self.photographerJobViewModel = PhotographerJobViewModel(store: store)
+            let remoteBackupCoordinator = RemoteBackupCoordinator(store: store)
+            self.photographerJobViewModel = PhotographerJobViewModel(
+                store: store,
+                remoteBackupCoordinator: remoteBackupCoordinator
+            )
+            self.remoteBackupQueue = RemoteBackupQueue(
+                persistence: PhotographerJobStoreRemoteBackupQueuePersistence(store: store),
+                providerFactory: { _, _ in throw RemoteBackupError.providerUnavailable },
+                localArtifactResolver: { item in
+                    try await remoteBackupCoordinator.resolveLocalArtifact(for: item)
+                }
+            )
         }
         setupFileSelectionBindings()
         setupProgressBindings()

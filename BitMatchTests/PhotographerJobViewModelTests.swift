@@ -229,6 +229,20 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.lastError == presentation.blocker)
     }
 
+    @Test func remoteQueueFailureDoesNotChangeCopyingLocalEvidence() throws {
+        let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
+        _ = viewModel.beginIngest(destinationCount: 2)
+        let cardID = try #require(viewModel.activeCard?.id)
+
+        #expect(throws: RemoteBackupError.localArtifactNotVerified) {
+            try viewModel.queueRemoteBackup(for: cardID, results: [])
+        }
+
+        #expect(viewModel.activeCard?.localState == .copying)
+        #expect(viewModel.activeCard?.locallySafeAt == nil)
+        #expect(viewModel.activeCard?.provenance.confirmedFingerprint == nil)
+    }
+
     @Test func terminalCardsCannotBeginAgainAndRequireNextCardSetup() throws {
         let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
         _ = viewModel.beginIngest(destinationCount: 2)

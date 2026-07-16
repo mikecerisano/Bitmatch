@@ -61,6 +61,7 @@ final class PhotographerJobViewModel: ObservableObject {
     private let preliminaryAnalyzer: PreliminaryAnalyzer
     private let confirmedAnalyzer: ConfirmedAnalyzer
     private let entryEnumerator: EntryEnumerator
+    private let remoteBackupCoordinator: RemoteBackupCoordinator
     private var preparedSourcePath: String?
     private var currentSourcePath: String?
     private var preparedSetupSignature: PhotographerSetupSignature?
@@ -75,13 +76,15 @@ final class PhotographerJobViewModel: ObservableObject {
         now: @escaping () -> Date = Date.init,
         preliminaryAnalyzer: @escaping PreliminaryAnalyzer = PhotographerCardAnalyzer.preliminaryAnalysis,
         confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint,
-        entryEnumerator: @escaping EntryEnumerator = FileTreeEnumerator.enumerateRegularFiles
+        entryEnumerator: @escaping EntryEnumerator = FileTreeEnumerator.enumerateRegularFiles,
+        remoteBackupCoordinator: RemoteBackupCoordinator? = nil
     ) {
         self.store = store
         self.now = now
         self.preliminaryAnalyzer = preliminaryAnalyzer
         self.confirmedAnalyzer = confirmedAnalyzer
         self.entryEnumerator = entryEnumerator
+        self.remoteBackupCoordinator = remoteBackupCoordinator ?? RemoteBackupCoordinator(store: store)
         loadJobs()
         loadPresets()
         if !store.isAvailable {
@@ -465,6 +468,64 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    /// Remote controls deliberately update only remote configuration and
+    /// summaries. A remote error must never invalidate local copy evidence.
+    func selectRemoteProfile(_ profileID: UUID?) {
+        guard let jobID = activeJob?.id else {
+            lastError = RemoteBackupError.manifestUnavailable.errorDescription
+            return
+        }
+        do {
+            let updatedJob = try remoteBackupCoordinator.selectRemoteProfile(profileID, for: jobID)
+            replaceLoadedJob(updatedJob)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func queueRemoteBackup(for cardIngestID: UUID, results: [ResultRow]) throws -> [RemoteQueueItem] {
+        guard let jobID = activeJob?.id else { throw PhotographerJobViewModelError.noActiveJob }
+        do {
+            let items = try remoteBackupCoordinator.queueRemoteBackup(
+                for: cardIngestID,
+                in: jobID,
+                results: results
+            )
+            try updateRemoteSummary(for: cardIngestID, items: items)
+            lastError = nil
+            return items
+        } catch {
+            // Do not call operationFailed(): the local verdict was produced
+            // by the authoritative local operation and remains unchanged.
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func pauseRemoteBackup(for cardIngestID: UUID) {
+        guard let jobID = activeJob?.id else { return }
+        do {
+            let items = try remoteBackupCoordinator.pauseRemoteBackup(for: cardIngestID, in: jobID)
+            try updateRemoteSummary(for: cardIngestID, items: items)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func retryRemoteBackup(for cardIngestID: UUID) {
+        guard let jobID = activeJob?.id else { return }
+        do {
+            let items = try remoteBackupCoordinator.retryRemoteBackup(for: cardIngestID, in: jobID)
+            try updateRemoteSummary(for: cardIngestID, items: items)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func completeIngest(results: [ResultRow]) throws -> PhotographerFinalizationResult {
         guard var job = activeJob else {
@@ -534,6 +595,52 @@ final class PhotographerJobViewModel: ObservableObject {
         transitionActiveCard(to: .cancelled) { card in
             card.locallySafeAt = nil
         }
+    }
+
+    private func updateRemoteSummary(for cardIngestID: UUID, items: [RemoteQueueItem]) throws {
+        guard !items.isEmpty,
+              var job = activeJob,
+              let cardIndex = job.cardIngests.firstIndex(where: { $0.id == cardIngestID }) else { return }
+        let targetID = items[0].destinationProfileID
+        let totalBytes = items.reduce(Int64(0)) { $0 + $1.uploadedByteCount }
+        let expectedBytes = try items.reduce(Int64(0)) { (total, item) throws -> Int64 in
+            total + (try remoteManifestEntryByteCount(for: item))
+        }
+        let state = items.contains(where: { $0.state == .paused }) ? RemoteBackupState.paused
+            : items.contains(where: { $0.state == .retrying }) ? .retrying
+            : items.contains(where: { $0.state == .uploading }) ? .uploading
+            : items.contains(where: { $0.state == .queued }) ? .queued
+            : items[0].state
+        job.cardIngests[cardIndex].remoteBackupSummaries[targetID] = RemoteBackupCardSummary(
+            targetID: targetID,
+            state: state,
+            totalFileCount: items.count,
+            uploadedFileCount: items.filter { $0.state == .uploadedUnverified || $0.state == .verified }.count,
+            totalByteCount: expectedBytes,
+            uploadedByteCount: totalBytes,
+            verificationEvidence: items.first?.verificationEvidence ?? .none,
+            remotePath: items.first?.remoteRelativePath,
+            errorSummary: items.compactMap(\.errorSummary).first,
+            updatedAt: now()
+        )
+        try persistThrowing(job)
+    }
+
+    private func remoteManifestEntryByteCount(for item: RemoteQueueItem) throws -> Int64 {
+        guard let manifest = try store.manifests().first(where: { $0.id == item.manifestID }),
+              let entry = manifest.entries.first(where: { $0.id == item.manifestEntryID }) else {
+            throw RemoteBackupError.manifestUnavailable
+        }
+        return entry.byteCount
+    }
+
+    private func replaceLoadedJob(_ updatedJob: PhotographerJob) {
+        if let index = jobs.firstIndex(where: { $0.id == updatedJob.id }) {
+            jobs[index] = updatedJob
+        } else {
+            jobs.append(updatedJob)
+        }
+        activeJob = updatedJob
     }
 
     func resetForNextCard() {
