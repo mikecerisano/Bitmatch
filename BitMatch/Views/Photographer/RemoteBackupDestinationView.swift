@@ -5,6 +5,7 @@ import SwiftUI
 struct RemoteBackupDestinationView: View {
     @ObservedObject var coordinator: AppCoordinator
     @State private var isStageEnabled = false
+    @State private var showingDestinations = false
 
     private var viewModel: PhotographerJobViewModel { coordinator.photographerJobViewModel }
     private var configuration: RemoteBackupConfiguration? { viewModel.activeJob?.remoteBackupConfiguration }
@@ -52,6 +53,8 @@ struct RemoteBackupDestinationView: View {
                             .font(DesignSystem.Typography.caption)
                             .foregroundColor(profile.verificationMode == .sha256 ? DesignSystem.Colors.textTertiary : DesignSystem.Colors.warning)
                     }
+                    Button("Manage destinations") { showingDestinations = true }
+                        .font(DesignSystem.Typography.caption)
                     Text("Unknown or changed host keys require explicit confirmation before SSH-agent authentication. Read-back verification can use significant data.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.textTertiary)
@@ -62,6 +65,9 @@ struct RemoteBackupDestinationView: View {
         .padding(.vertical, DesignSystem.Spacing.sm)
         .background(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium).fill(DesignSystem.Colors.background.opacity(0.35)))
         .onAppear { isStageEnabled = configuration?.isEnabled == true }
+        .sheet(isPresented: $showingDestinations) {
+            RemoteBackupDestinationManager(viewModel: viewModel)
+        }
     }
 
     private func setEnabled(_ enabled: Bool) {
@@ -71,5 +77,36 @@ struct RemoteBackupDestinationView: View {
         } else {
             coordinator.selectRemoteProfile(nil)
         }
+    }
+}
+
+private struct RemoteBackupDestinationManager: View {
+    @ObservedObject var viewModel: PhotographerJobViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var host = ""
+    @State private var port = "22"
+    @State private var username = ""
+    @State private var root = "Backups"
+    @State private var verification: RemoteVerificationMode = .sha256
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { Text("SFTP destinations").font(.headline); Spacer(); Button("Done") { dismiss() } }
+            List {
+                ForEach(viewModel.remoteProfiles) { profile in
+                    HStack { VStack(alignment: .leading) { Text(profile.name); Text("\(profile.username)@\(profile.host) · \(profile.root.description)").font(.caption) }; Spacer(); Button("Delete", role: .destructive) { viewModel.deleteRemoteProfile(id: profile.id) } }
+                }
+            }.frame(height: 130)
+            TextField("Name", text: $name); TextField("Host", text: $host); TextField("Port", text: $port); TextField("Username", text: $username); TextField("Relative root", text: $root)
+            Picker("Verification", selection: $verification) { Text("SHA-256 read-back").tag(RemoteVerificationMode.sha256); Text("Upload only").tag(RemoteVerificationMode.uploadOnly) }
+            Text("Authentication uses your macOS SSH agent. No password, private key, or passphrase is stored or displayed.").font(.caption).foregroundStyle(.secondary)
+            Button("Save destination", action: save).disabled(name.isEmpty || host.isEmpty || username.isEmpty)
+        }.padding().frame(width: 420)
+    }
+    private func save() {
+        guard let port = Int(port), let relativeRoot = try? RemoteRelativePath(components: root.split(separator: "/").map(String.init)) else { return }
+        viewModel.saveRemoteProfile(RemoteDestinationProfile(id: UUID(), name: name, host: host, port: port, username: username, root: relativeRoot, verificationMode: verification))
+        name = ""; host = ""; username = ""
     }
 }

@@ -487,6 +487,23 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    func saveRemoteProfile(_ profile: RemoteDestinationProfile) {
+        do {
+            try store.save(profile)
+            loadRemoteProfiles()
+            lastError = nil
+        } catch { lastError = error.localizedDescription }
+    }
+
+    func deleteRemoteProfile(id: UUID) {
+        do {
+            try store.deleteProfile(id: id)
+            if activeJob?.remoteBackupConfiguration?.destinationProfileID == id { selectRemoteProfile(nil) }
+            loadRemoteProfiles()
+            lastError = nil
+        } catch { lastError = error.localizedDescription }
+    }
+
     @discardableResult
     func queueRemoteBackup(for cardIngestID: UUID, results: [ResultRow]) throws -> [RemoteQueueItem] {
         guard let jobID = activeJob?.id else { throw PhotographerJobViewModelError.noActiveJob }
