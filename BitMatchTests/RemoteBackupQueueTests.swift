@@ -138,8 +138,46 @@ struct RemoteBackupQueueTests {
         #expect(await provider.promoteCallCount == 0)
     }
 
-    @Test(arguments: ["manifest", "entry", "job", "card", "profile", "path"])
+    @Test(arguments: ["manifest", "entry", "profile"])
     func invalidPersistedLinkagePausesBeforeProviderUse(_ mismatch: String) async throws {
+        let fixture = try QueueFixture(mismatch: mismatch)
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+        #expect(await provider.preflightCallCount == 0)
+    }
+
+    @Test(arguments: ["deletedJob", "unownedCard"])
+    func deletedOrUnownedJobCardPausesBeforeProviderUse(_ mismatch: String) async throws {
+        let fixture = try QueueFixture(mismatch: mismatch)
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+        #expect(await provider.preflightCallCount == 0)
+    }
+
+    @Test func invalidLinkageClearsPromotionIntentAndPausesBeforeProviderUse() async throws {
+        let fixture = try QueueFixture(state: .verifying, mismatch: "deletedJob")
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+        #expect(await provider.preflightCallCount == 0)
+    }
+
+    @Test(arguments: ["package", "final", "temporary"])
+    func forgedRemotePathsPauseBeforeProviderUse(_ mismatch: String) async throws {
         let fixture = try QueueFixture(mismatch: mismatch)
         let provider = FakeRemoteBackupProvider()
         let queue = fixture.makeQueue(provider: provider)
@@ -172,15 +210,16 @@ private struct QueueFixture {
     init(
         uploadedByteCount: Int64 = 0,
         verificationMode: RemoteVerificationMode = .uploadOnly,
+        state: RemoteBackupState = .queued,
         mismatch: String? = nil
     ) throws {
         let root = try RemoteRelativePath(components: ["BitMatch"])
         let package = try RemoteRelativePath(components: ["Jobs", "Job-001"])
-        let file = try RemoteRelativePath(components: ["Jobs", "Job-001", "Card-001.mov"])
-        let temporary = try RemoteRelativePath(components: ["Jobs", "Job-001", ".bitmatch-upload-001"])
+        let file = try RemoteRelativePath(components: ["Card-001.mov"])
         let profileID = UUID()
         let manifestJobID = UUID()
         let manifestCardID = UUID()
+        let itemID = UUID()
         let manifestEntry = RemoteManifestEntry(
             id: UUID(),
             relativePath: file,
@@ -197,27 +236,41 @@ private struct QueueFixture {
             root: root,
             verificationMode: verificationMode
         )
+        let manifestPackage = mismatch == "package"
+            ? try RemoteRelativePath(components: ["Jobs", "Forged-Job"])
+            : package
         manifest = try RemoteManifest(
             id: UUID(),
             jobID: manifestJobID,
             cardIngestID: manifestCardID,
             destinationProfileID: profileID,
-            packageRelativePath: package,
+            packageRelativePath: manifestPackage,
             entries: [manifestEntry],
             createdAt: Date(timeIntervalSince1970: 0)
         )
+        let final = try package.appending(path: file)
+        let temporary = try package.appending(".bitmatch-upload-\(itemID.uuidString.lowercased())")
+        let remotePath = mismatch == "final"
+            ? try RemoteRelativePath(components: ["Jobs", "Job-001", "Other.mov"])
+            : final
+        let temporaryPath = mismatch == "temporary"
+            ? try RemoteRelativePath(components: ["Jobs", "Job-001", ".bitmatch-upload-forged"])
+            : temporary
+        let card = Self.makeCard(id: manifestCardID)
+        let jobCards = mismatch == "unownedCard" ? [Self.makeCard(id: UUID())] : [card]
+        let jobs = mismatch == "deletedJob" ? [] : [Self.makeJob(id: manifestJobID, cardIngests: jobCards)]
         item = RemoteQueueItem(
-            id: UUID(),
-            jobID: mismatch == "job" ? UUID() : manifest.jobID,
-            cardIngestID: mismatch == "card" ? UUID() : manifest.cardIngestID,
+            id: itemID,
+            jobID: manifest.jobID,
+            cardIngestID: manifest.cardIngestID,
             destinationProfileID: mismatch == "profile" ? UUID() : profileID,
             manifestID: mismatch == "manifest" ? UUID() : manifest.id,
             manifestEntryID: mismatch == "entry" ? UUID() : manifestEntry.id,
             localArtifactBookmarkReference: "opaque-bookmark-reference",
             localArtifactRelativePath: file,
-            remoteRelativePath: mismatch == "path" ? try RemoteRelativePath(components: ["Jobs", "Job-001", "Other.mov"]) : file,
-            temporaryRemoteRelativePath: temporary,
-            state: .queued,
+            remoteRelativePath: remotePath,
+            temporaryRemoteRelativePath: temporaryPath,
+            state: state,
             uploadedByteCount: uploadedByteCount,
             retryCount: 0,
             nextAttemptAt: nil,
@@ -229,7 +282,45 @@ private struct QueueFixture {
         persistence = FakeRemoteBackupQueuePersistence(
             profiles: [profile],
             manifests: [manifest],
+            jobs: jobs,
             credential: RemoteCredential(password: "test-password")
+        )
+    }
+
+    private static func makeJob(id: UUID, cardIngests: [CardIngest]) -> PhotographerJob {
+        PhotographerJob(
+            id: id,
+            eventDate: Date(timeIntervalSince1970: 0),
+            clientName: "Client",
+            jobName: "Job-001",
+            eventType: .wedding,
+            photographers: [],
+            recipe: .wedding,
+            requiredLocalCopyCount: 2,
+            cardIngests: cardIngests,
+            createdAt: Date(timeIntervalSince1970: 0),
+            updatedAt: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    private static func makeCard(id: UUID) -> CardIngest {
+        CardIngest(
+            id: id,
+            provenance: CardProvenance(
+                photographerID: UUID(),
+                photographerName: "Photographer",
+                cameraName: "Camera",
+                cardNumber: 1,
+                preliminaryFingerprint: nil,
+                confirmedFingerprint: nil
+            ),
+            sourceDisplayName: "Card-001",
+            renderedRelativePath: "Jobs/Job-001",
+            localState: .locallySafe,
+            startedAt: nil,
+            locallySafeAt: Date(timeIntervalSince1970: 0),
+            fileCount: 1,
+            totalBytes: 10
         )
     }
 
@@ -251,17 +342,25 @@ private struct QueueFixture {
 private actor FakeRemoteBackupQueuePersistence: RemoteBackupQueuePersistence {
     private var savedProfiles: [RemoteDestinationProfile]
     private var savedManifests: [RemoteManifest]
+    private var savedJobs: [PhotographerJob]
     private var savedItems: [UUID: RemoteQueueItem] = [:]
     private let savedCredential: RemoteCredential?
 
-    init(profiles: [RemoteDestinationProfile], manifests: [RemoteManifest], credential: RemoteCredential?) {
+    init(
+        profiles: [RemoteDestinationProfile],
+        manifests: [RemoteManifest],
+        jobs: [PhotographerJob],
+        credential: RemoteCredential?
+    ) {
         savedProfiles = profiles
         savedManifests = manifests
+        savedJobs = jobs
         savedCredential = credential
     }
 
     func profiles() async throws -> [RemoteDestinationProfile] { savedProfiles }
     func manifests() async throws -> [RemoteManifest] { savedManifests }
+    func jobs() async throws -> [PhotographerJob] { savedJobs }
     func queueItems() async throws -> [RemoteQueueItem] { Array(savedItems.values) }
     func credential(for _: UUID) async throws -> RemoteCredential? { savedCredential }
     func save(_ item: RemoteQueueItem) async throws { savedItems[item.id] = item }

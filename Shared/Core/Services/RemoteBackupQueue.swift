@@ -11,6 +11,7 @@ typealias RemoteBackupLocalArtifactResolver = @Sendable (RemoteQueueItem) async 
 /// adapter delegates to the Task 2 profile, manifest, queue-item, and Keychain
 /// stores; providers and tests use this neutral boundary instead.
 protocol RemoteBackupQueuePersistence: Sendable {
+    func jobs() async throws -> [PhotographerJob]
     func profiles() async throws -> [RemoteDestinationProfile]
     func manifests() async throws -> [RemoteManifest]
     func queueItems() async throws -> [RemoteQueueItem]
@@ -32,6 +33,7 @@ final class PhotographerJobStoreRemoteBackupQueuePersistence: RemoteBackupQueueP
         self.credentialStore = credentialStore
     }
 
+    func jobs() async throws -> [PhotographerJob] { try store.jobs() }
     func profiles() async throws -> [RemoteDestinationProfile] { try store.profiles() }
     func manifests() async throws -> [RemoteManifest] { try store.manifests() }
     func queueItems() async throws -> [RemoteQueueItem] { try store.queueItems() }
@@ -304,23 +306,48 @@ actor RemoteBackupQueue {
         profile: RemoteDestinationProfile,
         manifestEntry: RemoteManifestEntry
     ) {
-        let profiles = try await persistence.profiles()
-        let manifests = try await persistence.manifests()
-        guard let profile = profiles.first(where: { $0.id == item.destinationProfileID }),
-              let manifest = manifests.first(where: { $0.id == item.manifestID }),
+        async let profiles = persistence.profiles()
+        async let manifests = persistence.manifests()
+        async let jobs = persistence.jobs()
+        let (savedProfiles, savedManifests, savedJobs) = try await (profiles, manifests, jobs)
+        guard let profile = savedProfiles.first(where: { $0.id == item.destinationProfileID }),
+              let manifest = savedManifests.first(where: { $0.id == item.manifestID }),
               manifest.destinationProfileID == profile.id,
               manifest.jobID == item.jobID,
               manifest.cardIngestID == item.cardIngestID,
+              let job = savedJobs.first(where: { $0.id == item.jobID }),
+              job.cardIngests.contains(where: { $0.id == item.cardIngestID }),
               let entry = manifest.entries.first(where: { $0.id == item.manifestEntryID }),
               entry.relativePath == item.localArtifactRelativePath,
-              entry.relativePath == item.remoteRelativePath,
+              item.remoteRelativePath == (try expectedFinalPath(manifest: manifest, entry: entry)),
+              item.temporaryRemoteRelativePath == (try expectedTemporaryPath(
+                  final: item.remoteRelativePath,
+                  itemID: item.id
+              )),
               item.localArtifactBookmarkReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-              item.temporaryRemoteRelativePath != item.remoteRelativePath,
               entry.byteCount >= 0,
               isSHA256(entry.sha256) else {
             throw RemoteBackupError.manifestUnavailable
         }
         return (profile, entry)
+    }
+
+    /// Provider paths are always relative to the selected profile root. The
+    /// final path is immutable manifest package + entry identity; it is never
+    /// trusted from the persisted queue item.
+    private func expectedFinalPath(
+        manifest: RemoteManifest,
+        entry: RemoteManifestEntry
+    ) throws -> RemoteRelativePath {
+        try manifest.packageRelativePath.appending(path: entry.relativePath)
+    }
+
+    private func expectedTemporaryPath(
+        final: RemoteRelativePath,
+        itemID: UUID
+    ) throws -> RemoteRelativePath {
+        let parent = try RemoteRelativePath(components: Array(final.components.dropLast()))
+        return try parent.appending(".bitmatch-upload-\(itemID.uuidString.lowercased())")
     }
 
     private func recordProgress(itemID: UUID, byteCount: Int64) async {
@@ -350,9 +377,10 @@ actor RemoteBackupQueue {
                 }
             } else {
                 _ = try await transition(itemID: itemID) { queuedItem in
-                    // Keep the promotion-intent marker for any recoverable
-                    // verification/promotion interruption. A digest mismatch,
-                    // no-replace conflict, or resume disagreement is final.
+                    // Keep the promotion-intent marker only for recoverable
+                    // verification/promotion interruptions. Invalid persisted
+                    // linkage, a digest mismatch, conflict, or resume
+                    // disagreement clears it and fails closed.
                     if item.state != .verifying || clearsPromotionIntent(backupError) {
                         queuedItem.state = backupError.failClosedState
                     }
@@ -420,7 +448,7 @@ actor RemoteBackupQueue {
 
     private func clearsPromotionIntent(_ error: RemoteBackupError) -> Bool {
         switch error {
-        case .verificationFailed, .conflict, .resumeOffsetMismatch:
+        case .manifestUnavailable, .verificationFailed, .conflict, .resumeOffsetMismatch:
             return true
         default:
             return false
