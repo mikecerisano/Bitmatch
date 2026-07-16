@@ -40,6 +40,24 @@
   accidentally targeting the server filesystem root. A focused contract test
   covers the account-relative path construction.
 
+## Review Hardening
+
+- OpenSSH stdout and stderr are now drained concurrently before process
+  completion is observed, preventing a child process from blocking on a full
+  pipe. The adapter resumes only after both drains finish.
+- SFTP batch arguments reject control characters and escape both backslashes
+  and double quotes. This prevents a local filename from injecting a second
+  batch command; rejected input maps to `RemoteBackupError.unsafePath`.
+- Test seams are nonisolated/internal so the test target can call quote,
+  promotion, and relative-path helpers. New source-level tests cover the
+  first-trust keyscan/keygen/SSH order and a server-length resume mismatch that
+  never reaches an SFTP transfer, in addition to quote/newline and promotion
+  classifications.
+- The process drain group reserves stdout/stderr slots before `Process.run()`;
+  an immediately terminating child therefore cannot resume the continuation
+  before both asynchronous pipe readers have been registered. A launch failure
+  balances both slots and reports the launch error directly.
+
 ## Validation
 
 - `git diff --check` passed.

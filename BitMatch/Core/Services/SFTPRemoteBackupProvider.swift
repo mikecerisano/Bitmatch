@@ -35,6 +35,18 @@ struct OpenSSHHostTrustRequest: Equatable, Sendable {
 typealias OpenSSHHostTrustConfirmation = @Sendable (OpenSSHHostTrustRequest) async throws -> Bool
 typealias OpenSSHCommandRunner = @Sendable (OpenSSHCommand) async throws -> OpenSSHCommandResult
 
+private final class OpenSSHProcessOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stdout = Data()
+    private var stderr = Data()
+
+    func setStdout(_ data: Data) { lock.withLock { stdout = data } }
+    func setStderr(_ data: Data) { lock.withLock { stderr = data } }
+    func result(status: Int32) -> OpenSSHCommandResult {
+        lock.withLock { OpenSSHCommandResult(status: status, stdout: stdout, stderr: stderr) }
+    }
+}
+
 actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     private let profile: RemoteDestinationProfile
     private let credential: RemoteCredential
@@ -87,7 +99,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         guard (remoteObject?.byteCount ?? 0) == fromOffset else {
             throw RemoteBackupError.resumeOffsetMismatch(local: fromOffset, remote: remoteObject?.byteCount ?? 0)
         }
-        let batch = "put -a \(sftpQuote(local.path)) \(sftpQuote(try remote(path)))\n"
+        let batch = "put -a \(try sftpQuote(local.path)) \(try sftpQuote(try remote(path)))\n"
         let result = try await run(sftp(batch: batch))
         guard result.status == 0 else { throw classify(result) }
         let complete = try await inspect(path: path)?.byteCount ?? 0
@@ -105,7 +117,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     func verificationEvidence(for path: RemoteRelativePath, expectedSHA256: String) async throws -> RemoteVerificationEvidence {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let result = try await run(sftp(batch: "get \(sftpQuote(try remote(path))) \(sftpQuote(temporary.path))\n"))
+        let result = try await run(sftp(batch: "get \(try sftpQuote(try remote(path))) \(try sftpQuote(temporary.path))\n"))
         guard result.status == 0 else { throw classify(result) }
         let actual = try await SharedChecksumService.shared.generateChecksum(for: temporary, type: .sha256, useCache: false)
         guard actual.caseInsensitiveCompare(expectedSHA256) == .orderedSame else { throw RemoteBackupError.verificationFailed }
@@ -167,7 +179,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         try profile.root.appending(path: path).description
     }
     private func shellQuote(_ value: String) -> String { Self.shellQuote(value) }
-    private func sftpQuote(_ value: String) -> String { "\"\(value.replacingOccurrences(of: "\\\"", with: "\\\\\\\""))\"" }
+    private func sftpQuote(_ value: String) throws -> String { try Self.sftpQuote(value) }
 
     private func classify(_ result: OpenSSHCommandResult) -> RemoteBackupError {
         let text = String(decoding: result.stderr, as: UTF8.self).lowercased()
@@ -187,15 +199,22 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         return arguments
     }
 
-    static func shellQuote(_ value: String) -> String {
+    nonisolated static func shellQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\\"'\\\"'"))'"
     }
 
-    static func relativeRemotePath(root: RemoteRelativePath, path: RemoteRelativePath) throws -> String {
+    nonisolated static func sftpQuote(_ value: String) throws -> String {
+        guard !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw RemoteBackupError.unsafePath
+        }
+        return "\"\(value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+    }
+
+    nonisolated static func relativeRemotePath(root: RemoteRelativePath, path: RemoteRelativePath) throws -> String {
         try root.appending(path: path).description
     }
 
-    static func promotionError(stderr: Data) -> RemoteBackupError {
+    nonisolated static func promotionError(stderr: Data) -> RemoteBackupError {
         String(decoding: stderr, as: UTF8.self).lowercased().contains("file exists")
             ? .conflict
             : .capabilityUnavailable(.noReplacePromotion)
@@ -205,17 +224,38 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let output = Pipe(); let error = Pipe(); let input = Pipe()
+            let collected = OpenSSHProcessOutput()
+            let drains = DispatchGroup()
             process.executableURL = URL(fileURLWithPath: command.executable)
             process.arguments = command.arguments
             process.standardOutput = output; process.standardError = error; process.standardInput = input
+            // Reserve both drain completions before the child can terminate.
+            // Otherwise a fast child could notify an empty group before these
+            // readers have been registered.
+            drains.enter()
+            drains.enter()
             process.terminationHandler = { completed in
-                continuation.resume(returning: OpenSSHCommandResult(status: completed.terminationStatus, stdout: output.fileHandleForReading.readDataToEndOfFile(), stderr: error.fileHandleForReading.readDataToEndOfFile()))
+                drains.notify(queue: .global()) {
+                    continuation.resume(returning: collected.result(status: completed.terminationStatus))
+                }
             }
             do {
                 try process.run()
+                DispatchQueue.global().async {
+                    collected.setStdout(output.fileHandleForReading.readDataToEndOfFile())
+                    drains.leave()
+                }
+                DispatchQueue.global().async {
+                    collected.setStderr(error.fileHandleForReading.readDataToEndOfFile())
+                    drains.leave()
+                }
                 if let data = command.standardInput { input.fileHandleForWriting.write(data) }
                 input.fileHandleForWriting.closeFile()
-            } catch { continuation.resume(throwing: error) }
+            } catch {
+                drains.leave()
+                drains.leave()
+                continuation.resume(throwing: error)
+            }
         }
     }
 }
