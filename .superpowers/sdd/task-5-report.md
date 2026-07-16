@@ -57,6 +57,9 @@
   an immediately terminating child therefore cannot resume the continuation
   before both asynchronous pipe readers have been registered. A launch failure
   balances both slots and reports the launch error directly.
+- Preflight now preserves host-key, authentication, permission, and network
+  classification from its SSH capability probe. Only an explicit remote
+  `command not found` for `ln`/`rm` maps to the no-replace capability error.
 
 ## Validation
 

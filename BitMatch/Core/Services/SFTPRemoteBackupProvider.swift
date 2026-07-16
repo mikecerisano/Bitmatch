@@ -73,8 +73,14 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
             throw RemoteBackupError.authenticationFailed
         }
         try await establishExplicitTrustIfNeeded()
-        let result = try await run(ssh(command: "command -v ln >/dev/null 2>&1 && command -v rm >/dev/null 2>&1"))
-        guard result.status == 0 else { throw RemoteBackupError.capabilityUnavailable(.noReplacePromotion) }
+        let result = try await run(ssh(command: "if command -v ln >/dev/null 2>&1 && command -v rm >/dev/null 2>&1; then exit 0; else printf __BITMATCH_NO_LN_RM__ >&2; exit 42; fi"))
+        guard result.status == 0 else {
+            let stderr = String(decoding: result.stderr, as: UTF8.self).lowercased()
+            if result.status == 42, stderr.contains("__bitmatch_no_ln_rm__") {
+                throw RemoteBackupError.capabilityUnavailable(.noReplacePromotion)
+            }
+            throw classify(result)
+        }
         return RemoteProviderCapabilities(supportsNoReplacePromotion: true, supportsVerificationEvidence: true)
     }
 
@@ -182,7 +188,11 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     private func sftpQuote(_ value: String) throws -> String { try Self.sftpQuote(value) }
 
     private func classify(_ result: OpenSSHCommandResult) -> RemoteBackupError {
-        let text = String(decoding: result.stderr, as: UTF8.self).lowercased()
+        Self.classify(stderr: result.stderr)
+    }
+
+    nonisolated static func classify(stderr: Data) -> RemoteBackupError {
+        let text = String(decoding: stderr, as: UTF8.self).lowercased()
         if text.contains("host key verification") || text.contains("no matching host key") { return .hostKeyMismatch }
         if text.contains("permission denied") { return .permissionDenied }
         if text.contains("authentication") { return .authenticationFailed }

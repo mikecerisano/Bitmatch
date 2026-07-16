@@ -52,6 +52,12 @@ struct SFTPRemoteBackupProviderContractTests {
         #endif
     }
 
+    @Test func hostKeyVerificationFailureIsClassifiedBeforeCapabilityFailure() {
+        #if os(macOS)
+        #expect(SFTPRemoteBackupProvider.classify(stderr: Data("Host key verification failed.".utf8)) == .hostKeyMismatch)
+        #endif
+    }
+
     @Test func firstTrustScansAndFingerprintsBeforeSSHAuthentication() async throws {
         #if os(macOS)
         let recorder = OpenSSHCommandRecorder()
