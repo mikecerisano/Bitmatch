@@ -185,6 +185,20 @@ final class AppCoordinator: ObservableObject {
         photographerJobViewModel.selectRemoteProfile(profileID)
     }
 
+    func testRemoteProfile(_ profile: RemoteDestinationProfile) {
+        Task {
+            do {
+                let provider = try await SFTPRemoteBackupProviderFactory.make(
+                    profile: profile, credential: .sshAgent,
+                    confirmUnknownHost: { [weak self] request in await self?.requestHostTrust(request) ?? false }
+                )
+                _ = try await provider.preflight(profile: profile, credential: .sshAgent)
+                await provider.close()
+                photographerJobViewModel.setRemoteFeedback("SFTP destination is ready.")
+            } catch { photographerJobViewModel.setRemoteFeedback("SFTP test failed: \(error.localizedDescription)") }
+        }
+    }
+
     func queueRemoteBackup(for cardIngestID: UUID) {
         do {
             let items = try photographerJobViewModel.queueRemoteBackup(

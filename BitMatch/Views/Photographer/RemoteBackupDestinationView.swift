@@ -66,7 +66,7 @@ struct RemoteBackupDestinationView: View {
         .background(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium).fill(DesignSystem.Colors.background.opacity(0.35)))
         .onAppear { isStageEnabled = configuration?.isEnabled == true }
         .sheet(isPresented: $showingDestinations) {
-            RemoteBackupDestinationManager(viewModel: viewModel)
+            RemoteBackupDestinationManager(viewModel: viewModel, coordinator: coordinator)
         }
     }
 
@@ -82,6 +82,7 @@ struct RemoteBackupDestinationView: View {
 
 private struct RemoteBackupDestinationManager: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
+    let coordinator: AppCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var host = ""
@@ -89,13 +90,14 @@ private struct RemoteBackupDestinationManager: View {
     @State private var username = ""
     @State private var root = "Backups"
     @State private var verification: RemoteVerificationMode = .sha256
+    @State private var editingID: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Text("SFTP destinations").font(.headline); Spacer(); Button("Done") { dismiss() } }
             List {
                 ForEach(viewModel.remoteProfiles) { profile in
-                    HStack { VStack(alignment: .leading) { Text(profile.name); Text("\(profile.username)@\(profile.host) · \(profile.root.description)").font(.caption) }; Spacer(); Button("Delete", role: .destructive) { viewModel.deleteRemoteProfile(id: profile.id) } }
+                    HStack { VStack(alignment: .leading) { Text(profile.name); Text("\(profile.username)@\(profile.host) · \(profile.root.description)").font(.caption) }; Spacer(); Button("Edit") { load(profile) }; Button("Test") { coordinator.testRemoteProfile(profile) }; Button("Delete", role: .destructive) { viewModel.deleteRemoteProfile(id: profile.id) } }
                 }
             }.frame(height: 130)
             TextField("Name", text: $name); TextField("Host", text: $host); TextField("Port", text: $port); TextField("Username", text: $username); TextField("Relative root", text: $root)
@@ -106,7 +108,9 @@ private struct RemoteBackupDestinationManager: View {
     }
     private func save() {
         guard let port = Int(port), let relativeRoot = try? RemoteRelativePath(components: root.split(separator: "/").map(String.init)) else { return }
-        viewModel.saveRemoteProfile(RemoteDestinationProfile(id: UUID(), name: name, host: host, port: port, username: username, root: relativeRoot, verificationMode: verification))
+        viewModel.saveRemoteProfile(RemoteDestinationProfile(id: editingID ?? UUID(), name: name, host: host, port: port, username: username, root: relativeRoot, verificationMode: verification))
         name = ""; host = ""; username = ""
+        editingID = nil
     }
+    private func load(_ profile: RemoteDestinationProfile) { editingID = profile.id; name = profile.name; host = profile.host; port = "\(profile.port)"; username = profile.username; root = profile.root.description; verification = profile.verificationMode }
 }

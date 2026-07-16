@@ -504,6 +504,8 @@ final class PhotographerJobViewModel: ObservableObject {
         } catch { lastError = error.localizedDescription }
     }
 
+    func setRemoteFeedback(_ message: String) { lastError = message }
+
     @discardableResult
     func queueRemoteBackup(for cardIngestID: UUID, results: [ResultRow]) throws -> [RemoteQueueItem] {
         guard let jobID = activeJob?.id else { throw PhotographerJobViewModelError.noActiveJob }
