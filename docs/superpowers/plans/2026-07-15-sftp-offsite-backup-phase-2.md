@@ -4,20 +4,21 @@
 
 **Goal:** Queue a locally verified photographer package to one saved SFTP destination and state exactly whether it is locally safe, uploaded unverified, or fully backed up.
 
-**Architecture:** Preserve the local engine as authoritative. A locally-safe card creates an immutable checksum manifest and security-scoped bookmark to one verified local package. A persisted queue reads only that artifact through a provider-neutral interface; Citadel implements SFTP and fake providers prove queue behavior.
+**Architecture:** Preserve the local engine as authoritative. A locally-safe card creates an immutable checksum manifest and security-scoped bookmark to one verified local package. A persisted queue reads only that artifact through a provider-neutral interface. On macOS, a small OpenSSH adapter uses a profile-private `known_hosts` file for host identity and an SSH remote command for atomic no-replace publication; fake providers prove queue behavior.
 
-**Tech Stack:** Swift 6, SwiftUI, Core Data, Keychain, Citadel 0.12.x, `SharedChecksumService`.
+**Tech Stack:** Swift 6, SwiftUI, Core Data, Keychain, macOS OpenSSH (`ssh`/`sftp`), `SharedChecksumService`.
 
 ## Global Constraints
 
 - macOS SFTP only; no plain FTP, WebDAV, S3, iPad uploads, or proxy delivery.
-- Citadel must use strict pinned host-key validation, never `.acceptAnything()`.
-- Keep the Citadel adapter behind `#if os(macOS)` and make the shared provider factory return a typed unavailable error on iPad; the iPad build must not link Citadel.
+- Keep the OpenSSH adapter behind `#if os(macOS)` and make the shared provider factory return a typed unavailable error on iPad.
+- First release supports key-based SSH authentication only through the user's macOS SSH agent. A profile keeps no private key or passphrase; BitMatch runs noninteractively against the agent socket. Password and keyboard-interactive SSH are explicitly unavailable, never passed through an automated prompt.
+- OpenSSH must use `StrictHostKeyChecking=yes`, `BatchMode=yes`, and a profile-private `UserKnownHostsFile`; first trust is explicit and records the displayed SHA-256 fingerprint. A changed or unknown key must fail before authentication/upload.
 - Core Data may store profiles, manifests, queue state, and opaque Keychain references only—never a credential, private key, passphrase, bookmark bytes, or auth header.
 - Multiple saved profiles are allowed; one active remote target per job/card is allowed.
 - Queue only `.locallySafe` cards. Resolve and validate the local bookmark, containment, byte count, and checksum before every upload. Never read the camera card.
 - Reject absolute paths, empty components, `.`, `..`, separators in a component, and portable-name collisions.
-- Never replace a final remote object. Use same-parent temporary paths and provider no-replace promotion; fail closed when unavailable.
+- Never replace a final remote object. Use same-parent temporary paths and an SSH-exec `ln temporary final` promotion followed by `rm temporary`; `ln` failing because final exists is a conflict. Require a POSIX-style remote shell in addition to SFTP; SFTP-only/restricted-shell accounts are shown as unsupported and fail closed.
 - Verified state requires server SHA-256 or full read-back SHA-256. Upload-only is `Uploaded · Unverified`.
 - The user forbids app launches, simulators, test execution, and test binaries locally. Add tests; run only compile-only `bash test.sh mac-build` and `bash test.sh ipad-build` here.
 
@@ -92,14 +93,14 @@ actor RemoteBackupQueue { func restore(); func enqueue(_ item: RemoteQueueItem);
 - [ ] Ensure remote errors never invoke `operationFailed()` or alter local evidence.
 - [ ] Compile-only validate with `bash test.sh mac-build`; commit `feat: queue verified card packages for remote backup`.
 
-## Task 5: Add the secure Citadel SFTP provider
+## Task 5: Add the secure OpenSSH SFTP provider
 
 **Files:** Modify `BitMatch.xcodeproj/project.pbxproj`, `BitMatch/Utilities/KeychainHelper.swift`; create `BitMatch/Core/Services/SFTPRemoteBackupProvider.swift`; modify `BitMatchTests/SFTPRemoteBackupProviderContractTests.swift`.
 
-- [ ] Add contract tests that host-key fingerprint change blocks before authentication, a preexisting final causes `RemoteBackupError.conflict`, a temporary object resumes only at the confirmed server length, and a corrupt read-back fails verification.
-- [ ] Add Citadel 0.12.x to the macOS target. First use requires a deliberate UI fingerprint confirmation; later connections compare fingerprint before credentials are sent. Keep the adapter inside `#if os(macOS)` and make the shared factory return `RemoteBackupError.providerUnavailable` on iPad.
-- [ ] Resolve the configured root, create contained directories, inspect final/temporary paths, and always close the SFTP client. Use `.bitmatch-upload-<queue-item-uuid>` same-parent temporary names. Prefer an explicit server SHA-256 extension; otherwise read the final object through `SharedChecksumService`.
-- [ ] Use provider no-replace promotion where the server exposes it. Otherwise recheck immediately before rename and classify any race as conflict, never verified success.
+- [ ] Add contract tests for fixed OpenSSH arguments: a changed/unknown host key never reaches authentication, a preexisting final makes `ln` classify as `RemoteBackupError.conflict`, temporary resumption accepts only the confirmed server length, and a corrupt read-back fails verification.
+- [ ] Replace Citadel with a macOS-only OpenSSH adapter. It must use a profile-private known-hosts file, strict noninteractive host-key checking, and an explicit first-trust flow that captures the OpenSSH SHA-256 fingerprint before the profile is saved. The iPad factory remains unavailable.
+- [ ] Resolve the configured root, create contained directories, inspect final/temporary paths, and always terminate child processes. Use `.bitmatch-upload-<queue-item-uuid>` same-parent temporary names. Upload with `sftp`; read back and checksum through `sftp`; use `ssh -T` only for remote POSIX operations.
+- [ ] Promote with a remote `ln -- temporary final && rm -- temporary`. Treat an existing final, unavailable shell, unsupported POSIX command, or any ambiguous result as conflict/unsupported—not verified success. Enforce key-based authentication through the user's SSH agent and reject password/keyboard-interactive credential material before starting a child process.
 - [ ] Compile-only validate with `bash test.sh mac-build`; commit `feat: add secure SFTP remote backup provider`.
 
 ## Task 6: Add the compact off-site stage, dashboard, and reports
