@@ -67,7 +67,8 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     }
 
     func inspect(path: RemoteRelativePath) async throws -> RemoteObject? {
-        let result = try await run(ssh(command: "if test -e \(shellQuote(remote(path))); then wc -c < \(shellQuote(remote(path))); fi"))
+        let remotePath = try remote(path)
+        let result = try await run(ssh(command: "if test -e \(shellQuote(remotePath)); then wc -c < \(shellQuote(remotePath)); fi"))
         guard result.status == 0 else { throw classify(result) }
         let output = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { return nil }
@@ -76,7 +77,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     }
 
     func ensureDirectory(_ path: RemoteRelativePath) async throws {
-        let result = try await run(ssh(command: "mkdir -p \(shellQuote(remote(path)))"))
+        let result = try await run(ssh(command: "mkdir -p \(shellQuote(try remote(path)))"))
         guard result.status == 0 else { throw classify(result) }
     }
 
@@ -86,7 +87,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         guard (remoteObject?.byteCount ?? 0) == fromOffset else {
             throw RemoteBackupError.resumeOffsetMismatch(local: fromOffset, remote: remoteObject?.byteCount ?? 0)
         }
-        let batch = "put -a \(sftpQuote(local.path)) \(sftpQuote(remote(path)))\n"
+        let batch = "put -a \(sftpQuote(local.path)) \(sftpQuote(try remote(path)))\n"
         let result = try await run(sftp(batch: batch))
         guard result.status == 0 else { throw classify(result) }
         let complete = try await inspect(path: path)?.byteCount ?? 0
@@ -94,7 +95,9 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     }
 
     func promoteNoReplace(temporary: RemoteRelativePath, final: RemoteRelativePath) async throws {
-        let command = "ln \(shellQuote(remote(temporary))) \(shellQuote(remote(final))) && rm \(shellQuote(remote(temporary)))"
+        let temporaryPath = try remote(temporary)
+        let finalPath = try remote(final)
+        let command = "ln \(shellQuote(temporaryPath)) \(shellQuote(finalPath)) && rm \(shellQuote(temporaryPath))"
         let result = try await run(ssh(command: command))
         guard result.status == 0 else { throw classifyPromotion(result) }
     }
@@ -102,7 +105,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     func verificationEvidence(for path: RemoteRelativePath, expectedSHA256: String) async throws -> RemoteVerificationEvidence {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let result = try await run(sftp(batch: "get \(sftpQuote(remote(path))) \(sftpQuote(temporary.path))\n"))
+        let result = try await run(sftp(batch: "get \(sftpQuote(try remote(path))) \(sftpQuote(temporary.path))\n"))
         guard result.status == 0 else { throw classify(result) }
         let actual = try await SharedChecksumService.shared.generateChecksum(for: temporary, type: .sha256, useCache: false)
         guard actual.caseInsensitiveCompare(expectedSHA256) == .orderedSame else { throw RemoteBackupError.verificationFailed }
@@ -158,7 +161,11 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         Self.fixedArguments(knownHostsURL: knownHostsURL, port: profile.port, username: nil, portFlag: "-P")
     }
 
-    private func remote(_ path: RemoteRelativePath) -> String { "/\(profile.root.description)/\(path.description)" }
+    /// Profile roots are deliberately relative to the authenticated SFTP
+    /// account. Never prepend `/`, which would escape that configured root.
+    private func remote(_ path: RemoteRelativePath) throws -> String {
+        try profile.root.appending(path: path).description
+    }
     private func shellQuote(_ value: String) -> String { Self.shellQuote(value) }
     private func sftpQuote(_ value: String) -> String { "\"\(value.replacingOccurrences(of: "\\\"", with: "\\\\\\\""))\"" }
 
@@ -182,6 +189,10 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
 
     static func shellQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\\"'\\\"'"))'"
+    }
+
+    static func relativeRemotePath(root: RemoteRelativePath, path: RemoteRelativePath) throws -> String {
+        try root.appending(path: path).description
     }
 
     static func promotionError(stderr: Data) -> RemoteBackupError {

@@ -28,6 +28,14 @@ struct SFTPRemoteBackupProviderContractTests {
         #endif
     }
 
+    @Test func remotePathsRemainRelativeToTheSFTPAccountRoot() throws {
+        #if os(macOS)
+        let root = try RemoteRelativePath(components: ["Backups"])
+        let file = try RemoteRelativePath(components: ["Jobs", "Card-001.mov"])
+        #expect(try SFTPRemoteBackupProvider.relativeRemotePath(root: root, path: file) == "Backups/Jobs/Card-001.mov")
+        #endif
+    }
+
     @Test func existingFinalFromLnIsClassifiedAsConflict() {
         #if os(macOS)
         #expect(SFTPRemoteBackupProvider.promotionError(stderr: Data("ln: File exists".utf8)) == .conflict)

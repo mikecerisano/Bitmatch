@@ -33,6 +33,13 @@
 - POSIX shell availability is a required remote capability. Restricted-shell or
   SFTP-only accounts fail closed rather than attempting a racy SFTP rename.
 
+## Follow-up Correction
+
+- Remote provider paths now preserve the configured relative profile root
+  (for example, `Backups/Jobs/Card-001.mov`) rather than prepending `/` and
+  accidentally targeting the server filesystem root. A focused contract test
+  covers the account-relative path construction.
+
 ## Validation
 
 - `git diff --check` passed.
