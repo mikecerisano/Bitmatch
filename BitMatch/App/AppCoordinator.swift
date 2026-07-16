@@ -273,7 +273,12 @@ final class AppCoordinator: ObservableObject {
             )
             self.remoteBackupQueue = RemoteBackupQueue(
                 persistence: PhotographerJobStoreRemoteBackupQueuePersistence(store: store),
-                providerFactory: { _, _ in throw RemoteBackupError.providerUnavailable },
+                providerFactory: { profile, credential in
+                    try await SFTPRemoteBackupProviderFactory.make(
+                        profile: profile,
+                        credential: credential
+                    )
+                },
                 localArtifactResolver: { item in
                     try await remoteBackupCoordinator.resolveLocalArtifact(for: item)
                 }
