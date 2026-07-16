@@ -107,6 +107,14 @@ struct ContentView: View {
                     Text(description)
                 }
             }
+            .alert("Confirm SFTP Host Key", isPresented: Binding(get: { coordinator.hostTrustPrompt != nil }, set: { if !$0 { coordinator.confirmHostTrust(false) } })) {
+                Button("Trust Host Key") { coordinator.confirmHostTrust(true) }
+                Button("Cancel", role: .cancel) { coordinator.confirmHostTrust(false) }
+            } message: {
+                if let prompt = coordinator.hostTrustPrompt {
+                    Text("Verify this SHA-256 fingerprint for \(prompt.request.host):\(prompt.request.port) before continuing with SSH-agent authentication:\n\n\(prompt.request.sha256Fingerprint)")
+                }
+            }
     }
     
     @ViewBuilder

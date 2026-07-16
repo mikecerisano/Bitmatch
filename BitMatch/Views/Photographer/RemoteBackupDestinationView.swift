@@ -4,10 +4,11 @@ import SwiftUI
 /// but never credentials, private-key paths, passphrases, or host-key data.
 struct RemoteBackupDestinationView: View {
     @ObservedObject var coordinator: AppCoordinator
+    @State private var isStageEnabled = false
 
     private var viewModel: PhotographerJobViewModel { coordinator.photographerJobViewModel }
     private var configuration: RemoteBackupConfiguration? { viewModel.activeJob?.remoteBackupConfiguration }
-    private var isEnabled: Bool { configuration?.isEnabled == true }
+    private var isEnabled: Bool { isStageEnabled }
     private var presentation: RemoteBackupDestinationPresentation {
         .make(isEnabled: isEnabled, profiles: viewModel.remoteProfiles)
     }
@@ -44,7 +45,7 @@ struct RemoteBackupDestinationView: View {
                     .accessibilityLabel("Off-site backup destination")
 
                     if let profile = viewModel.remoteProfiles.first(where: { $0.id == configuration?.destinationProfileID }) {
-                        Text("SFTP · (profile.username)@(profile.host) · (profile.root.description)")
+                        Text("SFTP · \(profile.username)@\(profile.host) · \(profile.root.description)")
                             .font(DesignSystem.Typography.monoSmall)
                             .foregroundColor(DesignSystem.Colors.textSecondary)
                         Text(profile.verificationMode == .sha256 ? "Remote SHA-256 verification required." : "Upload-only reports Uploaded · Unverified.")
@@ -60,11 +61,13 @@ struct RemoteBackupDestinationView: View {
         .padding(.horizontal, DesignSystem.Spacing.sm)
         .padding(.vertical, DesignSystem.Spacing.sm)
         .background(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium).fill(DesignSystem.Colors.background.opacity(0.35)))
+        .onAppear { isStageEnabled = configuration?.isEnabled == true }
     }
 
     private func setEnabled(_ enabled: Bool) {
+        isStageEnabled = enabled
         if enabled {
-            coordinator.selectRemoteProfile(viewModel.remoteProfiles.first?.id)
+            if let profileID = viewModel.remoteProfiles.first?.id { coordinator.selectRemoteProfile(profileID) }
         } else {
             coordinator.selectRemoteProfile(nil)
         }

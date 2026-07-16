@@ -43,3 +43,16 @@
 - No changes weaken remote path validation, artifact revalidation, resumable
   upload handling, or no-replace promotion. Local copy safety remains
   authoritative and independent of remote state.
+
+## Follow-up integration correction
+
+- A locally safe card now offers a queue action when off-site backup is
+  configured; the coordinator restores the durable items and calls `run` for
+  each one rather than merely restoring them.
+- First unknown-host trust now pauses at a coordinator-owned SwiftUI alert that
+  displays the host, port, and OpenSSH SHA-256 fingerprint. Acceptance is the
+  only path that resumes provider preflight; dismissal/cancel returns false and
+  remains fail-closed before SSH-agent authentication.
+- Enabling the optional stage without saved profiles keeps it expanded so the
+  no-profile guidance remains reachable. The SFTP summary uses actual Swift
+  interpolation for profile metadata.

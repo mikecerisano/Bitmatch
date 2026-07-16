@@ -8,6 +8,10 @@ import UserNotifications
 
 @MainActor
 final class AppCoordinator: ObservableObject {
+    struct HostTrustPrompt: Identifiable {
+        let request: OpenSSHHostTrustRequest
+        let id = UUID()
+    }
     // MARK: - Shared Core (single source of truth)
     let sharedCoordinator = SharedAppCoordinator(platformManager: MacOSPlatformManager.shared)
     private var cancellables = Set<AnyCancellable>()
@@ -21,6 +25,8 @@ final class AppCoordinator: ObservableObject {
     @Published var cameraDetectionService = CameraCardDetectionService()
     @Published var photographerJobViewModel: PhotographerJobViewModel
     private var remoteBackupQueue: RemoteBackupQueue?
+    @Published private(set) var hostTrustPrompt: HostTrustPrompt?
+    private var hostTrustContinuation: CheckedContinuation<Bool, Never>?
 
     // MARK: - Delegated State
     @Published var currentMode: AppMode = .copyAndVerify
@@ -181,21 +187,33 @@ final class AppCoordinator: ObservableObject {
 
     func queueRemoteBackup(for cardIngestID: UUID) {
         do {
-            _ = try photographerJobViewModel.queueRemoteBackup(
+            let items = try photographerJobViewModel.queueRemoteBackup(
                 for: cardIngestID,
                 results: sharedCoordinator.results
             )
-            // Task 3's queue resolves its local artifact before provider
-            // creation. Restoring here makes newly durable items visible to
-            // that queue without starting an upload (the provider arrives in
-            // Task 5).
             if let remoteBackupQueue {
-                Task { try? await remoteBackupQueue.restore() }
+                Task {
+                    try? await remoteBackupQueue.restore()
+                    for item in items { await remoteBackupQueue.run(item.id) }
+                }
             }
         } catch {
             // The view model records this as remote-only feedback. In
             // particular, never invoke operationFailed() here: final local
             // evidence is authoritative and independent of remote queueing.
+        }
+    }
+
+    func confirmHostTrust(_ accepted: Bool) {
+        hostTrustPrompt = nil
+        hostTrustContinuation?.resume(returning: accepted)
+        hostTrustContinuation = nil
+    }
+
+    private func requestHostTrust(_ request: OpenSSHHostTrustRequest) async -> Bool {
+        await withCheckedContinuation { continuation in
+            hostTrustContinuation = continuation
+            hostTrustPrompt = HostTrustPrompt(request: request)
         }
     }
 
@@ -276,7 +294,11 @@ final class AppCoordinator: ObservableObject {
                 providerFactory: { profile, credential in
                     try await SFTPRemoteBackupProviderFactory.make(
                         profile: profile,
-                        credential: credential
+                        credential: credential,
+                        confirmUnknownHost: { [weak self] request in
+                            guard let self else { return false }
+                            return await self.requestHostTrust(request)
+                        }
                     )
                 },
                 localArtifactResolver: { item in

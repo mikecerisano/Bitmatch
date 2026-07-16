@@ -128,7 +128,8 @@ struct CopyAndVerifyView: View {
                !job.cardIngests.isEmpty {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
-                    job: job
+                    job: job,
+                    queueRemoteBackup: coordinator.queueRemoteBackup
                 )
                 .padding(.horizontal, DesignSystem.Spacing.lg)
                 .padding(.bottom, DesignSystem.Spacing.sm)

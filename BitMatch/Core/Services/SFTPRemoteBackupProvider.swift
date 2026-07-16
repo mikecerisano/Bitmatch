@@ -1,9 +1,9 @@
 import Foundation
 
 enum SFTPRemoteBackupProviderFactory {
-    static func make(profile: RemoteDestinationProfile, credential: RemoteCredential) async throws -> any RemoteBackupProvider {
+    static func make(profile: RemoteDestinationProfile, credential: RemoteCredential, confirmUnknownHost: OpenSSHHostTrustConfirmation? = nil) async throws -> any RemoteBackupProvider {
         #if os(macOS)
-        return SFTPRemoteBackupProvider(profile: profile, credential: credential)
+        return SFTPRemoteBackupProvider(profile: profile, credential: credential, confirmUnknownHost: confirmUnknownHost)
         #else
         throw RemoteBackupError.providerUnavailable
         #endif

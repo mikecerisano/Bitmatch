@@ -3,6 +3,7 @@ import SwiftUI
 struct PhotographerSessionDashboard: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
     let job: PhotographerJob
+    let queueRemoteBackup: (UUID) -> Void
     @AccessibilityFocusState private var accessibilityFocusedCardID: UUID?
     @FocusState private var keyboardFocusedCardID: UUID?
 
@@ -85,6 +86,11 @@ struct PhotographerSessionDashboard: View {
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if row.statusTitle == "Locally Safe", job.remoteBackupConfiguration?.isEnabled == true {
+                    Button("Queue off-site backup") { queueRemoteBackup(row.id) }
+                        .font(DesignSystem.Typography.caption)
+                        .disabled(job.remoteBackupConfiguration?.destinationProfileID == nil)
+                }
                 ForEach(row.remoteBackupPresentations.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { id in
                     if let remote = row.remoteBackupPresentations[id] {
                         Label(remote.title, systemImage: remote.symbol)

@@ -31,7 +31,8 @@ struct TransferPlanView: View {
                !job.cardIngests.isEmpty {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
-                    job: job
+                    job: job,
+                    queueRemoteBackup: coordinator.queueRemoteBackup
                 )
             }
         }
