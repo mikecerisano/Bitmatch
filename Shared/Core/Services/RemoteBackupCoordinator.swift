@@ -20,6 +20,9 @@ struct KeychainRemoteArtifactBookmarkStore: RemoteArtifactBookmarkStore {
     }
 
     func remove(reference: String) throws {
+        // Compensating cleanup is retryable: a prior attempt may already have
+        // removed the value before a later manifest deletion failed.
+        guard try data(for: reference) != nil else { return }
         guard KeychainHelper.delete(forKey: reference) else {
             throw RemoteBackupError.bookmarkUnavailable
         }
@@ -31,6 +34,7 @@ struct KeychainRemoteArtifactBookmarkStore: RemoteArtifactBookmarkStore {
 /// only from final `ResultRow.destinationPath` values.
 @MainActor
 final class RemoteBackupCoordinator {
+    private static let pendingCleanupPrefix = "bitmatch-pending-cleanup:"
     typealias BookmarkMaker = (URL) throws -> Data
     typealias BookmarkResolver = (Data) throws -> URL
     typealias FileSize = (URL) throws -> Int64
@@ -99,6 +103,9 @@ final class RemoteBackupCoordinator {
         in jobID: UUID,
         results: [ResultRow]
     ) throws -> [RemoteQueueItem] {
+        // A previous interrupted creation can only leave terminal tombstones.
+        // Retry their compensation before making any new package visible.
+        try retryPendingCleanup()
         guard let job = try store.jobs().first(where: { $0.id == jobID }),
               let card = job.cardIngests.first(where: { $0.id == cardIngestID }),
               card.localState == .locallySafe,
@@ -136,7 +143,7 @@ final class RemoteBackupCoordinator {
                 sha256: artifact.sha256
             )
         }
-        let manifest = try RemoteManifest(
+        var manifest = try RemoteManifest(
             id: manifestID,
             jobID: jobID,
             cardIngestID: cardIngestID,
@@ -182,14 +189,55 @@ final class RemoteBackupCoordinator {
             }
             return items
         } catch {
-            // A manifest without every item is unusable. Delete every item
-            // whose save completed before removing its shared dependencies.
-            for itemID in savedItemIDs.reversed() {
-                try? store.deleteQueueItem(id: itemID)
-            }
-            try? store.deleteManifest(id: manifestID)
-            try? bookmarkStore.remove(reference: bookmarkReference)
+            // Never leave a runnable partial package. First durably mark every
+            // saved item terminal, then attempt dependency-ordered deletion.
+            // If any deletion fails the tombstone remains and is retried by a
+            // later queue request; restore cannot upload a terminal tombstone.
+            try markPendingCleanup(
+                manifest: &manifest,
+                itemIDs: savedItemIDs,
+                bookmarkReference: bookmarkReference
+            )
+            try retryPendingCleanup()
             throw error
+        }
+    }
+
+    private func markPendingCleanup(
+        manifest: inout RemoteManifest,
+        itemIDs: [UUID],
+        bookmarkReference: String
+    ) throws {
+        manifest.pendingCleanupBookmarkReference = bookmarkReference
+        try store.save(manifest)
+        let marker = "\(Self.pendingCleanupPrefix)\(manifest.id.uuidString)"
+        for itemID in itemIDs {
+            guard var item = try store.queueItems().first(where: { $0.id == itemID }) else { continue }
+            item.state = .cancelled
+            item.nextAttemptAt = nil
+            item.errorSummary = marker
+            item.updatedAt = now()
+            try store.save(item)
+        }
+    }
+
+    /// Retries compensation left by an interrupted package creation. Items are
+    /// removed first; only once none remain do we remove manifest and bookmark.
+    private func retryPendingCleanup() throws {
+        let pendingManifests = try store.manifests().filter { $0.pendingCleanupBookmarkReference != nil }
+        let pendingIDs = Set(pendingManifests.map(\.id))
+        let pending = try store.queueItems().filter { pendingIDs.contains($0.manifestID) }
+        for item in pending {
+            try store.deleteQueueItem(id: item.id)
+        }
+        // Delete the bookmark first. `remove` is idempotent, so if manifest
+        // deletion then fails its durable marker makes the next retry safe.
+        let remaining = try store.queueItems()
+        for manifest in pendingManifests {
+            guard !remaining.contains(where: { $0.manifestID == manifest.id }),
+                  let bookmarkReference = manifest.pendingCleanupBookmarkReference else { continue }
+            try bookmarkStore.remove(reference: bookmarkReference)
+            try store.deleteManifest(id: manifest.id)
         }
     }
 

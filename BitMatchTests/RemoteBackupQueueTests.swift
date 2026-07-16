@@ -105,6 +105,29 @@ struct RemoteBackupQueueTests {
         #expect(await provider.preflightCallCount == 0)
     }
 
+    @Test func bookmarkFailureDoesNotConstructProvider() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider()
+        let factoryCalls = QueueFactoryCallCounter()
+        let queue = RemoteBackupQueue(
+            persistence: fixture.persistence,
+            providerFactory: { _, _ in
+                factoryCalls.record()
+                return provider
+            },
+            localArtifactResolver: { _ in throw RemoteBackupError.localArtifactNotVerified },
+            now: { Date(timeIntervalSince1970: 100) },
+            jitter: { 0 }
+        )
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+
+        #expect(factoryCalls.count == 0)
+        #expect(await provider.preflightCallCount == 0)
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+    }
+
     @Test func duplicateRunsShareOneUploadAndPromotion() async throws {
         let fixture = try QueueFixture()
         let provider = FakeRemoteBackupProvider(blockUpload: true)
@@ -199,6 +222,13 @@ struct RemoteBackupQueueTests {
         #expect(await fixture.persistence.queueItem(id: fixture.item.id) == fixture.item)
         #expect(await queue.item(id: fixture.item.id) == fixture.item)
     }
+}
+
+private final class QueueFactoryCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func record() { lock.withLock { value += 1 } }
 }
 
 private struct QueueFixture {

@@ -114,6 +114,12 @@ actor RemoteBackupQueue {
 
         do {
             guard let item = items[id] else { return }
+            // Fail closed on the local artifact before credentials, provider
+            // construction, or provider preflight. This short validation lease
+            // is released before any provider exists; the upload lease below is
+            // separately acquired immediately before provider file access.
+            let validationLease = try await localArtifactResolver(item)
+            validationLease.release()
             let context = try await validatedContext(for: item)
             guard isRunnable(id) else { return }
             guard let credential = try await persistence.credential(for: context.profile.id) else {
@@ -132,6 +138,8 @@ actor RemoteBackupQueue {
                 if let requirement = capabilities.missingRequirements(for: context.profile.verificationMode).first {
                     throw RemoteBackupError.capabilityUnavailable(requirement)
                 }
+                // Re-resolve after preflight so the URL passed to the provider
+                // has fresh evidence and an active security-scoped lease.
                 let lease = try await localArtifactResolver(item)
                 defer { lease.release() }
                 guard isRunnable(id) else {
@@ -343,6 +351,7 @@ actor RemoteBackupQueue {
         let (savedProfiles, savedManifests, savedJobs) = try await (profiles, manifests, jobs)
         guard let profile = savedProfiles.first(where: { $0.id == item.destinationProfileID }),
               let manifest = savedManifests.first(where: { $0.id == item.manifestID }),
+              manifest.pendingCleanupBookmarkReference == nil,
               manifest.destinationProfileID == profile.id,
               manifest.jobID == item.jobID,
               manifest.cardIngestID == item.cardIngestID,

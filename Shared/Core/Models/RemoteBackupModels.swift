@@ -221,6 +221,7 @@ struct RemoteManifest: Identifiable, Codable, Equatable, Sendable {
     let packageRelativePath: RemoteRelativePath
     let entries: [RemoteManifestEntry]
     let createdAt: Date
+    var pendingCleanupBookmarkReference: String?
 
     init(
         id: UUID,
@@ -229,7 +230,8 @@ struct RemoteManifest: Identifiable, Codable, Equatable, Sendable {
         destinationProfileID: UUID,
         packageRelativePath: RemoteRelativePath,
         entries: [RemoteManifestEntry],
-        createdAt: Date
+        createdAt: Date,
+        pendingCleanupBookmarkReference: String? = nil
     ) throws {
         guard !entries.isEmpty else { throw RemoteManifestError.emptyManifest }
 
@@ -248,10 +250,11 @@ struct RemoteManifest: Identifiable, Codable, Equatable, Sendable {
         self.packageRelativePath = packageRelativePath
         self.entries = entries
         self.createdAt = createdAt
+        self.pendingCleanupBookmarkReference = pendingCleanupBookmarkReference
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, jobID, cardIngestID, destinationProfileID, packageRelativePath, entries, createdAt
+        case id, jobID, cardIngestID, destinationProfileID, packageRelativePath, entries, createdAt, pendingCleanupBookmarkReference
     }
 
     init(from decoder: Decoder) throws {
@@ -263,7 +266,8 @@ struct RemoteManifest: Identifiable, Codable, Equatable, Sendable {
             destinationProfileID: values.decode(UUID.self, forKey: .destinationProfileID),
             packageRelativePath: values.decode(RemoteRelativePath.self, forKey: .packageRelativePath),
             entries: values.decode([RemoteManifestEntry].self, forKey: .entries),
-            createdAt: values.decode(Date.self, forKey: .createdAt)
+            createdAt: values.decode(Date.self, forKey: .createdAt),
+            pendingCleanupBookmarkReference: try values.decodeIfPresent(String.self, forKey: .pendingCleanupBookmarkReference)
         )
     }
 }

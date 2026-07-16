@@ -119,6 +119,39 @@ struct RemoteBackupCoordinatorTests {
         #expect(fixture.store.storedManifests.isEmpty)
         #expect(fixture.bookmarks.isEmpty)
     }
+
+    @Test func failedRollbackPersistsTerminalTombstoneUntilLaterRetry() throws {
+        let fixture = try CoordinatorFixture(fileCount: 2)
+        fixture.store.failSavingItemAtAttempt = 2
+        fixture.store.failDeletingQueueItemAtAttempt = 1
+
+        #expect(throws: CoordinatorStoreError.forcedDeleteFailure) {
+            try fixture.coordinator.queueRemoteBackup(for: fixture.card.id, in: fixture.job.id, results: fixture.rows)
+        }
+        #expect(fixture.store.storedQueueItems.allSatisfy { $0.state == .cancelled })
+        #expect(fixture.store.storedManifests.count == 1)
+        #expect(!fixture.bookmarks.isEmpty)
+
+        fixture.store.failDeletingQueueItemAtAttempt = nil
+        _ = try fixture.coordinator.queueRemoteBackup(for: fixture.card.id, in: fixture.job.id, results: fixture.rows)
+        #expect(fixture.store.storedManifests.count == 1)
+    }
+
+    @Test func failedManifestDeletionRetainsCleanupMarkerForRetry() throws {
+        let fixture = try CoordinatorFixture(fileCount: 2)
+        fixture.store.failSavingItemAtAttempt = 2
+        fixture.store.failDeletingManifestAtAttempt = 1
+
+        #expect(throws: CoordinatorStoreError.forcedManifestDeleteFailure) {
+            try fixture.coordinator.queueRemoteBackup(for: fixture.card.id, in: fixture.job.id, results: fixture.rows)
+        }
+        #expect(fixture.store.storedQueueItems.isEmpty)
+        #expect(fixture.store.storedManifests.first?.pendingCleanupBookmarkReference != nil)
+
+        fixture.store.failDeletingManifestAtAttempt = nil
+        _ = try fixture.coordinator.queueRemoteBackup(for: fixture.card.id, in: fixture.job.id, results: fixture.rows)
+        #expect(fixture.store.storedManifests.count == 1)
+    }
 }
 
 @MainActor
@@ -200,7 +233,11 @@ private final class CoordinatorStore: PhotographerJobStore {
     var storedManifests: [RemoteManifest] = []
     var storedQueueItems: [RemoteQueueItem] = []
     var failSavingItemAtAttempt: Int?
+    var failDeletingQueueItemAtAttempt: Int?
+    var failDeletingManifestAtAttempt: Int?
     private var itemSaveAttempts = 0
+    private var itemDeleteAttempts = 0
+    private var manifestDeleteAttempts = 0
 
     init(jobs: [PhotographerJob], profiles: [RemoteDestinationProfile]) {
         storedJobs = jobs
@@ -216,15 +253,27 @@ private final class CoordinatorStore: PhotographerJobStore {
     func save(_: RemoteDestinationProfile) throws {}
     func deleteProfile(id _: UUID) throws {}
     func manifests() throws -> [RemoteManifest] { storedManifests }
-    func save(_ manifest: RemoteManifest) throws { storedManifests.append(manifest) }
-    func deleteManifest(id: UUID) throws { storedManifests.removeAll { $0.id == id } }
+    func save(_ manifest: RemoteManifest) throws {
+        storedManifests.removeAll { $0.id == manifest.id }
+        storedManifests.append(manifest)
+    }
+    func deleteManifest(id: UUID) throws {
+        manifestDeleteAttempts += 1
+        if manifestDeleteAttempts == failDeletingManifestAtAttempt { throw CoordinatorStoreError.forcedManifestDeleteFailure }
+        storedManifests.removeAll { $0.id == id }
+    }
     func queueItems() throws -> [RemoteQueueItem] { storedQueueItems }
     func save(_ item: RemoteQueueItem) throws {
         itemSaveAttempts += 1
         if itemSaveAttempts == failSavingItemAtAttempt { throw CoordinatorStoreError.forcedSaveFailure }
+        storedQueueItems.removeAll { $0.id == item.id }
         storedQueueItems.append(item)
     }
-    func deleteQueueItem(id: UUID) throws { storedQueueItems.removeAll { $0.id == id } }
+    func deleteQueueItem(id: UUID) throws {
+        itemDeleteAttempts += 1
+        if itemDeleteAttempts == failDeletingQueueItemAtAttempt { throw CoordinatorStoreError.forcedDeleteFailure }
+        storedQueueItems.removeAll { $0.id == id }
+    }
 }
 
 private final class CoordinatorBookmarkStore: RemoteArtifactBookmarkStore {
@@ -236,4 +285,4 @@ private final class CoordinatorBookmarkStore: RemoteArtifactBookmarkStore {
     func remove(reference: String) throws { values.removeValue(forKey: reference) }
 }
 
-private enum CoordinatorStoreError: Error { case forcedSaveFailure }
+private enum CoordinatorStoreError: Error { case forcedSaveFailure, forcedDeleteFailure, forcedManifestDeleteFailure }

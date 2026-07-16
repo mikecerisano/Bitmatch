@@ -59,3 +59,15 @@
   symlink escape rejection, and second-item partial-save rollback. Per task
   constraints these tests were compile-checked only; no test binary, app, or
   simulator was launched.
+
+## Re-review follow-up
+
+- The queue now resolves and revalidates the local artifact before requesting
+  credentials, constructing a provider, or running preflight. That validation
+  lease is released immediately; a second fresh lease is acquired only around
+  provider operations.
+- Partial queue creation now writes a durable pending-cleanup marker on its
+  manifest before compensating. Queue items are terminal tombstones and the
+  queue rejects any manifest pending cleanup. Bookmark and manifest cleanup is
+  ordered and idempotently retried on the next queue request, including queue
+  item and manifest deletion failure injection coverage.
