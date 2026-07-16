@@ -42,3 +42,20 @@
 
 - No SFTP provider, network upload, or Citadel dependency was added. The
   provider factory remains deliberately unavailable until Task 5.
+
+## Review follow-up
+
+- Replaced raw local-artifact URLs with an ownership-safe lease. Resolving a
+  bookmark starts scoped access before local revalidation, and the queue
+  releases it exactly once after provider upload/verification or every error
+  and cancellation path; providers never receive an unleased URL.
+- Hardened resolver coverage for stale/checksum failures and symlink escape
+  containment. The resolved regular file must remain below the resolved
+  package root.
+- Queue creation now records every successfully saved item and rolls each one
+  back before removing its manifest and bookmark if a later persistence write
+  fails, preventing orphaned restore records.
+- Added focused test coverage for lease lifecycle, validation cleanup,
+  symlink escape rejection, and second-item partial-save rollback. Per task
+  constraints these tests were compile-checked only; no test binary, app, or
+  simulator was launched.

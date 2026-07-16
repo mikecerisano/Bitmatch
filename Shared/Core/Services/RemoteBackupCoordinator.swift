@@ -35,6 +35,8 @@ final class RemoteBackupCoordinator {
     typealias BookmarkResolver = (Data) throws -> URL
     typealias FileSize = (URL) throws -> Int64
     typealias SHA256 = (URL) async throws -> String
+    typealias SecurityScopeStarter = @Sendable (URL) -> Bool
+    typealias SecurityScopeStopper = @Sendable (URL) -> Void
 
     private let store: any PhotographerJobStore
     private let bookmarkStore: any RemoteArtifactBookmarkStore
@@ -42,6 +44,8 @@ final class RemoteBackupCoordinator {
     private let resolveBookmark: BookmarkResolver
     private let fileSize: FileSize
     private let sha256: SHA256
+    private let startSecurityScope: SecurityScopeStarter
+    private let stopSecurityScope: SecurityScopeStopper
     private let now: () -> Date
 
     init(
@@ -51,6 +55,8 @@ final class RemoteBackupCoordinator {
         resolveBookmark: @escaping BookmarkResolver = resolveSecurityScopedBookmark,
         fileSize: @escaping FileSize = remoteArtifactFileSize,
         sha256: @escaping SHA256 = remoteArtifactSHA256,
+        startSecurityScope: @escaping SecurityScopeStarter = { $0.startAccessingSecurityScopedResource() },
+        stopSecurityScope: @escaping SecurityScopeStopper = { $0.stopAccessingSecurityScopedResource() },
         now: @escaping () -> Date = Date.init
     ) {
         self.store = store
@@ -59,6 +65,8 @@ final class RemoteBackupCoordinator {
         self.resolveBookmark = resolveBookmark
         self.fileSize = fileSize
         self.sha256 = sha256
+        self.startSecurityScope = startSecurityScope
+        self.stopSecurityScope = stopSecurityScope
         self.now = now
     }
 
@@ -141,6 +149,7 @@ final class RemoteBackupCoordinator {
         // The bookmark is deliberately made from the verified destination
         // package root, never from ResultRow.path or the camera-card source.
         try bookmarkStore.save(try makeBookmark(selectedArtifact.packageRoot), for: bookmarkReference)
+        var savedItemIDs: [UUID] = []
         do {
             try store.save(manifest)
             let items = try manifest.entries.map { entry in
@@ -168,10 +177,16 @@ final class RemoteBackupCoordinator {
                     updatedAt: now()
                 )
                 try store.save(item)
+                savedItemIDs.append(item.id)
                 return item
             }
             return items
         } catch {
+            // A manifest without every item is unusable. Delete every item
+            // whose save completed before removing its shared dependencies.
+            for itemID in savedItemIDs.reversed() {
+                try? store.deleteQueueItem(id: itemID)
+            }
             try? store.deleteManifest(id: manifestID)
             try? bookmarkStore.remove(reference: bookmarkReference)
             throw error
@@ -199,7 +214,7 @@ final class RemoteBackupCoordinator {
     /// Called by `RemoteBackupQueue` immediately before it hands a URL to a
     /// provider. It resolves the persisted package bookmark and proves that
     /// the requested file is still contained, equal-sized, and SHA-256-equal.
-    func resolveLocalArtifact(for item: RemoteQueueItem) async throws -> URL {
+    func resolveLocalArtifact(for item: RemoteQueueItem) async throws -> RemoteBackupArtifactLease {
         guard let manifest = try store.manifests().first(where: { $0.id == item.manifestID }),
               manifest.jobID == item.jobID,
               manifest.cardIngestID == item.cardIngestID,
@@ -216,6 +231,15 @@ final class RemoteBackupCoordinator {
         } catch {
             throw RemoteBackupError.bookmarkUnavailable
         }
+        guard startSecurityScope(root) else {
+            throw RemoteBackupError.bookmarkUnavailable
+        }
+        var releaseOnFailure = true
+        defer {
+            if releaseOnFailure {
+                stopSecurityScope(root)
+            }
+        }
         let file = root.appendingPathComponent(entry.relativePath.description, isDirectory: false)
             .standardizedFileURL.resolvingSymlinksInPath()
         guard contains(file, in: root),
@@ -224,7 +248,10 @@ final class RemoteBackupCoordinator {
               digest.caseInsensitiveCompare(entry.sha256) == .orderedSame else {
             throw RemoteBackupError.localArtifactNotVerified
         }
-        return file
+        releaseOnFailure = false
+        return RemoteBackupArtifactLease(url: file) { [stopSecurityScope] in
+            stopSecurityScope(root)
+        }
     }
 
     private func updateQueueItems(

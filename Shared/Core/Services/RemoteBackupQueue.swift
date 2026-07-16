@@ -5,7 +5,29 @@ typealias RemoteBackupProviderFactory = @Sendable (
     RemoteCredential
 ) async throws -> any RemoteBackupProvider
 
-typealias RemoteBackupLocalArtifactResolver = @Sendable (RemoteQueueItem) async throws -> URL
+/// Owns a temporary authorization to use a verified local artifact. The
+/// queue releases it in `defer`, including provider failures and cancellation.
+final class RemoteBackupArtifactLease: @unchecked Sendable {
+    let url: URL
+    private let releaseAccess: @Sendable () -> Void
+    private let lock = NSLock()
+    private var released = false
+
+    init(url: URL, releaseAccess: @escaping @Sendable () -> Void) {
+        self.url = url
+        self.releaseAccess = releaseAccess
+    }
+
+    func release() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !released else { return }
+        released = true
+        releaseAccess()
+    }
+}
+
+typealias RemoteBackupLocalArtifactResolver = @Sendable (RemoteQueueItem) async throws -> RemoteBackupArtifactLease
 
 /// The persistent data boundary used by `RemoteBackupQueue`. The production
 /// adapter delegates to the Task 2 profile, manifest, queue-item, and Keychain
@@ -97,16 +119,30 @@ actor RemoteBackupQueue {
             guard let credential = try await persistence.credential(for: context.profile.id) else {
                 throw RemoteBackupError.missingCredential
             }
-            let localURL = try await localArtifactResolver(item)
-            guard isRunnable(id) else { return }
             let provider = try await providerFactory(context.profile, credential)
-
             do {
+                // Authorization starts only after preflight and is held only
+                // while the provider can read the local file (upload through
+                // remote verification). The lease is released on every exit.
+                let capabilities = try await provider.preflight(profile: context.profile, credential: credential)
+                guard isRunnable(id) else {
+                    await provider.close()
+                    return
+                }
+                if let requirement = capabilities.missingRequirements(for: context.profile.verificationMode).first {
+                    throw RemoteBackupError.capabilityUnavailable(requirement)
+                }
+                let lease = try await localArtifactResolver(item)
+                defer { lease.release() }
+                guard isRunnable(id) else {
+                    await provider.close()
+                    return
+                }
                 try await run(
                     itemID: id,
                     profile: context.profile,
                     credential: credential,
-                    localURL: localURL,
+                    localURL: lease.url,
                     manifestEntry: context.manifestEntry,
                     provider: provider
                 )
@@ -142,11 +178,6 @@ actor RemoteBackupQueue {
         manifestEntry: RemoteManifestEntry,
         provider: any RemoteBackupProvider
     ) async throws {
-        let capabilities = try await provider.preflight(profile: profile, credential: credential)
-        guard isRunnable(itemID) else { return }
-        if let requirement = capabilities.missingRequirements(for: profile.verificationMode).first {
-            throw RemoteBackupError.capabilityUnavailable(requirement)
-        }
         guard let item = items[itemID] else { return }
 
         let existingFinal = try await provider.inspect(path: item.remoteRelativePath)

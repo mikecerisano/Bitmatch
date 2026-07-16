@@ -326,7 +326,9 @@ private struct QueueFixture {
 
     func makeQueue(
         provider: FakeRemoteBackupProvider,
-        resolver: @escaping RemoteBackupLocalArtifactResolver = { _ in URL(fileURLWithPath: "/tmp/Card-001.mov") },
+        resolver: @escaping RemoteBackupLocalArtifactResolver = { _ in
+            RemoteBackupArtifactLease(url: URL(fileURLWithPath: "/tmp/Card-001.mov"), releaseAccess: {})
+        },
         now: Date = Date(timeIntervalSince1970: 100)
     ) -> RemoteBackupQueue {
         RemoteBackupQueue(
