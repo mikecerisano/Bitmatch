@@ -304,6 +304,18 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    /// Stops the current source enumeration/analysis without changing the
+    /// photographer's setup fields. Any late worker result is ignored.
+    func cancelPreparingDraftCard() {
+        guard isPreparing else { return }
+
+        setupGeneration = UUID()
+        setupTask?.cancel()
+        setupTask = nil
+        isPreparing = false
+        preparationError = nil
+    }
+
     private func prepareDraftCard(
         analysis: CardAnalysis,
         sourceURL: URL,

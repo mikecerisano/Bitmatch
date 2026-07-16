@@ -267,6 +267,12 @@ struct PhotographerJobSetupView: View {
                 Text("Preparing card…")
                     .font(DesignSystem.Typography.caption)
                     .foregroundColor(DesignSystem.Colors.textSecondary)
+                Button("Cancel") {
+                    viewModel.cancelPreparingDraftCard()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityHint("Stops source analysis and keeps this card setup available")
             }
             Spacer()
             if let state = viewModel.activeCard?.localState,

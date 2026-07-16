@@ -417,6 +417,26 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.activeCard == nil)
     }
 
+    @Test func userCancellationStopsPreparingDraftWithoutCreatingACard() async {
+        let gate = AsyncSetupGate()
+        let viewModel = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), entryEnumerator: { url in
+            gate.wait()
+            try Task.checkCancellation()
+            return [FileEntry(url: url, relativePath: "A.ARW", size: 100)]
+        })
+
+        viewModel.startPreparingDraftCard(sourceURL: URL(fileURLWithPath: "/Volumes/CARD1"), setupSignature: setupSignature())
+        #expect(viewModel.isPreparing)
+
+        viewModel.cancelPreparingDraftCard()
+        #expect(!viewModel.isPreparing)
+        gate.open()
+        await viewModel.waitForSetupForTesting()
+
+        #expect(viewModel.activeCard == nil)
+        #expect(viewModel.preparationError == nil)
+    }
+
     @Test func duplicateNavigationRevealsAndPublishesDashboardFocusTarget() throws {
         let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
         viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
