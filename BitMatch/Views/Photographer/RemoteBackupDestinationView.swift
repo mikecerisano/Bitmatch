@@ -36,6 +36,8 @@ struct RemoteBackupDestinationView: View {
                     Text("Add an agent-authenticated SFTP destination in Preferences before queueing off-site backup.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.warning)
+                    Button("Manage destinations") { showingDestinations = true }
+                        .font(DesignSystem.Typography.caption)
                 } else {
                     Picker("Destination", selection: Binding(get: { configuration?.destinationProfileID }, set: coordinator.selectRemoteProfile)) {
                         Text("Select saved destination").tag(UUID?.none)
