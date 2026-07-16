@@ -85,6 +85,13 @@ struct PhotographerSessionDashboard: View {
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                ForEach(row.remoteBackupPresentations.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { id in
+                    if let remote = row.remoteBackupPresentations[id] {
+                        Label(remote.title, systemImage: remote.symbol)
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundColor(remote.isWarning ? DesignSystem.Colors.warning : (remote.isFullyBackedUp ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary))
+                    }
+                }
             }
         }
         .padding(DesignSystem.Spacing.sm)
@@ -98,7 +105,7 @@ struct PhotographerSessionDashboard: View {
         .focusable()
         .focused($keyboardFocusedCardID, equals: row.id)
         .accessibilityFocused($accessibilityFocusedCardID, equals: row.id)
-        .accessibilityLabel("\(row.photographerName), \(row.cameraName), \(row.cardTitle), \(row.fileCountTitle), \(row.byteCountTitle), \(row.statusTitle), \(row.verifiedCopyTitle), package route \(row.renderedPath)")
+        .accessibilityLabel("\(row.photographerName), \(row.cameraName), \(row.cardTitle), \(row.fileCountTitle), \(row.byteCountTitle), \(row.statusTitle), \(row.verifiedCopyTitle), package route \(row.renderedPath), \(row.remoteBackupPresentations.values.map(\.title).joined(separator: ", "))")
     }
 
     private func statusColor(_ title: String) -> Color {

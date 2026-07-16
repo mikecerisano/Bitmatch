@@ -185,6 +185,16 @@ enum PhotographerReportError: Error, Equatable {
 }
 
 struct PhotographerReportPayload: Codable, Equatable, Sendable {
+    struct RemoteBackupEvidence: Codable, Equatable, Sendable, Identifiable {
+        let targetID: UUID
+        let status: String
+        let remotePath: String?
+        let verificationEvidence: RemoteVerificationEvidence
+        let errorSummary: String?
+        let updatedAt: Date?
+
+        var id: UUID { targetID }
+    }
     struct CompanionCounts: Codable, Equatable, Sendable {
         let raw: Int
         let jpeg: Int
@@ -234,6 +244,8 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
     let requiredLocalCopyCount: Int
     let verifiedDestinationCount: Int
     let locallySafeAt: Date?
+    let fullyBackedUpAt: Date?
+    let remoteBackupEvidence: [RemoteBackupEvidence]
     let warnings: [String]
     let results: [Result]
 
@@ -282,9 +294,31 @@ struct PhotographerReportPayload: Codable, Equatable, Sendable {
             requiredLocalCopyCount: context.job.requiredLocalCopyCount,
             verifiedDestinationCount: finalized.verifiedDestinationCount,
             locallySafeAt: card.locallySafeAt,
+            fullyBackedUpAt: fullyBackedUpAt(for: card),
+            remoteBackupEvidence: remoteEvidence(for: card),
             warnings: context.warnings,
             results: results.map(Result.init)
         )
+    }
+
+    private static func fullyBackedUpAt(for card: CardIngest) -> Date? {
+        card.remoteBackupSummaries.values
+            .filter { RemoteBackupStatusPresentation.make(summary: $0).isFullyBackedUp }
+            .compactMap(\.updatedAt)
+            .max()
+    }
+
+    private static func remoteEvidence(for card: CardIngest) -> [RemoteBackupEvidence] {
+        card.remoteBackupSummaries.values.map { summary in
+            RemoteBackupEvidence(
+                targetID: summary.targetID,
+                status: RemoteBackupStatusPresentation.make(summary: summary).title,
+                remotePath: summary.remotePath?.description,
+                verificationEvidence: summary.verificationEvidence,
+                errorSummary: summary.errorSummary,
+                updatedAt: summary.updatedAt
+            )
+        }.sorted { $0.targetID.uuidString < $1.targetID.uuidString }
     }
 
     static func finalizedCard(

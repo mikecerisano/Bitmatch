@@ -635,6 +635,13 @@ final class ReportExporter {
         csvContent += csvRow(["Issues", String(results.filter { !isMatchStatus($0.status) }.count)])
         csvContent += csvRow(["Duration", "\(String(format: "%.2f", duration)) seconds"])
         csvContent += csvRow(["Files/Second", String(format: "%.2f", filesPerSecond)])
+        if let payload {
+            csvContent += csvRow(["Locally Safe", payload.isLocallySafe ? "Yes" : "No"])
+            csvContent += csvRow(["Fully Backed Up", payload.fullyBackedUpAt?.ISO8601Format() ?? "—"])
+            for evidence in payload.remoteBackupEvidence {
+                csvContent += csvRow(["Off-site Backup", evidence.status, evidence.remotePath ?? "—", evidence.errorSummary ?? ""])
+            }
+        }
         
         return csvContent
     }

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 /// Stores the opaque reference in Core Data while keeping bookmark bytes out
@@ -487,3 +488,4 @@ private extension Array where Element: Equatable {
         return nil
     }
 }
+#endif

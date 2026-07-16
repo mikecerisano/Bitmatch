@@ -139,6 +139,20 @@ struct PhotographerJobPresentationTests {
         }
     }
 
+    @Test func disabledOffSiteBackupUsesOneCompactSetupRowAndUnverifiedIsWarning() {
+        let disabled = RemoteBackupDestinationPresentation.make(
+            isEnabled: false,
+            profiles: []
+        )
+        let unverified = RemoteBackupStatusPresentation.make(state: .uploadedUnverified, evidence: .none)
+
+        #expect(disabled.title == "Off-site Backup")
+        #expect(disabled.detail == "Optional")
+        #expect(!disabled.isExpanded)
+        #expect(unverified.title == "Uploaded · Unverified")
+        #expect(unverified.isWarning)
+    }
+
     @Test func sessionShowsRequiredAndVerifiedCopyCounts() {
         var completed = card(number: 1, state: .locallySafe)
         completed.verifiedDestinationCount = 3

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 enum RemoteProviderRequirement: String, CaseIterable, Equatable, Hashable, Sendable {
@@ -111,7 +112,6 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
         }
     }
 }
-
 protocol RemoteBackupProvider: Sendable {
     func preflight(profile: RemoteDestinationProfile, credential: RemoteCredential) async throws -> RemoteProviderCapabilities
     func inspect(path: RemoteRelativePath) async throws -> RemoteObject?
@@ -126,3 +126,4 @@ protocol RemoteBackupProvider: Sendable {
     func verificationEvidence(for path: RemoteRelativePath, expectedSHA256: String) async throws -> RemoteVerificationEvidence
     func close() async
 }
+#endif

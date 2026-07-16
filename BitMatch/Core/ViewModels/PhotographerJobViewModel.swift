@@ -24,6 +24,7 @@ final class PhotographerJobViewModel: ObservableObject {
 
     @Published private(set) var jobs: [PhotographerJob] = []
     @Published private(set) var presets: [PhotographerPreset] = []
+    @Published private(set) var remoteProfiles: [RemoteDestinationProfile] = []
     @Published var activeJob: PhotographerJob?
     @Published var selectedPhotographerID: UUID?
     @Published var cameraName = ""
@@ -87,11 +88,13 @@ final class PhotographerJobViewModel: ObservableObject {
         self.remoteBackupCoordinator = remoteBackupCoordinator ?? RemoteBackupCoordinator(store: store)
         loadJobs()
         loadPresets()
+        loadRemoteProfiles()
         if !store.isAvailable {
             store.whenAvailable { [weak self] in
                 guard let self else { return }
                 self.loadJobs()
                 self.loadPresets()
+                self.loadRemoteProfiles()
             }
         }
     }
@@ -753,6 +756,14 @@ final class PhotographerJobViewModel: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    private func loadRemoteProfiles() {
+        do {
+            remoteProfiles = try store.profiles().sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        } catch {
+            remoteProfiles = []
         }
     }
 

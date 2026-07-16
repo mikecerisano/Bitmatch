@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 typealias RemoteBackupProviderFactory = @Sendable (
@@ -506,3 +507,4 @@ private extension RemoteBackupState {
         }
     }
 }
+#endif

@@ -347,11 +347,26 @@ struct ReportView: View {
                             payload.locallySafeAt?.formatted(date: .abbreviated, time: .standard) ?? "—"
                         )
                     }
+                    GridRow {
+                        photographyLabel(
+                            "Fully backed up",
+                            payload.fullyBackedUpAt?.formatted(date: .abbreviated, time: .standard) ?? "—"
+                        )
+                        photographyLabel("Off-site targets", "\(payload.remoteBackupEvidence.count)")
+                    }
                 }
 
                 photographyPath("Package", payload.card.renderedRelativePath)
                 photographyPath("Preliminary fingerprint", payload.card.provenance.preliminaryFingerprint ?? "—")
                 photographyPath("Confirmed fingerprint", payload.card.provenance.confirmedFingerprint ?? "—")
+
+                ForEach(payload.remoteBackupEvidence) { evidence in
+                    VStack(alignment: .leading, spacing: 2) {
+                        photographyLabel("Off-site", evidence.status)
+                        if let remotePath = evidence.remotePath { photographyPath("Remote path", remotePath) }
+                        if let errorSummary = evidence.errorSummary { photographyLabel("Off-site warning", errorSummary) }
+                    }
+                }
 
                 if let notice = Self.photographerVerificationNotice(for: payload) {
                     Label(notice, systemImage: "exclamationmark.triangle.fill")

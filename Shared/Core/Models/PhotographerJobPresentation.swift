@@ -148,6 +148,23 @@ struct RemoteBackupStatusPresentation: Equatable, Sendable {
     }
 }
 
+/// Keeps the optional off-site choice compact until a photographer elects to
+/// configure it. This contains profile metadata only; credentials stay in the
+/// Keychain/SSH agent boundary.
+struct RemoteBackupDestinationPresentation: Equatable, Sendable {
+    let title: String
+    let detail: String
+    let isExpanded: Bool
+
+    static func make(isEnabled: Bool, profiles: [RemoteDestinationProfile]) -> Self {
+        Self(
+            title: "Off-site Backup",
+            detail: isEnabled ? (profiles.isEmpty ? "No saved destinations" : "Configured") : "Optional",
+            isExpanded: isEnabled
+        )
+    }
+}
+
 struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
     let id: UUID
     let photographerName: String

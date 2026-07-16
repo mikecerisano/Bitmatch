@@ -53,6 +53,7 @@ struct PhotographerJobSetupView: View {
                 layerDisclosure
                     .disabled(viewModel.isPreparing)
                 packageRoute
+                RemoteBackupDestinationView(coordinator: coordinator)
                 feedback
                 setupAction
             }
