@@ -529,6 +529,17 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    /// Queue workers persist the authoritative remote state. Rebuild the card
+    /// summary from those durable items after a run without touching local
+    /// safety evidence.
+    func refreshRemoteBackupSummary(for cardIngestID: UUID, items: [RemoteQueueItem]) {
+        do {
+            try updateRemoteSummary(for: cardIngestID, items: items)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func completeIngest(results: [ResultRow]) throws -> PhotographerFinalizationResult {
         guard var job = activeJob else {

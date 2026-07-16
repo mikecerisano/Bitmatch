@@ -1,5 +1,13 @@
 import Foundation
 
+struct OpenSSHHostTrustRequest: Equatable, Sendable {
+    let host: String
+    let port: Int
+    let sha256Fingerprint: String
+}
+
+typealias OpenSSHHostTrustConfirmation = @Sendable (OpenSSHHostTrustRequest) async throws -> Bool
+
 enum SFTPRemoteBackupProviderFactory {
     static func make(profile: RemoteDestinationProfile, credential: RemoteCredential, confirmUnknownHost: OpenSSHHostTrustConfirmation? = nil) async throws -> any RemoteBackupProvider {
         #if os(macOS)
@@ -23,16 +31,9 @@ struct OpenSSHCommandResult: Sendable {
     let stderr: Data
 }
 
-struct OpenSSHHostTrustRequest: Equatable, Sendable {
-    let host: String
-    let port: Int
-    let sha256Fingerprint: String
-}
-
 /// The confirmation closure is an intentional UI boundary. It must display
 /// the supplied fingerprint and return true only after deliberate user
 /// confirmation; the adapter persists the exact scanned key material itself.
-typealias OpenSSHHostTrustConfirmation = @Sendable (OpenSSHHostTrustRequest) async throws -> Bool
 typealias OpenSSHCommandRunner = @Sendable (OpenSSHCommand) async throws -> OpenSSHCommandResult
 
 private final class OpenSSHProcessOutput: @unchecked Sendable {

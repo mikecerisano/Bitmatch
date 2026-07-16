@@ -194,7 +194,17 @@ final class AppCoordinator: ObservableObject {
             if let remoteBackupQueue {
                 Task {
                     try? await remoteBackupQueue.restore()
-                    for item in items { await remoteBackupQueue.run(item.id) }
+                    var completedItems: [RemoteQueueItem] = []
+                    for item in items {
+                        await remoteBackupQueue.run(item.id)
+                        if let completed = await remoteBackupQueue.item(id: item.id) {
+                            completedItems.append(completed)
+                        }
+                    }
+                    photographerJobViewModel.refreshRemoteBackupSummary(
+                        for: cardIngestID,
+                        items: completedItems
+                    )
                 }
             }
         } catch {
@@ -212,6 +222,10 @@ final class AppCoordinator: ObservableObject {
 
     private func requestHostTrust(_ request: OpenSSHHostTrustRequest) async -> Bool {
         await withCheckedContinuation { continuation in
+            guard hostTrustContinuation == nil else {
+                continuation.resume(returning: false)
+                return
+            }
             hostTrustContinuation = continuation
             hostTrustPrompt = HostTrustPrompt(request: request)
         }

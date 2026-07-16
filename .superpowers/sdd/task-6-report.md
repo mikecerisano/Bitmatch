@@ -56,3 +56,14 @@
 - Enabling the optional stage without saved profiles keeps it expanded so the
   no-profile guidance remains reachable. The SFTP summary uses actual Swift
   interpolation for profile metadata.
+
+## Final integration correction
+
+- The OpenSSH trust request/confirmation type is platform-neutral while the
+  implementation remains macOS-only, so the iPad target can type-check the
+  unavailable factory path.
+- After each queue worker run, the app reads its durable queue item state and
+  refreshes the photographer card summary. Dashboard and report evidence now
+  advances beyond the initially queued state without changing local safety.
+- Concurrent host-trust requests reject the later continuation with `false`;
+  no prompt or continuation is overwritten.
