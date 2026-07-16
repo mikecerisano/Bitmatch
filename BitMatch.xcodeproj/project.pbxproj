@@ -207,7 +207,6 @@
 			);
 			name = BitMatch;
 			packageProductDependencies = (
-				A5F000012E7F000100000001 /* Citadel */,
 			);
 			productName = BitMatch;
 			productReference = 271377ED2E52C7C80048DEC7 /* BitMatch.app */;
@@ -376,9 +375,6 @@
 			productRefGroup = 271377EE2E52C7C80048DEC7 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			packageReferences = (
-				A5F000022E7F000100000001 /* XCRemoteSwiftPackageReference "Citadel" */,
-			);
 			targets = (
 				271377EC2E52C7C80048DEC7 /* BitMatch */,
 				271377FF2E52C7CA0048DEC7 /* BitMatchTests */,
@@ -390,24 +386,6 @@
 		};
 /* End PBXProject section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		A5F000012E7F000100000001 /* Citadel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5F000022E7F000100000001 /* XCRemoteSwiftPackageReference "Citadel" */;
-			productName = Citadel;
-		};
-/* End XCSwiftPackageProductDependency section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		A5F000022E7F000100000001 /* XCRemoteSwiftPackageReference "Citadel" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/orlandos-nl/Citadel.git";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = 0.12.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin PBXResourcesBuildPhase section */
 		271377EB2E52C7C80048DEC7 /* Resources */ = {

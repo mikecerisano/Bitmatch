@@ -139,6 +139,9 @@ struct RemoteRelativePath: Codable, Equatable, Hashable, Sendable, CustomStringC
             guard !component.contains("/"), !component.contains("\\") else {
                 throw RemotePathError.unsafeComponent(component)
             }
+            guard !component.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+                throw RemotePathError.unsafeComponent(component)
+            }
         }
 
         self.components = components

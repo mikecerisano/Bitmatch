@@ -1,44 +1,40 @@
-# Phase 2 Task 5 Report: Secure SFTP Provider Boundary
+# Phase 2 Task 5 Report: Secure OpenSSH SFTP Provider
 
 ## Implemented
 
-- Added Citadel 0.12.1 as a Swift Package dependency of the macOS `BitMatch`
-  target only. The iPad target has no product dependency; the shared factory
-  returns `RemoteBackupError.providerUnavailable` there.
-- Added a Keychain-backed trust-on-first-use fingerprint store. It persists a
-  fingerprint only after explicit confirmation and rejects a changed pin without
-  presenting an automatic replacement path.
-- Added the macOS-gated `SFTPRemoteBackupProvider` and connected it through
-  `AppCoordinator`. It is deliberately fail-closed before any authentication,
-  upload, path inspection, promotion, or verification operation.
-- Added contract tests for explicit first-use pinning, changed-pin rejection
-  before confirmation/authentication, and rejected first-use non-persistence.
+- Removed Citadel and its transitive Swift Package lockfile. The provider is a
+  macOS-only OpenSSH adapter; the shared iPad factory remains typed unavailable.
+- Added profile-private application-support `known_hosts` paths. A first-use
+  attempt runs `ssh-keyscan` followed by `ssh-keygen -lf - -E sha256`, presents
+  the captured SHA-256 fingerprint through an injected confirmation boundary,
+  and persists the exact scanned entries only after that boundary returns true.
+  Missing confirmation, unknown hosts, and changed keys fail closed before SSH
+  agent authentication or SFTP transfer.
+- Every SSH/SFTP command fixes `StrictHostKeyChecking=yes`, `BatchMode=yes`, a
+  profile-private `UserKnownHostsFile`, disabled password and
+  keyboard-interactive methods, and `PreferredAuthentications=publickey`.
+  Password-bearing `RemoteCredential` values are rejected; `.sshAgent` carries
+  no secret material.
+- SFTP handles upload/resume and read-back. SSH is invoked with `-T` only for
+  remote POSIX operations: contained directory creation, byte inspection, and
+  atomic no-replace `ln temporary final && rm temporary`. A final-exists error
+  is a conflict; a shell/command failure is a capability failure, never success.
+- Added command-construction/classification coverage for strict options,
+  SFTP's lack of SSH `-l`, POSIX single-quote escaping, and `ln` conflict
+  classification. Remote path components now reject control characters.
+- Added `com.apple.security.network.client` to the macOS entitlement.
 
-## Security Blocker (Fail Closed)
+## Remaining Limits
 
-Citadel 0.12.1 cannot safely implement this task's required transport contract:
-
-1. Its public `NIOSSHPublicKey` API has no stable public serialization or
-   fingerprint API. A consumer can compare an in-memory key using Citadel's
-   trusted-key validator, but cannot derive and persist/display a SHA-256 host
-   fingerprint for deliberate first-use confirmation.
-2. Its SFTP client exposes only `rename(at:to:flags:)`; it has no advertised
-   atomic no-replace promotion or extension-discovery API. A final-path
-   inspection followed by rename remains a race and can overwrite an object.
-3. It exposes no server SHA-256 extension/discovery API. Read-back hashing could
-   be built after a safe promotion primitive exists, but must not be reached
-   while final promotion is unsafe.
-
-The adapter therefore throws `capabilityUnavailable(.noReplacePromotion)` from
-preflight before credentials are sent. It does not use `.acceptAnything()`,
-does not open an SFTP session, and cannot claim an upload is verified. This is
-intentional: replacing a final object or accepting an unverifiable host key
-would violate the task's security constraints.
+- The application has no Task 6 UI yet to supply the first-trust confirmation;
+  the default factory intentionally supplies no confirmer and therefore blocks
+  unknown hosts with `hostKeyMismatch`. A caller must present the injected
+  SHA-256 request to the user before agent authentication can proceed.
+- POSIX shell availability is a required remote capability. Restricted-shell or
+  SFTP-only accounts fail closed rather than attempting a racy SFTP rename.
 
 ## Validation
 
 - `git diff --check` passed.
-- `bash test.sh mac-build` exited 0 after resolving and compiling Citadel 0.12.1.
-- `xcodebuild ... build-for-testing -only-testing:BitMatchTests/SFTPRemoteBackupProviderContractTests`
-  exited 0. This compiled test targets only; no app, simulator, or test binary
-  was launched.
+- `bash test.sh mac-build` exited 0 after compiling the OpenSSH provider on
+  2026-07-15. No app, simulator, tests, or test binary was launched.

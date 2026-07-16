@@ -67,6 +67,13 @@ struct RemoteCredential: Equatable, Sendable {
     init(password: String) {
         self.password = password
     }
+
+    /// OpenSSH agent authentication carries no secret through BitMatch.  The
+    /// empty marker is retained only to preserve the provider-boundary shape
+    /// while profiles migrate away from stored passwords.
+    static let sshAgent = RemoteCredential(password: "")
+
+    var isSSHAgentOnly: Bool { password.isEmpty }
 }
 
 enum RemoteCredentialStoreError: Error, Equatable {
@@ -123,48 +130,6 @@ struct RemoteCredentialStore {
     func deleteCredential(for profileID: UUID) throws {
         guard deleteData(accountName(for: profileID)) else {
             throw RemoteCredentialStoreError.keychainDeleteFailed
-        }
-    }
-}
-
-/// Persisted trust-on-first-use state for an SFTP endpoint.  This deliberately
-/// stores a fingerprint rather than a keychain reference so changing a server
-/// key can never silently replace the previously confirmed identity.
-struct SFTPHostFingerprintStore {
-    typealias Save = (String, String) -> Bool
-    typealias Load = (String) -> String?
-
-    private let save: Save
-    private let load: Load
-
-    init(
-        save: @escaping Save = { value, key in KeychainHelper.save(value, forKey: key) },
-        load: @escaping Load = { key in KeychainHelper.loadString(forKey: key) }
-    ) {
-        self.save = save
-        self.load = load
-    }
-
-    func key(host: String, port: Int) -> String {
-        "sftp-host-fingerprint.\(host.lowercased()).\(port)"
-    }
-
-    /// Returns only after an explicit first-use confirmation has been saved.
-    /// A changed fingerprint is never offered for automatic replacement.
-    func validate(
-        host: String,
-        port: Int,
-        fingerprint: String,
-        confirmFirstUse: (String) async -> Bool
-    ) async throws {
-        let key = key(host: host, port: port)
-        if let pinned = load(key) {
-            guard pinned == fingerprint else { throw RemoteBackupError.hostKeyMismatch }
-            return
-        }
-
-        guard await confirmFirstUse(fingerprint), save(fingerprint, key) else {
-            throw RemoteBackupError.hostKeyMismatch
         }
     }
 }
