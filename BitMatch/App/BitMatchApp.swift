@@ -51,6 +51,7 @@ struct BitMatchApp: App {
     @ObservedObject private var devModeManager = DevModeManager.shared
     #endif
     private let notifDelegate = NotificationDelegate()
+    private let launchesInterfaceLab = ProcessInfo.processInfo.arguments.contains("--interface-lab")
 
     init() {
         UNUserNotificationCenter.current().delegate = notifDelegate
@@ -58,11 +59,11 @@ struct BitMatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .preferredColorScheme(.dark)
-                .onAppear {
-                    setupWindow()
-                }
+            Group {
+                if launchesInterfaceLab { InterfaceLabView() }
+                else { ContentView().preferredColorScheme(.dark) }
+            }
+            .onAppear { setupWindow() }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -158,7 +159,9 @@ struct BitMatchApp: App {
                 window.titlebarAppearsTransparent = true
                 window.titleVisibility = .hidden
                 window.styleMask.insert(.fullSizeContentView)
-                window.styleMask.remove(.resizable) // Disable user resizing
+                if WindowPresentationPolicy.allowsManualResizing {
+                    window.styleMask.insert(.resizable)
+                }
                 window.isMovableByWindowBackground = true
                 window.backgroundColor = NSColor.black
                 

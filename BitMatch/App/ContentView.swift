@@ -280,17 +280,30 @@ struct ContentView: View {
     
     @ViewBuilder
     private var completionView: some View {
-        CompletionView(
-            message: completionMessage,
-            iconName: completionIcon,
-            iconColor: completionColor,
-            onNewTask: {
-                coordinator.resetForNewOperation()
-                // FIX: Also reset height lock when starting new task
-                lockHeight = false
-                isOperationActive = false
+        VStack(spacing: 14) {
+            CompletionView(
+                message: completionMessage,
+                iconName: completionIcon,
+                iconColor: completionColor,
+                onNewTask: {
+                    coordinator.resetForNewOperation()
+                    // FIX: Also reset height lock when starting new task
+                    lockHeight = false
+                    isOperationActive = false
+                }
+            )
+            if let job = coordinator.photographerJobViewModel.dashboardJob,
+               CompletionEvidencePresentation.shouldShowProjectMedia(
+                hasDashboardJob: true,
+                hasCardIngests: !job.cardIngests.isEmpty
+               ) {
+                PhotographerSessionDashboard(
+                    viewModel: coordinator.photographerJobViewModel,
+                    job: job,
+                    queueRemoteBackup: coordinator.queueRemoteBackup
+                )
             }
-        )
+        }
         .transition(.asymmetric(
             insertion: .scale(scale: 0.95).combined(with: .opacity),
             removal: .scale(scale: 1.05).combined(with: .opacity)
