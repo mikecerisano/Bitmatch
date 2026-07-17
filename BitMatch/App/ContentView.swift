@@ -210,35 +210,37 @@ struct ContentView: View {
     // MARK: - View Components
     @ViewBuilder
     private var headerView: some View {
-        HStack {
-            Text("BitMatch")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundColor(.white.opacity(0.9))
-            
-            Spacer()
-            
-            // Centered mode selector
-            if !coordinator.isOperationInProgress {
-                ModeSelectorView(mode: $coordinator.currentMode)
-                    .transition(.opacity)
+        GeometryReader { proxy in
+            HStack(spacing: 12) {
+                Text("BitMatch")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.9))
+                Spacer(minLength: 8)
+                if !coordinator.isOperationInProgress {
+                    if HeaderPresentationPolicy.presentation(for: proxy.size.width) == .expanded {
+                        ModeSelectorView(mode: $coordinator.currentMode)
+                            .transition(.opacity)
+                    } else {
+                        CompactModeSelectorView(mode: $coordinator.currentMode)
+                            .transition(.opacity)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button {
+                    openPreferences()
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white.opacity(0.7))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Preferences")
             }
-            
-            Spacer()
-            
-            // Preferences gear button
-            Button {
-                openPreferences()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16))
-                    .foregroundColor(.white.opacity(0.7))
-            }
-            .buttonStyle(.plain)
-            .help("Preferences")
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 20)  // Reduced from 24 to 20 - using half the space savings
-        .padding(.vertical, 16)
-        .frame(maxWidth: .infinity)
+        .frame(height: 68)
         .background(Color.black.opacity(0.4))
     }
     

@@ -67,6 +67,34 @@ struct ModeSelectorView: View {
     }
 }
 
+struct CompactModeSelectorView: View {
+    @Binding var mode: AppMode
+
+    var body: some View {
+        Menu {
+            ForEach([AppMode.copyAndVerify, AppMode.compareFolders, AppMode.masterReport], id: \.self) { appMode in
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        mode = appMode
+                    }
+                } label: {
+                    Label(appMode.rawValue, systemImage: appMode.systemImage)
+                }
+            }
+        } label: {
+            Label(mode.rawValue, systemImage: mode.systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.82))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Transfer mode")
+        .accessibilityValue(mode.rawValue)
+    }
+}
+
 // MARK: - Completion View
 struct CompletionView: View {
     let message: String
