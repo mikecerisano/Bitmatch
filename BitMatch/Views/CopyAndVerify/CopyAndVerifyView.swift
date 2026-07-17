@@ -99,31 +99,46 @@ struct CopyAndVerifyView: View {
     }
 
     private var compactOperationView: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Label(fileSelection.sourceURL?.lastPathComponent ?? "Source", systemImage: "folder.fill")
-                    .foregroundColor(.orange)
-                Image(systemName: "arrow.right").foregroundColor(.white.opacity(0.5))
-                Label("\(fileSelection.destinationURLs.count) destinations", systemImage: "externaldrive.fill")
-                    .foregroundColor(.blue)
+        let presentation = TransferOperationPresentation.make(
+            state: coordinator.operationState,
+            isPaused: coordinator.isPaused
+        )
+        return VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: presentation.symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(coordinator.isPaused ? .orange : .green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(presentation.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                    HStack(spacing: 6) {
+                        Text(fileSelection.sourceURL?.lastPathComponent ?? "Source")
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("\(fileSelection.destinationURLs.count) backup\(fileSelection.destinationURLs.count == 1 ? "" : "s")")
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.58))
+                    .lineLimit(1)
+                }
                 Spacer()
                 if coordinator.canPause || coordinator.canResume {
                     Button { coordinator.togglePause() } label: {
-                        Image(systemName: coordinator.isPaused ? "play.fill" : "pause.fill")
+                        Label(presentation.controlTitle, systemImage: presentation.controlSymbol)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(coordinator.isPaused ? .green : .white.opacity(0.8))
-                    .accessibilityLabel(coordinator.isPaused ? "Resume transfer" : "Pause transfer")
+                    .buttonStyle(CustomButtonStyle())
                     .accessibilityHint(coordinator.isPaused ? "Resumes the current transfer" : "Pauses the current transfer")
-                    .help(coordinator.isPaused ? "Resume transfer" : "Pause transfer")
+                    .help("\(presentation.controlTitle) transfer")
                 }
-                Button { coordinator.cancelOperation() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).foregroundColor(.red)
+                Button { coordinator.cancelOperation() } label: {
+                    Label("Cancel", systemImage: "xmark")
+                }
+                    .buttonStyle(CustomButtonStyle(isDestructive: true))
                     .accessibilityLabel("Cancel transfer")
             }
-            .font(.system(size: 12, weight: .medium))
             .padding(14)
-            .background(Color.black.opacity(0.3))
+            .background(Color.white.opacity(0.035))
             TransferQueueView(coordinator: coordinator)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             if let job = coordinator.photographerJobViewModel.dashboardJob,
