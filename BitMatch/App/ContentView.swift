@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var showResumeDialog = false
     @State private var resumableOperation: OperationStateManager.PersistedOperation?
     
-    // FIX: Add these for window stability
+    // Keep an active transfer visually stable while its queue grows.
     @State private var contentHeight: CGFloat = 900
     @State private var isOperationActive = false
     @State private var lockHeight = false
@@ -71,11 +71,8 @@ struct ContentView: View {
         return min(totalHeight, maxAllowedHeight)
     }
     
-    // Calculate ideal window width based on content and current mode
-    private var idealWindowWidth: CGFloat {
-        // Report settings now live in Preferences, so keep a single content width.
-        680
-    }
+    /// BitMatch opens as a compact instrument. From that point, the person owns the width.
+    private let compactWindowWidth: CGFloat = 680
 
     var body: some View {
         configuredMainContentView
@@ -86,7 +83,7 @@ struct ContentView: View {
         keyboardShortcutsView
             .onAppear {
                 restoreWindowFrame()
-                updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
+                updateWindowSize(width: compactWindowWidth, height: idealWindowHeight)
                 checkForResumableOperations()
             }
             .alert("Error", isPresented: $errorHandler.showErrorAlert) {
@@ -152,7 +149,7 @@ struct ContentView: View {
             headerView
             mainScrollView
         }
-        .frame(width: 680)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(darkBackground)
     }
     
@@ -491,26 +488,6 @@ struct ContentView: View {
         }
     }
 
-    private func updateWindowWidth(to newWidth: CGFloat) {
-        DispatchQueue.main.async {
-            if let window = NSApplication.shared.windows.first {
-                let currentFrame = window.frame
-                let newFrame = NSRect(
-                    x: currentFrame.origin.x,
-                    y: currentFrame.origin.y,
-                    width: newWidth,
-                    height: currentFrame.height
-                )
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.25
-                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    window.animator().setFrame(newFrame, display: true)
-                }
-                saveWindowFrame(newFrame)
-            }
-        }
-    }
-    
     private func updateWindowSize(width: CGFloat, height: CGFloat) {
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
@@ -565,14 +542,9 @@ struct ContentView: View {
                     updateWindowHeight(to: newHeight)
                 }
             }
-            .onChange(of: idealWindowWidth) { _, newWidth in
-                if !coordinator.isOperationInProgress {
-                    updateWindowWidth(to: newWidth)
-                }
-            }
             .onChange(of: coordinator.currentMode) { _, _ in
                 if !coordinator.isOperationInProgress {
-                    updateWindowSize(width: idealWindowWidth, height: idealWindowHeight)
+                    updateWindowHeight(to: idealWindowHeight)
                 }
             }
             .onChange(of: transferOptionsExpanded) { _, _ in

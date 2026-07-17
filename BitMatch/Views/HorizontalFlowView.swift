@@ -6,6 +6,7 @@ typealias DriveSpeed = FileSelectionViewModel.DriveSpeed
 
 struct HorizontalFlowView: View {
     @ObservedObject var coordinator: AppCoordinator
+    let presentation: AdaptiveWorkbenchPresentation
     @State private var hoveredDestination: URL?
     @State private var refreshID = UUID()
     @State private var dragHoveredIndex: Int? = nil
@@ -19,26 +20,26 @@ struct HorizontalFlowView: View {
     private var isOperationActive: Bool { coordinator.isOperationInProgress }
     
     var body: some View {
-        VStack(spacing: 16) {
-            // Compact horizontal flow: Source → Destinations
-            HStack(spacing: 16) {
-                // Source section (left)
-                compactSourceSection
-                    .frame(width: 200)
-                
-                // Arrow connector
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.4))
-                
-                // Destinations section (right, takes remaining space)
-                compactDestinationsSection
-                    .frame(maxWidth: .infinity)
+        Group {
+            if presentation == .expanded {
+                HStack(alignment: .top, spacing: 16) {
+                    compactSourceSection
+                        .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
+                    transferDirection(symbol: "arrow.right")
+                        .padding(.top, 38)
+                    compactDestinationsSection
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    compactSourceSection
+                    transferDirection(symbol: "arrow.down")
+                        .frame(maxWidth: .infinity)
+                    compactDestinationsSection
+                }
             }
-            .frame(minHeight: 120, maxHeight: 200) // Allow wrapping to second row
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
         }
+        .padding(.vertical, 4)
         .id(refreshID) // Force refresh when needed
         .onReceive(fileSelection.$sourceURL) { _ in
             refreshID = UUID()
@@ -46,6 +47,13 @@ struct HorizontalFlowView: View {
         .onReceive(fileSelection.$destinationURLs) { _ in
             refreshID = UUID()
         }
+    }
+
+    private func transferDirection(symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.white.opacity(0.34))
+            .accessibilityHidden(true)
     }
     
     // MARK: - Compact Source Section
@@ -253,14 +261,7 @@ struct HorizontalFlowView: View {
                     handleAddDestinationDrop(providers: providers)
                 }
             } else {
-                // Show destinations in a wrapping grid (3 per row, then wrap)
-                let gridColumns = [
-                    GridItem(.fixed(120), spacing: 8),
-                    GridItem(.fixed(120), spacing: 8), 
-                    GridItem(.fixed(120), spacing: 8)
-                ]
-                
-                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: destinationColumns, alignment: .leading, spacing: 8) {
                     ForEach(Array(fileSelection.destinationURLs.enumerated()), id: \.element) { index, destination in
                         compactDestinationCard(for: destination, at: index)
                     }
@@ -279,7 +280,7 @@ struct HorizontalFlowView: View {
                                     .font(.system(size: 9))
                                     .foregroundColor(.white.opacity(0.4))
                             }
-                            .frame(width: 120, height: 70) // Match destination card size
+                            .frame(maxWidth: .infinity, minHeight: 70)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(Color.white.opacity(0.03))
@@ -296,6 +297,7 @@ struct HorizontalFlowView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .frame(minWidth: 120)
                         .accessibilityLabel("Add backup destination")
                         .accessibilityHint("Opens a folder picker for another backup")
                     }
@@ -303,6 +305,10 @@ struct HorizontalFlowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private var destinationColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: presentation == .expanded ? 132 : 150), spacing: 8)]
     }
     
     @ViewBuilder

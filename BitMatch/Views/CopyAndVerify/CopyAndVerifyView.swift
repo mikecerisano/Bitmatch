@@ -88,7 +88,9 @@ struct CopyAndVerifyView: View {
                     coordinator: coordinator,
                     plan: plan,
                     optionsExpanded: $optionsExpanded,
-                    selectionView: AnyView(HorizontalFlowView(coordinator: coordinator)),
+                    selectionView: { presentation in
+                        AnyView(HorizontalFlowView(coordinator: coordinator, presentation: presentation))
+                    },
                     onStart: start
                 )
             }

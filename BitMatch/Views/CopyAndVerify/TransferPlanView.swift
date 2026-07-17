@@ -5,10 +5,11 @@ struct TransferPlanView: View {
     @ObservedObject var coordinator: AppCoordinator
     let plan: TransferPlanPresentation
     @Binding var optionsExpanded: Bool
-    let selectionView: AnyView
+    let selectionView: (AdaptiveWorkbenchPresentation) -> AnyView
     let onStart: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var usesProjectWorkflow = false
+    @State private var availableWidth: CGFloat = AdaptiveWorkbenchLayout.expandedThreshold
 
     private var hasPreparedProjectTransfer: Bool {
         coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
@@ -16,17 +17,7 @@ struct TransferPlanView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    TransferPlanSourceCard(plan: plan)
-                    Image(systemName: "arrow.right").foregroundColor(.white.opacity(0.35))
-                    TransferPlanDestinationsCard(plan: plan)
-                }
-                // This remains the single owner of folder panels and drop validation.
-                selectionView
-            }
-            .padding(.top, 4)
-
+            transferLocations
             transferKindControl
             if usesProjectWorkflow || hasPreparedProjectTransfer {
                 PhotographerJobSetupView(coordinator: coordinator)
@@ -46,7 +37,49 @@ struct TransferPlanView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
+        .background(widthReader)
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private var presentation: AdaptiveWorkbenchPresentation {
+        AdaptiveWorkbenchLayout.presentation(for: availableWidth)
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { availableWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+        }
+    }
+
+    private var transferLocations: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transfer route")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("Choose what leaves the card and where the verified copies land.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.58))
+                }
+                Spacer(minLength: 12)
+                Text(presentation == .expanded ? "WORKBENCH" : "COMPACT")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.9)
+                    .foregroundColor(.white.opacity(0.38))
+            }
+            // This remains the single owner of folder panels and drop validation.
+            selectionView(presentation)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white.opacity(0.035))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08)))
+        )
+        .padding(.top, 4)
     }
 
     private var optionSummary: some View {
@@ -69,7 +102,20 @@ struct TransferPlanView: View {
     }
 
     private var transferKindControl: some View {
-        HStack(spacing: 10) {
+        Group {
+            if presentation == .expanded {
+                HStack(spacing: 10) { transferKindButtons }
+            } else {
+                VStack(spacing: 8) { transferKindButtons }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transfer workflow")
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
+    }
+
+    @ViewBuilder
+    private var transferKindButtons: some View {
             Button {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     usesProjectWorkflow = false
@@ -98,10 +144,6 @@ struct TransferPlanView: View {
                 )
             }
             .buttonStyle(.plain)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Transfer workflow")
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
     }
 
     private func transferKindLabel(title: String, detail: String, icon: String, selected: Bool) -> some View {
