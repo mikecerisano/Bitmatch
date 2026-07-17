@@ -32,23 +32,30 @@ struct PreferencesWindow: View {
             
             Divider()
             
-            // Content area
-            Group {
-                switch selectedTab {
-                case .general:
-                    generalPreferences
-                case .destinations:
-                    destinationPreferences
-                case .reports:
-                    reportPreferences
-                case .cameraDetection:
-                    cameraDetectionPreferences
+            ScrollView {
+                Group {
+                    switch selectedTab {
+                    case .general:
+                        generalPreferences
+                    case .destinations:
+                        destinationPreferences
+                    case .reports:
+                        reportPreferences
+                    case .cameraDetection:
+                        cameraDetectionPreferences
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(20)
             }
-            .frame(minWidth: 500, minHeight: 300)
-            .padding(20)
         }
-        .frame(width: 640, height: 520)
+        .frame(
+            minWidth: PreferencesPresentationPolicy.minimumWidth,
+            idealWidth: PreferencesPresentationPolicy.initialWidth,
+            maxWidth: .infinity,
+            minHeight: PreferencesPresentationPolicy.minimumHeight,
+            maxHeight: .infinity
+        )
         .background(Color(NSColor.windowBackgroundColor))
     }
     
@@ -321,13 +328,22 @@ private extension PreferencesWindow {
 class PreferencesWindowController: NSWindowController {
     convenience init(coordinator: AppCoordinator) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: PreferencesPresentationPolicy.initialWidth,
+                height: PreferencesPresentationPolicy.initialHeight
+            ),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         
         window.title = "BitMatch Preferences"
+        window.minSize = NSSize(
+            width: PreferencesPresentationPolicy.minimumWidth,
+            height: PreferencesPresentationPolicy.minimumHeight
+        )
         window.center()
         window.setFrameAutosaveName("PreferencesWindow")
         window.contentView = NSHostingView(rootView: PreferencesWindow(coordinator: coordinator))
