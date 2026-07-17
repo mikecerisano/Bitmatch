@@ -15,6 +15,17 @@ struct PhotographerJobStoreTests {
         _ = persistence
     }
 
+    @Test func legacyJobPayloadDefaultsToPhotographyWorkflow() throws {
+        let job = makeJob(id: uuid(100), name: "Legacy", updatedAt: date(200))
+        var object = try #require(JSONSerialization.jsonObject(with: encoded(job)) as? [String: Any])
+        object.removeValue(forKey: "workflow")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        #expect(try decoder.decode(PhotographerJob.self, from: legacyData).workflow == .photography)
+    }
+
     @MainActor
     @Test func exactVerifiedDestinationCountRoundTrips() throws {
         let (_, store) = makeStore()

@@ -1,5 +1,38 @@
 import Foundation
 
+/// A presentation-level workflow choice. The existing photographer data
+/// model remains the persistence substrate while projects gain a broader
+/// product identity.
+enum ProjectWorkflow: String, Codable, CaseIterable, Sendable {
+    case photography
+    case videoDIT
+    case general
+
+    var title: String {
+        switch self {
+        case .photography: "Photography"
+        case .videoDIT: "Video / DIT"
+        case .general: "General media"
+        }
+    }
+
+    var contributorLabel: String {
+        switch self {
+        case .photography: "Photographer"
+        case .videoDIT: "Operator"
+        case .general: "Contributor"
+        }
+    }
+
+    var sourceUnitLabel: String {
+        switch self {
+        case .photography: "Card"
+        case .videoDIT: "Media"
+        case .general: "Package"
+        }
+    }
+}
+
 enum PhotographerEventType: String, Codable, CaseIterable, Sendable {
     case wedding = "Wedding"
     case event = "Event"
@@ -159,8 +192,61 @@ struct PhotographerJob: Identifiable, Codable, Equatable, Sendable {
     var requiredLocalCopyCount: Int
     var cardIngests: [CardIngest]
     var remoteBackupConfiguration: RemoteBackupConfiguration? = nil
+    var workflow: ProjectWorkflow = .photography
     var createdAt: Date
     var updatedAt: Date
+
+    init(
+        id: UUID,
+        eventDate: Date,
+        clientName: String,
+        jobName: String,
+        eventType: PhotographerEventType,
+        photographers: [PhotographerIdentity],
+        recipe: FolderRecipe,
+        requiredLocalCopyCount: Int,
+        cardIngests: [CardIngest],
+        remoteBackupConfiguration: RemoteBackupConfiguration? = nil,
+        workflow: ProjectWorkflow = .photography,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.eventDate = eventDate
+        self.clientName = clientName
+        self.jobName = jobName
+        self.eventType = eventType
+        self.photographers = photographers
+        self.recipe = recipe
+        self.requiredLocalCopyCount = requiredLocalCopyCount
+        self.cardIngests = cardIngests
+        self.remoteBackupConfiguration = remoteBackupConfiguration
+        self.workflow = workflow
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, eventDate, clientName, jobName, eventType, photographers, recipe
+        case requiredLocalCopyCount, cardIngests, remoteBackupConfiguration, workflow, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        eventDate = try values.decode(Date.self, forKey: .eventDate)
+        clientName = try values.decode(String.self, forKey: .clientName)
+        jobName = try values.decode(String.self, forKey: .jobName)
+        eventType = try values.decode(PhotographerEventType.self, forKey: .eventType)
+        photographers = try values.decode([PhotographerIdentity].self, forKey: .photographers)
+        recipe = try values.decode(FolderRecipe.self, forKey: .recipe)
+        requiredLocalCopyCount = try values.decode(Int.self, forKey: .requiredLocalCopyCount)
+        cardIngests = try values.decode([CardIngest].self, forKey: .cardIngests)
+        remoteBackupConfiguration = try values.decodeIfPresent(RemoteBackupConfiguration.self, forKey: .remoteBackupConfiguration)
+        workflow = try values.decodeIfPresent(ProjectWorkflow.self, forKey: .workflow) ?? .photography
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 struct PhotographerPreset: Identifiable, Codable, Equatable, Sendable {
@@ -169,6 +255,7 @@ struct PhotographerPreset: Identifiable, Codable, Equatable, Sendable {
     var eventType: PhotographerEventType
     var recipe: FolderRecipe
     var requiredLocalCopyCount: Int
+    var workflow: ProjectWorkflow = .photography
 }
 
 struct PhotographerReportContext: Codable, Equatable, Sendable {
