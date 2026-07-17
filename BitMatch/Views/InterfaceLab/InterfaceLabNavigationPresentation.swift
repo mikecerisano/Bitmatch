@@ -12,3 +12,9 @@ enum InterfaceLabNavigationPolicy {
         availableWidth >= segmentedThreshold ? .segmented : .menu
     }
 }
+
+enum InterfaceLabCopy {
+    static let setupTitle = "Transfer setup"
+    static let compareTitle = "Compare folders"
+    static let navigationLabel = "Preview screen"
+}

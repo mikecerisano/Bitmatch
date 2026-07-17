@@ -24,6 +24,19 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
 
 /// A no-I/O visual harness. Launch with `--interface-lab` to review the complete UX safely.
 struct InterfaceLabView: View {
+    private enum RouteEndpoint: Equatable {
+        case source
+        case destinations
+
+        var title: String {
+            switch self {
+            case .source: "source"
+            case .destinations: "destinations"
+            }
+        }
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var route: InterfaceLabRoute = .welcome
     @State private var usesProjectWorkflow = true
     @State private var transferPhase = "Copying"
@@ -36,6 +49,11 @@ struct InterfaceLabView: View {
     @State private var destinationHost = "archive.studio.example"
     @State private var destinationRoot = "Projects/2026"
     @State private var handoffRecordReady = false
+    @State private var selectedRouteEndpoint: RouteEndpoint?
+    @State private var sourceValue = "A_CAM · CARD 003"
+    @State private var sourceDetail = "486 files · 218.4 GB"
+    @State private var backupValue = "2 local + 1 off-site"
+    @State private var backupDetail = "Primary, safety, and cloud evidence"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,6 +63,8 @@ struct InterfaceLabView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     navigation
                     content
+                        .id(route)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.985)))
                 }
                 .padding(22)
                 .frame(maxWidth: 980, alignment: .leading)
@@ -55,6 +75,13 @@ struct InterfaceLabView: View {
             LinearGradient(colors: [Color(red: 0.09, green: 0.10, blue: 0.12), Color(red: 0.035, green: 0.04, blue: 0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
         )
         .preferredColorScheme(.dark)
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.88), value: route)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedRouteEndpoint)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: transferPhase)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: remoteQueued)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: showingDestinationEditor)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: handoffRecordReady)
     }
 
     private var header: some View {
@@ -75,14 +102,15 @@ struct InterfaceLabView: View {
     private var navigation: some View {
         GeometryReader { proxy in
             if InterfaceLabNavigationPolicy.presentation(for: proxy.size.width) == .segmented {
-                Picker("Interface state", selection: $route) {
+                Picker("", selection: $route) {
                     ForEach(InterfaceLabRoute.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .accessibilityLabel("Interface lab state")
+                .labelsHidden()
+                .accessibilityLabel(InterfaceLabCopy.navigationLabel)
             } else {
                 HStack(spacing: 8) {
-                    Text("Previewing")
+                    Text("PREVIEW")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(0.8)
                         .foregroundColor(.white.opacity(0.46))
@@ -104,7 +132,7 @@ struct InterfaceLabView: View {
                             .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
                     }
                     .menuStyle(.borderlessButton)
-                    .accessibilityLabel("Interface lab state")
+                    .accessibilityLabel(InterfaceLabCopy.navigationLabel)
                     .accessibilityValue(route.rawValue)
                 }
             }
@@ -168,11 +196,21 @@ struct InterfaceLabView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("A calm start", detail: "Set the route once. BitMatch keeps the rest out of your way.")
+            sectionTitle(InterfaceLabCopy.setupTitle, detail: "Review the source and backup route before anything starts.")
             HStack(alignment: .top, spacing: 12) {
-                routeCard(title: "SOURCE", value: "A_CAM · CARD 003", detail: "486 files · 218.4 GB", icon: "camera.fill", tint: .orange)
+                Button { toggleRouteEndpoint(.source) } label: {
+                    routeCard(title: "SOURCE", value: sourceValue, detail: sourceDetail, icon: "camera.fill", tint: .orange, actionTitle: "Change", selected: selectedRouteEndpoint == .source)
+                }
+                .buttonStyle(.plain)
                 Image(systemName: "arrow.right").padding(.top, 46).foregroundColor(.white.opacity(0.36))
-                routeCard(title: "BACKUPS", value: "2 local + 1 off-site", detail: "Primary, safety, and cloud evidence", icon: "externaldrive.fill", tint: .blue)
+                Button { toggleRouteEndpoint(.destinations) } label: {
+                    routeCard(title: "BACKUPS", value: backupValue, detail: backupDetail, icon: "externaldrive.fill", tint: .blue, actionTitle: "Change", selected: selectedRouteEndpoint == .destinations)
+                }
+                .buttonStyle(.plain)
+            }
+            if let selectedRouteEndpoint {
+                routeEditor(for: selectedRouteEndpoint)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
             }
             HStack(spacing: 10) {
                 workflowButton("Quick transfer", detail: "Copy, verify, finish", selected: !usesProjectWorkflow) { usesProjectWorkflow = false }
@@ -193,8 +231,7 @@ struct InterfaceLabView: View {
 
     private var transfer: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("Transfer in motion", detail: "The only controls you need stay visible while the proof accumulates.")
-            HStack { Picker("Phase", selection: $transferPhase) { Text("Copying").tag("Copying"); Text("Verifying").tag("Verifying"); Text("Paused").tag("Paused") }.pickerStyle(.segmented); Spacer() }
+            sectionTitle("Transfer progress", detail: "The only controls you need stay visible while the proof accumulates.")
             VStack(alignment: .leading, spacing: 12) {
                 HStack { Label(transferPhase, systemImage: transferPhase == "Verifying" ? "checkmark.shield.fill" : (transferPhase == "Paused" ? "pause.circle.fill" : "arrow.right.circle.fill")).font(.system(size: 15, weight: .semibold)).foregroundColor(transferPhase == "Paused" ? .orange : .green); Spacer(); Text("A_CAM → 3 backups").font(.system(size: 11)).foregroundColor(.white.opacity(0.6)) }
                 ProgressView(value: progress).tint(.green)
@@ -218,7 +255,7 @@ struct InterfaceLabView: View {
 
     private var compare: some View {
         VStack(alignment: .leading, spacing: 14) {
-            sectionTitle("A useful answer", detail: "Compare two folders without turning a clean result into an investigation.")
+            sectionTitle(InterfaceLabCopy.compareTitle, detail: "Check two folders and see exactly whether they agree.")
             HStack(alignment: .top, spacing: 12) {
                 routeCard(title: "REFERENCE", value: "PRIMARY / A_CAM", detail: "486 files · 218.4 GB", icon: "folder.fill", tint: .blue)
                 Image(systemName: "arrow.left.arrow.right").padding(.top, 46).foregroundColor(.white.opacity(0.36))
@@ -364,8 +401,67 @@ struct InterfaceLabView: View {
         .panel()
     }
 
+    private func toggleRouteEndpoint(_ endpoint: RouteEndpoint) {
+        selectedRouteEndpoint = selectedRouteEndpoint == endpoint ? nil : endpoint
+    }
+
+    private func routeEditor(for endpoint: RouteEndpoint) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Change \(endpoint.title)", systemImage: endpoint == .source ? "camera.fill" : "externaldrive.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button("Done") { selectedRouteEndpoint = nil }
+                    .buttonStyle(CustomButtonStyle())
+            }
+            Text("Synthetic selections only — the interface lab never opens a card, drive, or file picker.")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.58))
+            if endpoint == .source {
+                HStack(spacing: 8) {
+                    routeChoice("A_CAM · CARD 003", detail: "486 files · 218.4 GB") {
+                        sourceValue = "A_CAM · CARD 003"
+                        sourceDetail = "486 files · 218.4 GB"
+                    }
+                    routeChoice("B_CAM · CARD 001", detail: "312 files · 119.8 GB") {
+                        sourceValue = "B_CAM · CARD 001"
+                        sourceDetail = "312 files · 119.8 GB"
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    routeChoice("2 local + 1 off-site", detail: "Primary, safety, and cloud evidence") {
+                        backupValue = "2 local + 1 off-site"
+                        backupDetail = "Primary, safety, and cloud evidence"
+                    }
+                    routeChoice("2 local backups", detail: "Primary and safety drives") {
+                        backupValue = "2 local backups"
+                        backupDetail = "Primary and safety drives"
+                    }
+                }
+            }
+        }
+        .panel()
+    }
+
+    private func routeChoice(_ title: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            selectedRouteEndpoint = nil
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Text(detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.2)))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func sectionTitle(_ title: String, detail: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 19, weight: .bold)); Text(detail).font(.system(size: 12)).foregroundColor(.white.opacity(0.62)) } }
-    private func routeCard(title: String, value: String, detail: String, icon: String, tint: Color) -> some View { VStack(alignment: .leading, spacing: 7) { Label(title, systemImage: icon).font(.system(size: 9, weight: .bold)).tracking(1).foregroundColor(tint); Text(value).font(.system(size: 14, weight: .semibold)); Text(detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58)) }.frame(maxWidth: .infinity, alignment: .leading).panel() }
+    private func routeCard(title: String, value: String, detail: String, icon: String, tint: Color, actionTitle: String? = nil, selected: Bool = false) -> some View { VStack(alignment: .leading, spacing: 7) { HStack { Label(title, systemImage: icon).font(.system(size: 9, weight: .bold)).tracking(1).foregroundColor(tint); Spacer(); if let actionTitle { Label(actionTitle, systemImage: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundColor(.white.opacity(0.62)) } }; Text(value).font(.system(size: 14, weight: .semibold)); Text(detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58)) }.frame(maxWidth: .infinity, alignment: .leading).panel().overlay(RoundedRectangle(cornerRadius: 13).stroke(selected ? tint.opacity(0.65) : .clear, lineWidth: 1)) }
     private func workflowButton(_ title: String, detail: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 3) {

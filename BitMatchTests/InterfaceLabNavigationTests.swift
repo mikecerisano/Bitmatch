@@ -36,4 +36,10 @@ struct InterfaceLabNavigationTests {
     @Test func theLabHasOneExplicitLaunchArgument() {
         #expect(InterfaceLabLaunchConfiguration.arguments == ["--interface-lab"])
     }
+
+    @Test func labCopyUsesClearProductLanguage() {
+        #expect(InterfaceLabCopy.setupTitle == "Transfer setup")
+        #expect(InterfaceLabCopy.compareTitle == "Compare folders")
+        #expect(InterfaceLabCopy.navigationLabel == "Preview screen")
+    }
 }
