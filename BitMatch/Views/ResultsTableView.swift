@@ -4,6 +4,7 @@ struct ResultsTableView: View {
     @ObservedObject var coordinator: AppCoordinator
     @Binding var showOnlyIssues: Bool
     @State private var scrollToBottom = false
+    @State private var availableWidth: CGFloat = ResultTableLayoutPolicy.detailedThreshold
     // Removed caching @State to avoid mutating state during view updates
     
     // Convenience accessors
@@ -43,6 +44,7 @@ struct ResultsTableView: View {
                 )
         )
         .frame(maxHeight: 600)  // FIX: Increased from 400 to 600
+        .background(widthReader)
     }
     
     @ViewBuilder
@@ -271,6 +273,22 @@ struct ResultsTableView: View {
     
     @ViewBuilder
     private func resultRow(for row: ResultRow) -> some View {
+        Group {
+            if ResultTableLayoutPolicy.presentation(for: availableWidth) == .detailed {
+                detailedResultRow(for: row)
+            } else {
+                compactResultRow(for: row)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            row.isSuccessStatus ? Color.clear : statusColor(for: row.status).opacity(0.1)
+        )
+    }
+
+    @ViewBuilder
+    private func detailedResultRow(for row: ResultRow) -> some View {
         HStack(spacing: 8) {
             // Status icon
             Image(systemName: statusSymbol(for: row.status))
@@ -310,11 +328,47 @@ struct ResultsTableView: View {
                 .foregroundColor(statusColor(for: row.status).opacity(0.85))
                 .frame(width: 120, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            row.isSuccessStatus ? Color.clear : statusColor(for: row.status).opacity(0.1)
-        )
+    }
+
+    @ViewBuilder
+    private func compactResultRow(for row: ResultRow) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: statusSymbol(for: row.status))
+                .font(.system(size: 12))
+                .foregroundColor(statusColor(for: row.status))
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(URL(fileURLWithPath: row.path).lastPathComponent)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file))
+                    if let destination = row.destination, !destination.isEmpty {
+                        Label(destination, systemImage: "externaldrive.fill")
+                            .lineLimit(1)
+                    }
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.54))
+            }
+            Spacer(minLength: 8)
+            Text(row.status)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(statusColor(for: row.status).opacity(0.9))
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 86, alignment: .trailing)
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { availableWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+        }
     }
     
     private func formatSpeed() -> String {
