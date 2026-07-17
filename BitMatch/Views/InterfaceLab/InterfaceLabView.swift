@@ -27,6 +27,12 @@ struct InterfaceLabView: View {
     @State private var transferPhase = "Copying"
     @State private var progress = 0.62
     @State private var remoteQueued = false
+    @State private var showingDestinationEditor = false
+    @State private var syntheticDestinationSaved = false
+    @State private var connectionTested = false
+    @State private var destinationName = "Post-production archive"
+    @State private var destinationHost = "archive.studio.example"
+    @State private var destinationRoot = "Projects/2026"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -232,7 +238,70 @@ struct InterfaceLabView: View {
     }
 
     private var settings: some View {
-        VStack(alignment: .leading, spacing: 14) { sectionTitle("Saved destinations", detail: "Manage reusable backup locations once; choose them quickly on set."); ForEach([("Primary shuttle", "Local SSD · /Volumes/T7"), ("Off-site archive", "SFTP · archive.acme.studio"), ("Client safety", "Local SSD · /Volumes/Client")], id: \.0) { profile in HStack { Image(systemName: profile.1.contains("SFTP") ? "network" : "externaldrive.fill").foregroundColor(profile.1.contains("SFTP") ? .green : .blue); VStack(alignment: .leading) { Text(profile.0).font(.system(size: 13, weight: .semibold)); Text(profile.1).font(.system(size: 11)).foregroundColor(.white.opacity(0.55)) }; Spacer(); Image(systemName: "chevron.right").font(.system(size: 10)).foregroundColor(.white.opacity(0.35)) }.panel() }; Button("Add destination") {}.buttonStyle(CustomButtonStyle()) }
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Saved destinations", detail: "Manage reusable backup locations once; choose them quickly on set.")
+            ForEach(syntheticDestinations, id: \.0) { profile in
+                HStack {
+                    Image(systemName: profile.1.contains("SFTP") ? "network" : "externaldrive.fill")
+                        .foregroundColor(profile.1.contains("SFTP") ? .green : .blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.0).font(.system(size: 13, weight: .semibold))
+                        Text(profile.1).font(.system(size: 11)).foregroundColor(.white.opacity(0.55))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 10)).foregroundColor(.white.opacity(0.35))
+                }
+                .panel()
+            }
+            if showingDestinationEditor { destinationEditor }
+            Button(showingDestinationEditor ? "Cancel" : "Add destination") {
+                showingDestinationEditor.toggle()
+                connectionTested = false
+            }
+            .buttonStyle(CustomButtonStyle())
+        }
+    }
+
+    private var syntheticDestinations: [(String, String)] {
+        var profiles = [
+            ("Primary shuttle", "Local SSD · /Volumes/T7"),
+            ("Off-site archive", "SFTP · archive.acme.studio"),
+            ("Client safety", "Local SSD · /Volumes/Client")
+        ]
+        if syntheticDestinationSaved {
+            profiles.append((destinationName, "SFTP · \(destinationHost) · /\(destinationRoot)"))
+        }
+        return profiles
+    }
+
+    private var destinationEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Add SFTP destination").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("SYNTHETIC").font(.system(size: 9, weight: .bold)).foregroundColor(.green)
+            }
+            Text("Credentials stay outside BitMatch; this preview only shows the reusable location record.")
+                .font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+            TextField("Destination name", text: $destinationName).textFieldStyle(.roundedBorder)
+            TextField("Host", text: $destinationHost).textFieldStyle(.roundedBorder)
+            TextField("Relative root", text: $destinationRoot).textFieldStyle(.roundedBorder)
+            HStack {
+                Button(connectionTested ? "Connection verified" : "Test connection") { connectionTested = true }
+                    .buttonStyle(CustomButtonStyle())
+                Spacer()
+                Button("Save destination") {
+                    syntheticDestinationSaved = true
+                    showingDestinationEditor = false
+                }
+                .buttonStyle(PrimaryActionButtonStyle())
+            }
+            if connectionTested {
+                Label("Synthetic SSH-agent connection verified", systemImage: "checkmark.shield.fill")
+                    .font(.system(size: 10)).foregroundColor(.green)
+            }
+        }
+        .panel()
     }
 
     private func sectionTitle(_ title: String, detail: String) -> some View { VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 19, weight: .bold)); Text(detail).font(.system(size: 12)).foregroundColor(.white.opacity(0.62)) } }
