@@ -1111,6 +1111,10 @@ struct SettingsSheetView: View {
                     }
                 }
 
+                Section("Off-site destinations") {
+                    RemoteDestinationSettingsSection(coordinator: coordinator)
+                }
+
                 #if os(iOS)
                 Section("Background Behavior") {
                     Toggle("Prevent Auto-Lock During Transfer", isOn: Binding(
@@ -1146,6 +1150,92 @@ struct SettingsSheetView: View {
         prefs.company = ""
         prefs.notes = ""
         coordinator.reportSettings = prefs
+    }
+}
+
+private struct RemoteDestinationSettingsSection: View {
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @State private var isAddingDestination = false
+    @State private var name = ""
+    @State private var host = ""
+    @State private var username = ""
+    @State private var root = ""
+    @State private var error: String?
+
+    var body: some View {
+        if coordinator.photographerJobViewModel.remoteProfiles.isEmpty {
+            Text("Save an SFTP destination once, then choose it from any project. Uploads remain a Mac task.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+        } else {
+            ForEach(coordinator.photographerJobViewModel.remoteProfiles) { profile in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(profile.name)
+                    Text("\(profile.username)@\(profile.host):\(profile.port) · \(profile.root.description)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .swipeActions {
+                    Button(role: .destructive) {
+                        coordinator.photographerJobViewModel.deleteRemoteProfile(id: profile.id)
+                    } label: { Label("Delete", systemImage: "trash") }
+                }
+            }
+        }
+
+        Button { isAddingDestination = true } label: {
+            Label("Add destination", systemImage: "plus")
+        }
+        .sheet(isPresented: $isAddingDestination) {
+            NavigationStack {
+                Form {
+                    Section("Destination") {
+                        TextField("Name", text: $name)
+                        TextField("Host", text: $host).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("Username", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("Remote folder", text: $root).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    Section {
+                        Text("BitMatch stores only destination metadata here. Your Mac uses its SSH agent and verifies the host before uploading.")
+                            .font(.footnote).foregroundColor(.secondary)
+                    }
+                    if let error { Section { Text(error).foregroundColor(.red) } }
+                }
+                .navigationTitle("New destination")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: reset) }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save", action: save)
+                            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || root.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private func save() {
+        do {
+            let components = root.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            let profile = RemoteDestinationProfile(
+                id: UUID(),
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                host: host.trimmingCharacters(in: .whitespacesAndNewlines),
+                port: 22,
+                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                root: try RemoteRelativePath(components: components),
+                verificationMode: .sha256
+            )
+            coordinator.photographerJobViewModel.saveRemoteProfile(profile)
+            if let message = coordinator.photographerJobViewModel.lastError { error = message }
+            else { reset() }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func reset() {
+        name = ""; host = ""; username = ""; root = ""; error = nil; isAddingDestination = false
     }
 }
 

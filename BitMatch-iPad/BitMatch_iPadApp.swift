@@ -25,7 +25,7 @@ struct BitMatch_iPadApp: App {
     }
     
     private func setupiOS() {
-        // Request notification permissions
+        guard NotificationPermissionPolicy.requestsAtLaunch else { return }
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
         ) { granted, error in

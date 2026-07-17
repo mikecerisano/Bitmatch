@@ -55,28 +55,6 @@ struct PhoneContentView: View {
     }
 
     private var copyAndVerifyStack: some View {
-        VStack(spacing: 14) {
-            // Stacked cards for phone
-            VStack(spacing: 12) {
-                ProfessionalSourceCard(coordinator: coordinator)
-                DestinationsFlowView(coordinator: coordinator)
-            }
-            .padding(.horizontal, 16)
-
-            CollapsibleLabelingSection(coordinator: coordinator, isExpanded: $cameraLabelExpanded)
-                .padding(.horizontal, 16)
-            CollapsibleVerificationSection(coordinator: coordinator, isExpanded: $verificationModeExpanded)
-                .padding(.horizontal, 16)
-            ReportToggleCard(coordinator: coordinator)
-                .padding(.horizontal, 16)
-
-            if coordinator.isOperationInProgress {
-                OperationProgressView(coordinator: coordinator)
-                    .padding(.horizontal, 16)
-            }
-
-            StartTransferButtonView(coordinator: coordinator)
-                .padding(.horizontal, 16)
-        }
+        CopyAndVerifyView(coordinator: coordinator)
     }
 }

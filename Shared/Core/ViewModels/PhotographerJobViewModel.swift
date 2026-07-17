@@ -69,7 +69,7 @@ final class PhotographerJobViewModel: ObservableObject {
     private let preliminaryAnalyzer: PreliminaryAnalyzer
     private let confirmedAnalyzer: ConfirmedAnalyzer
     private let entryEnumerator: EntryEnumerator
-    private let remoteBackupCoordinator: RemoteBackupCoordinator
+    private let remoteBackupCoordinator: any ProjectRemoteCoordinator
     private var preparedSourcePath: String?
     private var currentSourcePath: String?
     private var preparedSetupSignature: PhotographerSetupSignature?
@@ -85,14 +85,18 @@ final class PhotographerJobViewModel: ObservableObject {
         preliminaryAnalyzer: @escaping PreliminaryAnalyzer = PhotographerCardAnalyzer.preliminaryAnalysis,
         confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint,
         entryEnumerator: @escaping EntryEnumerator = FileTreeEnumerator.enumerateRegularFiles,
-        remoteBackupCoordinator: RemoteBackupCoordinator? = nil
+        remoteBackupCoordinator: (any ProjectRemoteCoordinator)? = nil
     ) {
         self.store = store
         self.now = now
         self.preliminaryAnalyzer = preliminaryAnalyzer
         self.confirmedAnalyzer = confirmedAnalyzer
         self.entryEnumerator = entryEnumerator
+        #if os(macOS)
         self.remoteBackupCoordinator = remoteBackupCoordinator ?? RemoteBackupCoordinator(store: store)
+        #else
+        self.remoteBackupCoordinator = remoteBackupCoordinator ?? UnavailableRemoteProjectCoordinator(store: store)
+        #endif
         loadJobs()
         loadPresets()
         loadRemoteProfiles()
@@ -527,7 +531,7 @@ final class PhotographerJobViewModel: ObservableObject {
     /// summaries. A remote error must never invalidate local copy evidence.
     func selectRemoteProfile(_ profileID: UUID?) {
         guard let jobID = activeJob?.id else {
-            lastError = RemoteBackupError.manifestUnavailable.errorDescription
+            lastError = ProjectRemoteCoordinatorError.missingJob.errorDescription
             return
         }
         do {
@@ -726,7 +730,7 @@ final class PhotographerJobViewModel: ObservableObject {
     private func remoteManifestEntryByteCount(for item: RemoteQueueItem) throws -> Int64 {
         guard let manifest = try store.manifests().first(where: { $0.id == item.manifestID }),
               let entry = manifest.entries.first(where: { $0.id == item.manifestEntryID }) else {
-            throw RemoteBackupError.manifestUnavailable
+            throw ProjectRemoteCoordinatorError.manifestUnavailable
         }
         return entry.byteCount
     }

@@ -34,6 +34,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var verificationMode: VerificationMode = .standard
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
+    @Published var photographerJobViewModel: PhotographerJobViewModel
     var photographerReportFinalizer: PhotographerReportFinalizer?
 
     // MARK: - Operation State
@@ -84,6 +85,7 @@ class SharedAppCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var activeStartID: UUID?
     private var startCancellationRequested = false
+    private var activeProjectCardID: UUID?
 
     // MARK: - iOS Background Task Service
     private let backgroundTaskService = IOSBackgroundTaskService.shared
@@ -96,6 +98,11 @@ class SharedAppCoordinator: ObservableObject {
     
     init(platformManager: PlatformManager) {
         self.platformManager = platformManager
+        let projectStore = UserDefaultsPhotographerJobStore()
+        self.photographerJobViewModel = PhotographerJobViewModel(
+            store: projectStore,
+            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: projectStore)
+        )
         setupBindings()
         // Default first launch to checksum verification; honor last-picked thereafter.
         if let saved = UserDefaults.standard.string(forKey: "lastVerificationMode"),
@@ -126,6 +133,7 @@ class SharedAppCoordinator: ObservableObject {
                     if let url = url {
                         await self?.detectCameraFromSource(url)
                     }
+                    self?.photographerJobViewModel.sourceDidChange(to: url)
                     await self?.folderInfoService.updateSource(url)
                 }
             }
@@ -289,6 +297,9 @@ class SharedAppCoordinator: ObservableObject {
                       self.activeStartID == startID,
                       !self.startCancellationRequested else { return }
                 self.progress = progressUpdate
+                if self.activeProjectCardID != nil {
+                    self.photographerJobViewModel.updateProgressStage(progressUpdate.currentStage)
+                }
             },
             onResult: { [weak self] result in
                 guard let self,
@@ -305,6 +316,7 @@ class SharedAppCoordinator: ObservableObject {
                       self.activeStartID == startID,
                       !self.startCancellationRequested else { return }
                 self.operationState = state
+                self.updateProjectLifecycle(for: state)
             },
             onAuthoritativeResults: { [weak self] allResults in
                 guard let self,
@@ -321,6 +333,41 @@ class SharedAppCoordinator: ObservableObject {
         } catch {
             // Error already handled by executor
         }
+    }
+
+    /// Starts a prepared project ingest only after the ordinary transfer
+    /// preflight is safe. The project finalizer remains attached through
+    /// verification, so mobile completion retains its local evidence.
+    @discardableResult
+    func startProjectOperation() async -> Bool {
+        guard operationReadinessAssessment.isReady,
+              photographerJobViewModel.hasPreparedIngestAwaitingStart,
+              let jobID = photographerJobViewModel.activeJob?.id,
+              let cardID = photographerJobViewModel.activeCard?.id,
+              photographerJobViewModel.preliminaryAnalysis != nil else {
+            return false
+        }
+        guard photographerJobViewModel.beginIngest(
+            destinationCount: destinationURLs.count,
+            sourceURL: sourceURL,
+            verificationMode: verificationMode
+        ) else {
+            return false
+        }
+
+        photographerReportFinalizer = { [weak photographerJobViewModel, jobID, cardID] results in
+            guard let photographerJobViewModel,
+                  photographerJobViewModel.activeJob?.id == jobID,
+                  photographerJobViewModel.activeCard?.id == cardID,
+                  let state = photographerJobViewModel.activeCard?.localState,
+                  state == .copying || state == .verifying else {
+                throw PhotographerReportError.cardNotReady
+            }
+            return try photographerJobViewModel.completeIngest(results: results)
+        }
+        activeProjectCardID = cardID
+        await startOperation()
+        return true
     }
 
     func cancelOperation() {
@@ -340,6 +387,7 @@ class SharedAppCoordinator: ObservableObject {
         NotificationCenter.default.post(name: .operationCancelledByUser, object: nil)
         
         operationState = .cancelled
+        updateProjectLifecycle(for: .cancelled)
     }
     
     func pauseOperation() async {
@@ -385,6 +433,28 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
+    private func updateProjectLifecycle(for state: OperationState) {
+        guard activeProjectCardID != nil else { return }
+        switch state {
+        case .verifying:
+            photographerJobViewModel.updateProgressStage(.verifying)
+        case .completed(let info):
+            if !info.success { photographerJobViewModel.operationFailed() }
+            activeProjectCardID = nil
+            photographerReportFinalizer = nil
+        case .failed:
+            photographerJobViewModel.operationFailed()
+            activeProjectCardID = nil
+            photographerReportFinalizer = nil
+        case .cancelled:
+            photographerJobViewModel.cancelIngest()
+            activeProjectCardID = nil
+            photographerReportFinalizer = nil
+        default:
+            break
+        }
+    }
+
     // MARK: - Camera Detection
     
     private func detectCameraFromSource(_ url: URL) async {

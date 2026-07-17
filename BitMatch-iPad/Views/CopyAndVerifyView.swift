@@ -6,6 +6,11 @@ struct CopyAndVerifyView: View {
     @State private var cameraLabelExpanded = false
     @State private var verificationModeExpanded = false
     @State private var optionsExpanded = false
+    @State private var usesProjectWorkflow = false
+
+    private var hasPreparedProjectTransfer: Bool {
+        coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
+    }
 
     private var plan: TransferPlanPresentation {
         let readiness = coordinator.operationReadinessAssessment
@@ -39,6 +44,15 @@ struct CopyAndVerifyView: View {
             VStack(spacing: 20) {
                 // The selection cards remain the owner of iPad Files picker actions.
                 EnhancedSourceDestinationView(coordinator: coordinator)
+
+                MobileTransferWorkflowPicker(
+                    usesProjectWorkflow: $usesProjectWorkflow,
+                    isProjectPrepared: hasPreparedProjectTransfer
+                )
+
+                if usesProjectWorkflow || hasPreparedProjectTransfer {
+                    MobileProjectSetupCard(coordinator: coordinator)
+                }
 
                 IpadTransferPlanPreflightCard(plan: plan)
                 IpadTransferPlanOptionSummary(plan: plan, isQuickMode: coordinator.verificationMode == .quick)
@@ -77,12 +91,277 @@ struct CopyAndVerifyView: View {
                 .accessibilityLabel("Options")
                 .accessibilityHint("Shows camera labels, verification, and report settings")
 
-                StartTransferButtonView(coordinator: coordinator, plan: plan, showsReadinessBanner: false)
+                StartTransferButtonView(
+                    coordinator: coordinator,
+                    plan: plan,
+                    showsReadinessBanner: false,
+                    startsProjectTransfer: usesProjectWorkflow || hasPreparedProjectTransfer
+                )
             }
         }
         .padding(.horizontal, 20)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: cameraLabelExpanded)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: verificationModeExpanded)
+    }
+}
+
+private struct MobileTransferWorkflowPicker: View {
+    @Binding var usesProjectWorkflow: Bool
+    let isProjectPrepared: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { buttons }
+            VStack(spacing: 8) { buttons }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transfer workflow")
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
+    }
+
+    @ViewBuilder private var buttons: some View {
+        workflowButton(.quick, selected: !usesProjectWorkflow && !isProjectPrepared) {
+            usesProjectWorkflow = false
+        }
+        .disabled(isProjectPrepared)
+        workflowButton(.project, selected: usesProjectWorkflow || isProjectPrepared) {
+            usesProjectWorkflow = true
+        }
+    }
+
+    private func workflowButton(
+        _ workflow: TransferWorkflowPresentation,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2), action)
+        } label: {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: workflow.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(selected ? .green : .white.opacity(0.55))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workflow.title).font(.system(size: 12, weight: .semibold))
+                    Text(workflow.detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+                }
+                Spacer(minLength: 0)
+                if selected { Image(systemName: "checkmark.circle.fill").foregroundColor(.green) }
+            }
+            .foregroundColor(.white)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(selected ? Color.green.opacity(0.09) : Color.white.opacity(0.035))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.green.opacity(0.25) : Color.white.opacity(0.08)))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(workflow.title)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+    }
+}
+
+private struct MobileProjectSetupCard: View {
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @State private var clientName = ""
+    @State private var jobName = ""
+    @State private var eventDate = Date()
+    @State private var contributorName = ""
+    @State private var cameraName = ""
+    @State private var isExpanded = true
+    @State private var showLayers = false
+    @State private var remoteExpanded = false
+    @State private var didHydrate = false
+
+    private var viewModel: PhotographerJobViewModel { coordinator.photographerJobViewModel }
+    private var cardNumber: Int { viewModel.proposedCardNumber(cameraName: cameraName) }
+    private var setupSignature: PhotographerSetupSignature {
+        PhotographerSetupSignature(
+            clientName: clientName.trimmingCharacters(in: .whitespacesAndNewlines),
+            jobName: jobName.trimmingCharacters(in: .whitespacesAndNewlines),
+            eventDate: eventDate,
+            photographerName: contributorName.trimmingCharacters(in: .whitespacesAndNewlines),
+            cameraName: cameraName.trimmingCharacters(in: .whitespacesAndNewlines),
+            cardNumber: cardNumber,
+            recipe: viewModel.draftRecipe
+        )
+    }
+    private var presentation: PhotographerJobSetupPresentation {
+        PhotographerJobSetupPresentation.make(
+            clientName: clientName,
+            jobName: jobName,
+            eventDate: eventDate,
+            photographerName: contributorName,
+            cameraName: cameraName,
+            cardNumber: cardNumber,
+            recipe: viewModel.draftRecipe,
+            workflow: viewModel.selectedWorkflow,
+            duplicateWarningText: viewModel.duplicateWarning?.message,
+            hasSource: coordinator.sourceURL != nil,
+            isPreparing: viewModel.isPreparing
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button { isExpanded.toggle() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .bold)).foregroundColor(.green)
+                    Image(systemName: "camera.fill").foregroundColor(.white.opacity(0.68))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Project setup").font(.system(size: 15, weight: .semibold))
+                        if !isExpanded { Text(presentation.collapsedSummary).font(.system(size: 11)).foregroundColor(.white.opacity(0.58)).lineLimit(1) }
+                    }
+                    Spacer()
+                    Text(presentation.presetTitle.uppercased())
+                        .font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundColor(.green)
+                }
+                .foregroundColor(.white).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Picker("Workflow", selection: Binding(get: { viewModel.selectedWorkflow }, set: { viewModel.selectWorkflow($0) })) {
+                    ForEach(ProjectWorkflow.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .disabled(viewModel.isPreparing || viewModel.isWorkflowLocked)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { identityFields }
+                    VStack(spacing: 10) { identityFields }
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { mediaFields }
+                    VStack(spacing: 10) { mediaFields }
+                }
+
+                DisclosureGroup("Folder layers", isExpanded: $showLayers) {
+                    VStack(spacing: 8) {
+                        ForEach(viewModel.draftRecipe.layers) { layer in
+                            Toggle(layerTitle(layer.kind), isOn: Binding(
+                                get: { viewModel.draftRecipe.layers.first(where: { $0.id == layer.id })?.isEnabled ?? false },
+                                set: { viewModel.setDraftLayer(layer.id, isEnabled: $0) }
+                            ))
+                            .tint(.green)
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+
+                packageRoute
+                remoteDestination
+                feedback
+                setupAction
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.035)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08))))
+        .onAppear(perform: hydrateOnce)
+        .onChange(of: setupSignature) { _, signature in viewModel.updateSetupSignature(signature) }
+        .onChange(of: viewModel.isPreparing) { wasPreparing, preparing in
+            if wasPreparing, !preparing, viewModel.activeCardDraft != nil { isExpanded = false }
+        }
+    }
+
+    @ViewBuilder private var identityFields: some View {
+        setupField("Client", text: $clientName, prompt: "Smith")
+        setupField("Job name", text: $jobName, prompt: "Smith Wedding")
+        DatePicker("Date", selection: $eventDate, displayedComponents: .date)
+            .labelsHidden().datePickerStyle(.compact).frame(maxWidth: .infinity, alignment: .leading)
+    }
+    @ViewBuilder private var mediaFields: some View {
+        setupField(viewModel.selectedWorkflow.contributorLabel, text: $contributorName, prompt: "Mike")
+        setupField("Camera", text: $cameraName, prompt: "Sony A7 IV")
+        VStack(alignment: .leading, spacing: 5) {
+            Text(viewModel.selectedWorkflow.sourceUnitLabel.uppercased()).font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundColor(.white.opacity(0.48))
+            Text(String(format: "%03d", cardNumber)).font(.system(.body, design: .monospaced).weight(.semibold)).foregroundColor(.white).frame(maxWidth: .infinity, alignment: .leading).padding(10).background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+        }
+    }
+
+    private var packageRoute: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("PACKAGE ROUTE").font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundColor(.white.opacity(0.48))
+            Text(presentation.pathPreview).font(.system(size: 12, design: .monospaced)).foregroundColor(.white.opacity(0.78)).lineLimit(2)
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.16)))
+    }
+
+    private var remoteDestination: some View {
+        DisclosureGroup("Off-site backup", isExpanded: $remoteExpanded) {
+            if viewModel.remoteProfiles.isEmpty {
+                Text("Save a destination in BitMatch on Mac, then choose it here. This device preserves the project route; SSH uploads continue on Mac.")
+                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.58)).padding(.top, 6)
+            } else {
+                Picker("Destination", selection: Binding(
+                    get: { viewModel.activeJob?.remoteBackupConfiguration?.destinationProfileID },
+                    set: { viewModel.selectRemoteProfile($0) }
+                )) {
+                    Text("Not selected").tag(UUID?.none)
+                    ForEach(viewModel.remoteProfiles) { profile in Text(profile.name).tag(Optional(profile.id)) }
+                }
+                .pickerStyle(.menu).padding(.top, 6)
+            }
+        }
+        .font(.system(size: 13, weight: .medium)).foregroundColor(.white.opacity(0.82))
+    }
+
+    @ViewBuilder private var feedback: some View {
+        if let error = viewModel.preparationError ?? viewModel.lastError {
+            Label(error, systemImage: "exclamationmark.circle.fill").font(.system(size: 12)).foregroundColor(.orange)
+        } else if !presentation.blockers.isEmpty {
+            Text(presentation.blockers.joined(separator: ". ") + ".").font(.system(size: 12)).foregroundColor(.white.opacity(0.56))
+        }
+    }
+
+    private var setupAction: some View {
+        HStack {
+            if viewModel.isPreparing {
+                ProgressView().controlSize(.small)
+                Text("Preparing (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())…").font(.system(size: 12)).foregroundColor(.white.opacity(0.68))
+                Button("Cancel") { viewModel.cancelPreparingDraftCard() }.buttonStyle(.bordered).controlSize(.small)
+            }
+            Spacer()
+            if let state = viewModel.activeCard?.localState, state != .notStarted && state != .copying && state != .verifying {
+                Button("Set up next (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") { viewModel.resetForNextCard(); isExpanded = true }.buttonStyle(.bordered)
+            } else {
+                Button("Set up (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") {
+                    guard let sourceURL = coordinator.sourceURL else { return }
+                    viewModel.startPreparingDraftCard(sourceURL: sourceURL, setupSignature: setupSignature)
+                }
+                .buttonStyle(.borderedProminent).tint(.green).disabled(!presentation.canSetUpCard)
+            }
+        }
+    }
+
+    private func setupField(_ title: String, text: Binding<String>, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased()).font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundColor(.white.opacity(0.48))
+            TextField(prompt, text: text).textFieldStyle(.roundedBorder).frame(maxWidth: .infinity)
+        }
+    }
+    private func layerTitle(_ kind: FolderLayerKind) -> String {
+        switch kind {
+        case .photographer: viewModel.selectedWorkflow.contributorLabel
+        case .cardNumber: "(viewModel.selectedWorkflow.sourceUnitLabel) number"
+        case .dateAndJob: "Date and job"
+        case .originals: "Originals"
+        case .camera: "Camera"
+        }
+    }
+    private func hydrateOnce() {
+        guard !didHydrate else { return }; didHydrate = true
+        if let job = viewModel.activeJob { clientName = job.clientName; jobName = job.jobName; eventDate = job.eventDate; viewModel.draftRecipe = job.recipe }
+        if let card = viewModel.activeCard { contributorName = card.provenance.photographerName; cameraName = card.provenance.cameraName; isExpanded = false }
+        else if let camera = coordinator.detectedCamera?.displayName { cameraName = camera }
+        viewModel.sourceDidChange(to: coordinator.sourceURL)
+        viewModel.updateSetupSignature(setupSignature)
     }
 }
 
@@ -914,9 +1193,20 @@ struct StartTransferButtonView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     var plan: TransferPlanPresentation? = nil
     var showsReadinessBanner = true
+    var startsProjectTransfer = false
+
+    private var projectStartPresentation: PhotographerStartPresentation {
+        coordinator.photographerJobViewModel.startPresentation(
+            preflightReady: plan?.canStart ?? coordinator.operationReadinessAssessment.isReady,
+            sourceURL: coordinator.sourceURL,
+            destinationCount: coordinator.destinationURLs.count,
+            verificationMode: coordinator.verificationMode
+        )
+    }
     
     private var canStartTransfer: Bool {
         (plan?.canStart ?? coordinator.operationReadinessAssessment.isReady) &&
+        (!startsProjectTransfer || projectStartPresentation.canStart) &&
         !coordinator.isOperationInProgress
     }
     
@@ -927,6 +1217,10 @@ struct StartTransferButtonView: View {
             return "Select Source Folder"
         } else if coordinator.destinationURLs.isEmpty {
             return "Add Backup Destinations"
+        } else if startsProjectTransfer, let blocker = projectStartPresentation.blocker {
+            return blocker
+        } else if startsProjectTransfer {
+            return "Start Project Transfer"
         } else {
             return plan?.actionTitle ?? "Start Copy & Verify"
         }
@@ -953,7 +1247,11 @@ struct StartTransferButtonView: View {
             // Main button
             Button {
                 Task {
-                    await coordinator.startOperation()
+                    if startsProjectTransfer {
+                        _ = await coordinator.startProjectOperation()
+                    } else {
+                        await coordinator.startOperation()
+                    }
                 }
             } label: {
                 HStack(spacing: 10) {

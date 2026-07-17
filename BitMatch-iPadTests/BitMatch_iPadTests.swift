@@ -54,4 +54,60 @@ struct BitMatch_iPadTests {
         #expect(try store.profiles() == [profile])
     }
 
+    @Test @MainActor func unavailableRemoteCoordinatorPersistsTheChosenDestination() throws {
+        let suiteName = "BitMatch-iPadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = UserDefaultsPhotographerJobStore(defaults: defaults)
+        let job = PhotographerJob(
+            id: UUID(), eventDate: .distantPast, clientName: "Acme", jobName: "Campaign",
+            eventType: .wedding, photographers: [], recipe: .wedding,
+            requiredLocalCopyCount: 2, cardIngests: [], createdAt: .distantPast, updatedAt: .distantPast
+        )
+        let profile = RemoteDestinationProfile(
+            id: UUID(), name: "Studio archive", host: "archive.example", port: 22,
+            username: "mike", root: try RemoteRelativePath(components: ["Backups"]), verificationMode: .sha256
+        )
+        try store.save(job)
+        try store.save(profile)
+
+        let coordinator = UnavailableRemoteProjectCoordinator(store: store)
+        let updated = try coordinator.selectRemoteProfile(profile.id, for: job.id)
+
+        #expect(updated.remoteBackupConfiguration?.destinationProfileID == profile.id)
+        #expect(updated.remoteBackupConfiguration?.isEnabled == true)
+        #expect(try store.jobs().first?.remoteBackupConfiguration == updated.remoteBackupConfiguration)
+    }
+
+    @Test @MainActor func sharedCoordinatorOwnsPortableProjectWorkflow() {
+        let coordinator = SharedAppCoordinator()
+
+        coordinator.photographerJobViewModel.createWeddingJob(
+            clientName: "Acme",
+            jobName: "Campaign",
+            eventDate: .distantPast
+        )
+
+        #expect(coordinator.photographerJobViewModel.activeJob?.clientName == "Acme")
+    }
+
+    @Test @MainActor func sharedCoordinatorWillNotStartAnUnpreparedProjectTransfer() async {
+        let coordinator = SharedAppCoordinator()
+
+        let started = await coordinator.startProjectOperation()
+
+        #expect(!started)
+        #expect(!coordinator.isOperationInProgress)
+    }
+
+    @Test func projectWorkflowUsesTheSameProductLanguageAsMac() {
+        #expect(TransferWorkflowPresentation.quick.title == "Quick transfer")
+        #expect(TransferWorkflowPresentation.project.title == "Project transfer")
+        #expect(TransferWorkflowPresentation.project.detail == "Keep card context and off-site evidence")
+    }
+
+    @Test func notificationPermissionIsNotRequestedAtLaunch() {
+        #expect(!NotificationPermissionPolicy.requestsAtLaunch)
+    }
+
 }

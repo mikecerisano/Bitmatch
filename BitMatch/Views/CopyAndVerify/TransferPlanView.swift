@@ -122,9 +122,9 @@ struct TransferPlanView: View {
                 }
             } label: {
                 transferKindLabel(
-                    title: "Quick transfer",
-                    detail: "Copy, verify, and finish",
-                    icon: "bolt.fill",
+                    title: TransferWorkflowPresentation.quick.title,
+                    detail: TransferWorkflowPresentation.quick.detail,
+                    icon: TransferWorkflowPresentation.quick.symbol,
                     selected: !usesProjectWorkflow && !hasPreparedProjectTransfer
                 )
             }
@@ -137,9 +137,9 @@ struct TransferPlanView: View {
                 }
             } label: {
                 transferKindLabel(
-                    title: "Project transfer",
-                    detail: "Keep card context and off-site evidence",
-                    icon: "folder.badge.gearshape",
+                    title: TransferWorkflowPresentation.project.title,
+                    detail: TransferWorkflowPresentation.project.detail,
+                    icon: TransferWorkflowPresentation.project.symbol,
                     selected: usesProjectWorkflow || hasPreparedProjectTransfer
                 )
             }

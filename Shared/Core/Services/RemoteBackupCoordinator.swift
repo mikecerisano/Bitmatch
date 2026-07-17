@@ -34,7 +34,7 @@ struct KeychainRemoteArtifactBookmarkStore: RemoteArtifactBookmarkStore {
 /// remote queue. It never reads the source card: package roots are derived
 /// only from final `ResultRow.destinationPath` values.
 @MainActor
-final class RemoteBackupCoordinator {
+final class RemoteBackupCoordinator: ProjectRemoteCoordinator {
     private static let pendingCleanupPrefix = "bitmatch-pending-cleanup:"
     typealias BookmarkMaker = (URL) throws -> Data
     typealias BookmarkResolver = (Data) throws -> URL
