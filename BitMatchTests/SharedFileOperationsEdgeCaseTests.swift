@@ -4,6 +4,17 @@ import Testing
 
 struct SharedFileOperationsEdgeCaseTests {
 
+    @Test func pinnedDestinationAcceptsTheSystemTemporaryDirectoryAlias() throws {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bitmatch_pinned_destination_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        let pinned = try PinnedDestinationDirectory.open(destination: destination, rootComponents: [])
+
+        #expect(pinned.logicalRootURL.standardizedFileURL == destination.standardizedFileURL)
+    }
+
     @Test
     func testPinnedDestinationRejectsSymlinkedIntermediateSelectedFolder() async throws {
         try await FileOperationsTestLock.shared.run {

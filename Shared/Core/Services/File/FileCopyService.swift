@@ -112,7 +112,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
     /// every selected-destination component, not merely the final one.
     private static func openDirectory(at url: URL, description: String) throws -> Int32 {
         let flags = O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
-        let components = url.standardizedFileURL.pathComponents
+        let components = descriptorSafePathComponents(for: url)
         guard components.first == "/" else {
             throw FileOperationError.unsafeOperation("\(description) must be an absolute folder")
         }
@@ -124,7 +124,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
                 try validate(component: component)
                 let childFD = component.withCString { openat(currentFD, $0, flags) }
                 guard childFD >= 0 else {
-                    if errno == ELOOP {
+                    if errno == ELOOP || (errno == ENOTDIR && isSymbolicLink(named: component, relativeTo: currentFD)) {
                         throw FileOperationError.unsafeOperation("\(description) contains a symbolic link")
                     }
                     throw posixError("Unable to open \(description) component \(component)")
@@ -137,6 +137,25 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
             _ = Darwin.close(currentFD)
             throw error
         }
+    }
+
+    /// macOS exposes /var, /tmp, and /etc as system-owned aliases beneath
+    /// /private. Resolve only those fixed aliases before descriptor traversal;
+    /// every user-selected component still uses O_NOFOLLOW and is rejected if
+    /// it is a symlink.
+    private static func descriptorSafePathComponents(for url: URL) -> [String] {
+        let components = url.standardizedFileURL.pathComponents
+        guard components.count > 1,
+              ["var", "tmp", "etc"].contains(components[1]) else {
+            return components
+        }
+        return ["/", "private"] + Array(components.dropFirst())
+    }
+
+    private static func isSymbolicLink(named name: String, relativeTo directoryFD: Int32) -> Bool {
+        var info = stat()
+        let status = name.withCString { fstatat(directoryFD, $0, &info, AT_SYMLINK_NOFOLLOW) }
+        return status == 0 && (info.st_mode & S_IFMT) == S_IFLNK
     }
 
     private static func openOrCreateDirectory(named name: String, relativeTo parentFD: Int32) throws -> Int32 {

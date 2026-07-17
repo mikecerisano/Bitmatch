@@ -491,10 +491,18 @@ final class AppCoordinator: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let cameraCard = notification.userInfo?["cameraCard"] as? CameraCard else { return }
-                guard let self, self.settingsViewModel.prefs.enableAutoCameraDetection,
-                      self.settingsViewModel.prefs.autoPopulateSource,
-                      self.fileSelectionViewModel.sourceURL == nil else { return }
-                self.fileSelectionViewModel.sourceURL = cameraCard.mediaPath
+                guard let self, self.settingsViewModel.prefs.enableAutoCameraDetection else { return }
+                let sourceURL = cameraCard.mediaPath
+                let shouldSelect = AutomaticSourceSelectionPolicy.shouldSelect(
+                    automaticSelectionEnabled: self.settingsViewModel.prefs.autoPopulateSource,
+                    hasExistingSource: self.fileSelectionViewModel.sourceURL != nil,
+                    isReadable: FileManager.default.isReadableFile(atPath: sourceURL.path)
+                )
+                guard shouldSelect else {
+                    SharedLogger.info("Detected camera card is available, but BitMatch did not auto-select it without readable access.", category: .transfer)
+                    return
+                }
+                self.fileSelectionViewModel.sourceURL = sourceURL
             }.store(in: &cancellables)
 
         if settingsViewModel.prefs.enableAutoCameraDetection {

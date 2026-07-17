@@ -124,11 +124,9 @@ final class FileSelectionViewModel: ObservableObject {
             }
         }
         
-        // Auto-populate first detected camera card as source if none selected
-        if sourceURL == nil, let firstCard = cards.first {
-            sourceURL = firstCard.url
-            SharedLogger.info("Auto-selected camera card: \(firstCard.displayName)", category: .transfer)
-        }
+        // Volume discovery only updates the available-card list. Choosing a
+        // source belongs to the explicit auto-source policy in AppCoordinator,
+        // which first proves the card is readable.
     }
     
     private func handleBackupDrivesUpdate(_ drives: [VolumeMonitorService.DetectedVolume]) {

@@ -130,7 +130,17 @@ struct ReportPrefs: Codable {
     var makeReport: Bool = true
     var verifyWithChecksum: Bool = true
     var enableAutoCameraDetection: Bool = true
-    var autoPopulateSource: Bool = true
+    var autoPopulateSource: Bool = false
     var showCameraDetectionNotifications: Bool = true
     var checksumAlgorithm: ChecksumAlgorithm = .sha256
+}
+
+enum AutomaticSourceSelectionPolicy {
+    static func shouldSelect(
+        automaticSelectionEnabled: Bool,
+        hasExistingSource: Bool,
+        isReadable: Bool
+    ) -> Bool {
+        automaticSelectionEnabled && !hasExistingSource && isReadable
+    }
 }
