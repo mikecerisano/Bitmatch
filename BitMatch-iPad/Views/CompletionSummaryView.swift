@@ -47,6 +47,10 @@ struct CompletionStatusHeaderView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     let verdict: CompletionVerdict
 
+    private var presentation: CompletionVerdictPresentation {
+        CompletionVerdictPresentation.make(verdict)
+    }
+
     private var statusIcon: String {
         switch verdict {
         case .success: "checkmark.circle.fill"
@@ -74,12 +78,12 @@ struct CompletionStatusHeaderView: View {
     var body: some View {
         VStack(spacing: 12) {
             // Status icon
-            Image(systemName: statusIcon)
+            Image(systemName: presentation.symbol)
                 .font(.system(size: 48, weight: .light))
                 .foregroundColor(statusColor)
             
             // Status title
-            Text(statusTitle)
+            Text(presentation.title)
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
@@ -90,6 +94,10 @@ struct CompletionStatusHeaderView: View {
                     .font(.system(size: 14))
                     .foregroundColor(.white.opacity(0.7))
             }
+            Text(presentation.detail)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.68))
+                .multilineTextAlignment(.center)
         }
     }
 }
@@ -256,7 +264,7 @@ struct ErrorDetailsView: View {
                     }
                 }
                 
-                Text("Review failed files before clearing source media.")
+                Text(CompletionVerdictPresentation.make(verdict).sourceGuidance ?? "Review transfer evidence before clearing source media.")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.85))
             }

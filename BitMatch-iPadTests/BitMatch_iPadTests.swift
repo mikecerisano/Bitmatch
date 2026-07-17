@@ -120,4 +120,13 @@ struct BitMatch_iPadTests {
         #expect(verifying.controlTitle == "Pause")
     }
 
+    @Test func completionEvidenceUsesTheSameSafetyGuidanceAsMac() {
+        let success = CompletionVerdictPresentation.make(.success)
+        let issues = CompletionVerdictPresentation.make(.issues)
+
+        #expect(success.title == "Transfer complete")
+        #expect(issues.title == "Review required")
+        #expect(issues.sourceGuidance == "Review failed files before clearing source media.")
+    }
+
 }
