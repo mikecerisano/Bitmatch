@@ -20,6 +20,11 @@ struct InterfaceLabNavigationTests {
         #expect(InterfaceLabRoute.allCases.contains(.issues))
     }
 
+    @Test func compactWindowsUseANavigableMenuInsteadOfCrampedSegments() {
+        #expect(InterfaceLabNavigationPolicy.presentation(for: 759) == .menu)
+        #expect(InterfaceLabNavigationPolicy.presentation(for: 760) == .segmented)
+    }
+
     @Test func windowsRemainManuallyResizable() {
         #expect(WindowPresentationPolicy.allowsManualResizing)
     }

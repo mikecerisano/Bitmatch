@@ -34,11 +34,7 @@ struct InterfaceLabView: View {
             Divider().overlay(Color.white.opacity(0.09))
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Picker("Interface state", selection: $route) {
-                        ForEach(InterfaceLabRoute.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityLabel("Interface lab state")
+                    navigation
                     content
                 }
                 .padding(22)
@@ -65,6 +61,46 @@ struct InterfaceLabView: View {
                 .padding(.horizontal, 9).padding(.vertical, 5).background(Capsule().fill(Color.green.opacity(0.12)))
         }
         .padding(.horizontal, 22).padding(.vertical, 14)
+    }
+
+    private var navigation: some View {
+        GeometryReader { proxy in
+            if InterfaceLabNavigationPolicy.presentation(for: proxy.size.width) == .segmented {
+                Picker("Interface state", selection: $route) {
+                    ForEach(InterfaceLabRoute.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Interface lab state")
+            } else {
+                HStack(spacing: 8) {
+                    Text("Previewing")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundColor(.white.opacity(0.46))
+                    Spacer()
+                    Menu {
+                        ForEach(InterfaceLabRoute.allCases) { route in
+                            Button {
+                                self.route = route
+                            } label: {
+                                Label(route.rawValue, systemImage: route.symbol)
+                            }
+                        }
+                    } label: {
+                        Label(route.rawValue, systemImage: route.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.09)))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .accessibilityLabel("Interface lab state")
+                    .accessibilityValue(route.rawValue)
+                }
+            }
+        }
+        .frame(height: 32)
     }
 
     @ViewBuilder private var content: some View {
@@ -229,3 +265,17 @@ struct InterfaceLabView: View {
 }
 
 private extension View { func panel() -> some View { padding(14).background(RoundedRectangle(cornerRadius: 13).fill(Color.white.opacity(0.045)).overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.white.opacity(0.09)))) } }
+
+private extension InterfaceLabRoute {
+    var symbol: String {
+        switch self {
+        case .setup: "slider.horizontal.3"
+        case .transfer: "arrow.right.circle"
+        case .evidence: "checkmark.seal"
+        case .issues: "exclamationmark.triangle"
+        case .compare: "arrow.left.arrow.right"
+        case .report: "doc.text"
+        case .settings: "gearshape"
+        }
+    }
+}
