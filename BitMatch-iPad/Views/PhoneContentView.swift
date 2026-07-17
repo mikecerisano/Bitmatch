@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct PhoneContentView: View {
-    @StateObject private var coordinator = SharedAppCoordinator()
+    @ObservedObject var coordinator: SharedAppCoordinator
     @State private var cameraLabelExpanded = false
     @State private var verificationModeExpanded = false
     @State private var showSettings = false
@@ -22,7 +22,7 @@ struct PhoneContentView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Tabs
-                        HeaderTabsView(coordinator: coordinator)
+                        AdaptiveModeNavigation(coordinator: coordinator, presentation: .compact)
 
                         switch coordinator.currentMode {
                         case .copyAndVerify:
@@ -80,4 +80,3 @@ struct PhoneContentView: View {
         }
     }
 }
-

@@ -83,14 +83,18 @@ struct QueuedTransfer: Identifiable {
 
 // MARK: - Main ContentView using Modular Architecture
 struct ContentView: View {
-    @Environment(\.horizontalSizeClass) private var hSize
+    @StateObject private var coordinator = SharedAppCoordinator()
     
     var body: some View {
-        Group {
-            if hSize == .compact {
-                PhoneContentView()
-            } else {
-                ModularContentView()
+        GeometryReader { proxy in
+            switch AdaptiveNavigationPolicy.presentation(for: proxy.size.width) {
+            case .compact:
+                PhoneContentView(coordinator: coordinator)
+            case .toolbar, .sidebar:
+                ModularContentView(
+                    coordinator: coordinator,
+                    navigationPresentation: AdaptiveNavigationPolicy.presentation(for: proxy.size.width)
+                )
             }
         }
     }

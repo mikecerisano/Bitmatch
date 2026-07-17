@@ -3,7 +3,8 @@ import SwiftUI
 import UIKit
 
 struct ModularContentView: View {
-    @StateObject private var coordinator = SharedAppCoordinator()
+    @ObservedObject var coordinator: SharedAppCoordinator
+    let navigationPresentation: AdaptiveNavigationPresentation
     @State private var showingSettings = false
     @State private var showingVolumeSelector = false
     @State private var showCancelToast = false
@@ -90,7 +91,7 @@ extension ModularContentView {
                     }
             } else {
                 // IDLE STATE: Show file selection interface
-                IdleStateView(coordinator: coordinator)
+                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation)
                     .onAppear {
                         SharedLogger.debug("UI switched to IDLE view")
                     }
@@ -127,30 +128,39 @@ struct HeaderSectionView: View {
 
 struct IdleStateView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    let navigationPresentation: AdaptiveNavigationPresentation
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Top tabs navigation
-            HeaderTabsView(coordinator: coordinator)
-            
-            // Main scrollable content - switches based on selected mode
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Content switches based on current mode using components
-                    switch coordinator.currentMode {
-                    case .copyAndVerify:
-                        CopyAndVerifyView(coordinator: coordinator)
-                            // Keep the transfer plan readable on wide iPads while
-                            // leaving the compact operation interface untouched.
-                            .frame(maxWidth: 1_100)
-                    case .compareFolders:
-                        CompareFoldersView(coordinator: coordinator)
-                    case .masterReport:
-                        MasterReportView(coordinator: coordinator)
-                    }
+        Group {
+            if navigationPresentation == .sidebar {
+                HStack(alignment: .top, spacing: 0) {
+                    AdaptiveModeNavigation(coordinator: coordinator, presentation: .sidebar)
+                    Divider().overlay(Color.white.opacity(0.09))
+                    modeContent
                 }
-                .padding(.bottom, 20)
+            } else {
+                VStack(spacing: 0) {
+                    AdaptiveModeNavigation(coordinator: coordinator, presentation: .toolbar)
+                    modeContent
+                }
             }
+        }
+    }
+
+    private var modeContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                switch coordinator.currentMode {
+                case .copyAndVerify:
+                    CopyAndVerifyView(coordinator: coordinator)
+                        .frame(maxWidth: 1_100)
+                case .compareFolders:
+                    CompareFoldersView(coordinator: coordinator)
+                case .masterReport:
+                    MasterReportView(coordinator: coordinator)
+                }
+            }
+            .padding(.bottom, 20)
         }
     }
 }

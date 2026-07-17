@@ -25,4 +25,10 @@ struct BitMatch_iPadTests {
         #endif
     }
 
+    @Test func navigationReflowsFromPhoneToTabletToWorkbench() {
+        #expect(AdaptiveNavigationPolicy.presentation(for: 390) == .compact)
+        #expect(AdaptiveNavigationPolicy.presentation(for: 744) == .toolbar)
+        #expect(AdaptiveNavigationPolicy.presentation(for: 1_024) == .sidebar)
+    }
+
 }
