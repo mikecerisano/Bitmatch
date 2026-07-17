@@ -22,6 +22,7 @@ struct CompactTransferCard: View {
     let destinationProgress: [Double] // Individual progress for each destination
     
     @State private var hoveredDestinationIndex: Int? = nil
+    @State private var availableWidth: CGFloat = TransferCardLayoutPolicy.horizontalThreshold
     
     // Popup callback
     let onDestinationTap: ((Int, URL, Double, CGRect) -> Void)?
@@ -59,19 +60,26 @@ struct CompactTransferCard: View {
     }
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Left: Source info (compact)
-            sourceSection
-            
-            // Middle: Progress and connection lines
-            progressSection
-            
-            // Right: Destinations (compact)
-            destinationsSection
+        Group {
+            if layout == .horizontal {
+                HStack(spacing: 12) {
+                    sourceSection
+                    progressSection
+                    destinationsSection
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    sourceSection
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    progressSection
+                    destinationsSection
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .frame(height: dynamicHeight)
+        .frame(minHeight: dynamicHeight)
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(backgroundFill)
@@ -82,6 +90,7 @@ struct CompactTransferCard: View {
         )
         .scaleEffect(scaleEffect)
         .opacity(opacity)
+        .background(widthReader)
     }
     
     // MARK: - Dynamic Properties
@@ -105,8 +114,14 @@ struct CompactTransferCard: View {
             baseHeight = 60
         }
         
-        // Ensure we have enough height for all destinations
-        return max(baseHeight, destinationHeight + 24) // +24 for top/bottom padding
+        if layout == .stacked {
+            return max(128, destinationHeight + 70)
+        }
+        return max(baseHeight, destinationHeight + 24)
+    }
+
+    private var layout: TransferCardLayoutPresentation {
+        TransferCardLayoutPolicy.presentation(for: availableWidth)
     }
     
     private var scaleEffect: CGFloat {
@@ -210,7 +225,7 @@ struct CompactTransferCard: View {
                 }
             }
         }
-        .frame(width: 120, alignment: .leading)
+        .frame(width: layout == .horizontal ? 120 : nil, alignment: .leading)
     }
     
     // MARK: - Progress Section  
@@ -282,7 +297,10 @@ struct CompactTransferCard: View {
                 destinationRow(destination, index: index)
             }
         }
-        .frame(width: max(140, CGFloat(destinations.count * 35)), alignment: .trailing)
+        .frame(
+            width: layout == .horizontal ? max(140, CGFloat(destinations.count * 35)) : nil,
+            alignment: .trailing
+        )
     }
     
     @ViewBuilder
@@ -383,6 +401,14 @@ struct CompactTransferCard: View {
         case .verifying: return "Verifying..."
         case .completed: return "✓ Complete"
         case .queued: return "Queued"
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { availableWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in availableWidth = width }
         }
     }
     
