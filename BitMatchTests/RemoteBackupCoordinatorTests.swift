@@ -156,13 +156,18 @@ struct RemoteBackupCoordinatorTests {
 
 @MainActor
 private final class CoordinatorFixture {
-    let sourceCard = URL(fileURLWithPath: "/Volumes/CARD")
-    let destinationPackage = URL(fileURLWithPath: "/Volumes/Archive/Job/Card-001")
+    let sourceCard: URL
+    let destinationPackage: URL
     let store: CoordinatorStore
     let bookmarks = CoordinatorBookmarkStore()
-    var checksum: String
-    var scopeStarts = 0
-    var scopeStops = 0
+    private let checksumBox: ChecksumBox
+    var checksum: String {
+        get { checksumBox.value }
+        set { checksumBox.value = newValue }
+    }
+    private let scopeCounter: ScopeCounter
+    var scopeStarts: Int { scopeCounter.starts }
+    var scopeStops: Int { scopeCounter.stops }
     let job: PhotographerJob
     let card: CardIngest
     let rows: [ResultRow]
@@ -173,7 +178,14 @@ private final class CoordinatorFixture {
         checksum: String = String(repeating: "a", count: 64),
         fileCount: Int = 1
     ) throws {
-        self.checksum = checksum
+        let sourceCard = URL(fileURLWithPath: "/Volumes/CARD")
+        let destinationPackage = URL(fileURLWithPath: "/Volumes/Archive/Job/Card-001")
+        let checksumBox = ChecksumBox(checksum)
+        let scopeCounter = ScopeCounter()
+        self.sourceCard = sourceCard
+        self.destinationPackage = destinationPackage
+        self.checksumBox = checksumBox
+        self.scopeCounter = scopeCounter
         let card = CardIngest(
             id: UUID(),
             provenance: CardProvenance(
@@ -215,15 +227,44 @@ private final class CoordinatorFixture {
             makeBookmark: { Data($0.path.utf8) },
             resolveBookmark: { URL(fileURLWithPath: String(decoding: $0, as: UTF8.self)) },
             fileSize: { _ in 3 },
-            sha256: { [weak self] _ in self?.checksum ?? "" },
-            startSecurityScope: { [weak self] _ in self?.recordScopeStart() ?? false },
-            stopSecurityScope: { [weak self] _ in self?.recordScopeStop() },
+            sha256: { _ in checksumBox.value },
+            startSecurityScope: { [scopeCounter] _ in scopeCounter.recordStart() },
+            stopSecurityScope: { [scopeCounter] _ in scopeCounter.recordStop() },
             now: { Date(timeIntervalSince1970: 3) }
         )
     }
+}
 
-    private func recordScopeStart() -> Bool { scopeStarts += 1; return true }
-    private func recordScopeStop() { scopeStops += 1 }
+private final class ChecksumBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: String
+
+    init(_ value: String) {
+        storedValue = value
+    }
+
+    var value: String {
+        get { lock.withLock { storedValue } }
+        set { lock.withLock { storedValue = newValue } }
+    }
+}
+
+private final class ScopeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startCount = 0
+    private var stopCount = 0
+
+    var starts: Int { lock.withLock { startCount } }
+    var stops: Int { lock.withLock { stopCount } }
+
+    func recordStart() -> Bool {
+        lock.withLock { startCount += 1 }
+        return true
+    }
+
+    func recordStop() {
+        lock.withLock { stopCount += 1 }
+    }
 }
 
 @MainActor

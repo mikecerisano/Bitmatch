@@ -71,7 +71,9 @@ struct TransferPlanView: View {
     private var transferKindControl: some View {
         HStack(spacing: 10) {
             Button {
-                usesProjectWorkflow = false
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    usesProjectWorkflow = false
+                }
             } label: {
                 transferKindLabel(
                     title: "Quick transfer",
@@ -84,7 +86,9 @@ struct TransferPlanView: View {
             .disabled(hasPreparedProjectTransfer)
 
             Button {
-                usesProjectWorkflow = true
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    usesProjectWorkflow = true
+                }
             } label: {
                 transferKindLabel(
                     title: "Project transfer",
@@ -97,6 +101,7 @@ struct TransferPlanView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Transfer workflow")
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
     }
 
     private func transferKindLabel(title: String, detail: String, icon: String, selected: Bool) -> some View {

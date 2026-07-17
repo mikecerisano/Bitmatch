@@ -52,6 +52,12 @@ final class PhotographerJobViewModel: ObservableObject {
         activeCard?.localState == .notStarted
     }
 
+    /// A project type describes the evidence already recorded for its media.
+    /// It remains editable until the first package is prepared.
+    var isWorkflowLocked: Bool {
+        !(activeJob?.cardIngests.isEmpty ?? true)
+    }
+
     var dashboardJob: PhotographerJob? {
         guard let dashboardJobID else { return activeJob }
         if activeJob?.id == dashboardJobID { return activeJob }
@@ -126,6 +132,11 @@ final class PhotographerJobViewModel: ObservableObject {
 
     func selectWorkflow(_ workflow: ProjectWorkflow) {
         guard selectedWorkflow != workflow else { return }
+
+        guard !isWorkflowLocked else {
+            preparationError = "Project type is fixed after the first media package is prepared."
+            return
+        }
         selectedWorkflow = workflow
         draftRecipe = workflow.defaultRecipe
         setupPreparationInvalidated = true
@@ -136,6 +147,16 @@ final class PhotographerJobViewModel: ObservableObject {
         renderedRecipe = nil
         preliminaryAnalysis = nil
         preparationError = nil
+
+        if var job = activeJob {
+            job.workflow = workflow
+            job.recipe = draftRecipe
+            do {
+                try persistThrowing(job)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
     }
 
     func prepareCard(
@@ -262,6 +283,7 @@ final class PhotographerJobViewModel: ObservableObject {
            job.eventDate == eventDate,
            job.eventType == .wedding {
             job.recipe = draftRecipe
+            job.workflow = selectedWorkflow
             try persistThrowing(job)
         } else {
             createWeddingJob(clientName: clientName, jobName: jobName, eventDate: eventDate)
@@ -343,6 +365,7 @@ final class PhotographerJobViewModel: ObservableObject {
             job.eventDate = setupSignature.eventDate
             job.eventType = .wedding
             job.recipe = setupSignature.recipe
+            job.workflow = selectedWorkflow
             try persistThrowing(job)
         } else if var job = activeJob,
                   job.clientName == setupSignature.clientName,
@@ -350,6 +373,7 @@ final class PhotographerJobViewModel: ObservableObject {
                   job.eventDate == setupSignature.eventDate,
                   job.eventType == .wedding {
             job.recipe = setupSignature.recipe
+            job.workflow = selectedWorkflow
             try persistThrowing(job)
         } else {
             draftRecipe = setupSignature.recipe
@@ -714,6 +738,7 @@ final class PhotographerJobViewModel: ObservableObject {
             jobs.append(updatedJob)
         }
         activeJob = updatedJob
+        selectedWorkflow = updatedJob.workflow
     }
 
     func resetForNextCard() {
@@ -761,8 +786,8 @@ final class PhotographerJobViewModel: ObservableObject {
     }
 
     func selectPreset(id: UUID) {
-        if id == FolderRecipe.wedding.id {
-            draftRecipe = .wedding
+        if let builtInRecipe = FolderRecipe.builtInRecipe(id: id) {
+            draftRecipe = builtInRecipe
         } else if let preset = presets.first(where: { $0.id == id }) {
             draftRecipe = preset.recipe
         }
@@ -809,6 +834,8 @@ final class PhotographerJobViewModel: ObservableObject {
             jobs = recoveredJobs.sorted { $0.updatedAt > $1.updatedAt }
             activeJob = jobs.first
             dashboardJobID = activeJob?.id
+            selectedWorkflow = activeJob?.workflow ?? .photography
+            draftRecipe = activeJob?.recipe ?? selectedWorkflow.defaultRecipe
             if recoveredCardCount > 0 {
                 lastError = "Recovered \(recoveredCardCount) interrupted photographer \(recoveredCardCount == 1 ? "card" : "cards") and marked them as issues. Set up a new card to retry."
             } else {
@@ -968,6 +995,7 @@ final class PhotographerJobViewModel: ObservableObject {
         updated.updatedAt = now()
         try store.save(updated)
         activeJob = updated
+        selectedWorkflow = updated.workflow
         if let index = jobs.firstIndex(where: { $0.id == updated.id }) {
             jobs[index] = updated
         } else {

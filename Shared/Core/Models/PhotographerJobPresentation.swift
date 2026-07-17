@@ -18,6 +18,7 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
         cameraName: String,
         cardNumber: Int,
         recipe: FolderRecipe,
+        workflow: ProjectWorkflow = .photography,
         duplicateWarningText: String?,
         hasSource: Bool = true,
         isPreparing: Bool = false
@@ -29,10 +30,10 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
         var blockers: [String] = []
         if cleanClient.isEmpty { blockers.append("Enter a client") }
         if cleanJob.isEmpty { blockers.append("Enter a job name") }
-        if cleanPhotographer.isEmpty { blockers.append("Enter a photographer") }
+        if cleanPhotographer.isEmpty { blockers.append("Enter a \(workflow.contributorLabel.lowercased())") }
         if cleanCamera.isEmpty { blockers.append("Enter a camera") }
-        if !hasSource { blockers.append("Choose a source card") }
-        if isPreparing { blockers.append("Card setup is still preparing") }
+        if !hasSource { blockers.append("Choose a source \(workflow.sourceUnitLabel.lowercased())") }
+        if isPreparing { blockers.append("\(workflow.sourceUnitLabel) setup is still preparing") }
 
         let rendered = try? FolderRecipeRenderer.render(
             recipe,
@@ -51,7 +52,7 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
                 cleanJob,
                 cleanPhotographer,
                 cleanCamera,
-                String(format: "Card %03d", cardNumber)
+                "\(workflow.sourceUnitLabel) " + String(format: "%03d", cardNumber)
             ].filter { !$0.isEmpty }.joined(separator: " · "),
             pathPreview: rendered?.relativePath ?? "Complete setup to preview the package path",
             blockers: blockers,
@@ -70,6 +71,26 @@ struct PhotographerStartContext: Equatable, Sendable {
     let destinationCount: Int
     let requiredDestinationCount: Int
     let verificationMode: VerificationMode
+
+    init(
+        preflightReady: Bool,
+        isPreparing: Bool,
+        activeCardState: PhotographerLocalState?,
+        sourceMatches: Bool,
+        setupMatches: Bool,
+        destinationCount: Int,
+        requiredDestinationCount: Int,
+        verificationMode: VerificationMode = .standard
+    ) {
+        self.preflightReady = preflightReady
+        self.isPreparing = isPreparing
+        self.activeCardState = activeCardState
+        self.sourceMatches = sourceMatches
+        self.setupMatches = setupMatches
+        self.destinationCount = destinationCount
+        self.requiredDestinationCount = requiredDestinationCount
+        self.verificationMode = verificationMode
+    }
 }
 
 struct PhotographerStartPresentation: Equatable, Sendable {
@@ -182,7 +203,8 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
     static func make(
         card: CardIngest,
         verifiedDestinationCount: Int,
-        requiredCopyCount: Int = 0
+        requiredCopyCount: Int = 0,
+        workflow: ProjectWorkflow = .photography
     ) -> Self {
         let status = status(for: card.localState)
         let copyTitle = requiredCopyCount > 0
@@ -192,7 +214,7 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
             id: card.id,
             photographerName: card.provenance.photographerName,
             cameraName: card.provenance.cameraName,
-            cardTitle: String(format: "Card %03d", card.provenance.cardNumber),
+            cardTitle: "\(workflow.sourceUnitLabel) " + String(format: "%03d", card.provenance.cardNumber),
             fileCountTitle: formattedFileCount(card.fileCount),
             byteCountTitle: ByteCountFormatter.string(fromByteCount: card.totalBytes, countStyle: .file),
             renderedPath: card.renderedRelativePath,
@@ -241,7 +263,8 @@ struct PhotographerSessionPresentation: Equatable, Sendable {
             return PhotographerCardRowPresentation.make(
                 card: card,
                 verifiedDestinationCount: card.verifiedDestinationCount,
-                requiredCopyCount: required
+                requiredCopyCount: required,
+                workflow: job.workflow
             )
         }
         let copyNoun = required == 1 ? "copy" : "copies"

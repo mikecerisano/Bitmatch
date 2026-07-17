@@ -94,30 +94,174 @@ struct RemoteBackupDestinationManager: View {
     @State private var root = "Backups"
     @State private var verification: RemoteVerificationMode = .sha256
     @State private var editingID: UUID?
+    @State private var validationMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("SFTP destinations").font(.headline)
-                Spacer()
-                if showsDoneButton { Button("Done") { dismiss() } }
-            }
-            List {
-                ForEach(viewModel.remoteProfiles) { profile in
-                    HStack { VStack(alignment: .leading) { Text(profile.name); Text("\(profile.username)@\(profile.host) · \(profile.root.description)").font(.caption) }; Spacer(); Button("Edit") { load(profile) }; Button("Test") { coordinator.testRemoteProfile(profile) }; Button("Delete", role: .destructive) { viewModel.deleteRemoteProfile(id: profile.id) } }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "externaldrive.connected.to.line.below")
+                        .foregroundStyle(.tint)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("SFTP destinations").font(.headline)
+                        Text("Saved destinations can be reused from any project.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if showsDoneButton { Button("Done") { dismiss() } }
                 }
-            }.frame(height: 130)
-            TextField("Name", text: $name); TextField("Host", text: $host); TextField("Port", text: $port); TextField("Username", text: $username); TextField("Relative root", text: $root)
-            Picker("Verification", selection: $verification) { Text("SHA-256 read-back").tag(RemoteVerificationMode.sha256); Text("Upload only").tag(RemoteVerificationMode.uploadOnly) }
-            Text("Authentication uses your macOS SSH agent. No password, private key, or passphrase is stored or displayed.").font(.caption).foregroundStyle(.secondary)
-            Button("Save destination", action: save).disabled(name.isEmpty || host.isEmpty || username.isEmpty)
-        }.padding().frame(width: 420)
+
+                if viewModel.remoteProfiles.isEmpty {
+                    ContentUnavailableView(
+                        "No saved destinations",
+                        systemImage: "externaldrive.badge.plus",
+                        description: Text("Add an SFTP destination below. BitMatch will use your SSH agent when it connects.")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(viewModel.remoteProfiles) { profile in
+                            destinationRow(profile)
+                        }
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(editingID == nil ? "Add destination" : "Edit destination")
+                        .font(.headline)
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                        GridRow {
+                            field("Name", text: $name, prompt: "Studio archive")
+                            field("Host", text: $host, prompt: "backup.example.com")
+                        }
+                        GridRow {
+                            field("Port", text: $port, prompt: "22")
+                            field("Username", text: $username, prompt: "mike")
+                        }
+                    }
+                    field("Relative root", text: $root, prompt: "Backups/2026")
+                    Picker("Verification", selection: $verification) {
+                        Text("SHA-256 read-back").tag(RemoteVerificationMode.sha256)
+                        Text("Upload only").tag(RemoteVerificationMode.uploadOnly)
+                    }
+                    .pickerStyle(.menu)
+
+                    if let validationMessage {
+                        Label(validationMessage, systemImage: "exclamationmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    HStack {
+                        Button(editingID == nil ? "Save destination" : "Save changes", action: save)
+                            .buttonStyle(.borderedProminent)
+                            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if editingID != nil {
+                            Button("Cancel", action: clearForm)
+                        }
+                    }
+                }
+
+                Label("Authentication uses your macOS SSH agent. BitMatch never stores or displays your password, private key, or passphrase.", systemImage: "lock.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+        }
+        .frame(width: 460)
+        .animation(.easeInOut(duration: 0.2), value: editingID)
     }
+
+    private func destinationRow(_ profile: RemoteDestinationProfile) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "network")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.name).font(.subheadline.weight(.semibold))
+                Text("\(profile.username)@\(profile.host) · \(profile.root.description)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Text(profile.verificationMode == .sha256 ? "SHA-256 read-back" : "Upload only")
+                    .font(.caption2)
+                    .foregroundStyle(profile.verificationMode == .sha256 ? Color.secondary : Color.orange)
+            }
+            Spacer(minLength: 8)
+            Menu {
+                Button("Test connection") { coordinator.testRemoteProfile(profile) }
+                Button("Edit") { load(profile) }
+                Divider()
+                Button("Delete", role: .destructive) {
+                    if editingID == profile.id { clearForm() }
+                    viewModel.deleteRemoteProfile(id: profile.id)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.55)))
+    }
+
+    private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            TextField(prompt, text: text)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: text.wrappedValue) { _, _ in validationMessage = nil }
+        }
+    }
+
     private func save() {
-        guard let port = Int(port), let relativeRoot = try? RemoteRelativePath(components: root.split(separator: "/").map(String.init)) else { return }
-        viewModel.saveRemoteProfile(RemoteDestinationProfile(id: editingID ?? UUID(), name: name, host: host, port: port, username: username, root: relativeRoot, verificationMode: verification))
-        name = ""; host = ""; username = ""
-        editingID = nil
+        guard let port = Int(port), (1...65_535).contains(port) else {
+            validationMessage = "Enter a port from 1 to 65,535."
+            return
+        }
+        guard let relativeRoot = try? RemoteRelativePath(components: root.split(separator: "/").map(String.init)) else {
+            validationMessage = "Enter a safe relative folder path."
+            return
+        }
+        viewModel.saveRemoteProfile(RemoteDestinationProfile(
+            id: editingID ?? UUID(),
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            host: host.trimmingCharacters(in: .whitespacesAndNewlines),
+            port: port,
+            username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            root: relativeRoot,
+            verificationMode: verification
+        ))
+        clearForm()
     }
-    private func load(_ profile: RemoteDestinationProfile) { editingID = profile.id; name = profile.name; host = profile.host; port = "\(profile.port)"; username = profile.username; root = profile.root.description; verification = profile.verificationMode }
+
+    private func load(_ profile: RemoteDestinationProfile) {
+        editingID = profile.id
+        name = profile.name
+        host = profile.host
+        port = "\(profile.port)"
+        username = profile.username
+        root = profile.root.description
+        verification = profile.verificationMode
+        validationMessage = nil
+    }
+
+    private func clearForm() {
+        name = ""
+        host = ""
+        port = "22"
+        username = ""
+        root = "Backups"
+        verification = .sha256
+        editingID = nil
+        validationMessage = nil
+    }
 }

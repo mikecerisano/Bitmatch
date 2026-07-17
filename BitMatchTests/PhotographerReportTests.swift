@@ -305,7 +305,7 @@ struct PhotographerReportTests {
         )
 
         #expect(payload.card.localState == .issues)
-        #expect(payload.results.allSatisfy(\.successful))
+        #expect(try payload.results.allSatisfy(\.successful))
         #expect(!ReportView.shouldShowSuccessBadge(issueCount: 0, photographyJob: payload))
         #expect(
             ReportView.photographerVerificationNotice(for: payload) ==

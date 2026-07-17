@@ -18,6 +18,31 @@ struct PhotographerJobViewModelTests {
         #expect(!viewModel.draftRecipe.layers.contains { $0.kind == .photographer })
     }
 
+    @Test func selectingWorkflowUpdatesAnEmptyActiveProjectBeforeItsFirstCard() throws {
+        let store = InMemoryPhotographerJobStore()
+        let viewModel = makeViewModel(store: store)
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Commercial", eventDate: eventDate)
+
+        viewModel.selectWorkflow(.videoDIT)
+
+        let job = try #require(viewModel.activeJob)
+        #expect(job.workflow == .videoDIT)
+        #expect(job.recipe.name == "Video / DIT")
+        #expect(store.storedJobs.first?.workflow == .videoDIT)
+    }
+
+    @Test func workflowCannotChangeAfterFirstMediaPackageIsPrepared() throws {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+        viewModel.createWeddingJob(clientName: "Smith", jobName: "Commercial", eventDate: eventDate)
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "FX6", analysis: analysis("one"))
+
+        viewModel.selectWorkflow(.videoDIT)
+
+        #expect(viewModel.selectedWorkflow == .photography)
+        #expect(viewModel.activeJob?.workflow == .photography)
+        #expect(viewModel.preparationError == "Project type is fixed after the first media package is prepared.")
+    }
+
     @Test func weddingJobUsesWeddingDefaultsAndPersistsCreation() throws {
         let store = InMemoryPhotographerJobStore()
         let viewModel = makeViewModel(store: store)

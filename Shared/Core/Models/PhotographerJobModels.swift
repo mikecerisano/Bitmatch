@@ -82,6 +82,12 @@ struct FolderRecipe: Identifiable, Codable, Equatable, Sendable {
             .dateAndJob, .originals, .cardNumber
         ].map { FolderLayer(id: UUID(), kind: $0, isEnabled: true) }
     )
+
+    static let builtInRecipes = [wedding, videoDIT, generalMedia]
+
+    static func builtInRecipe(id: UUID) -> FolderRecipe? {
+        builtInRecipes.first { $0.id == id }
+    }
 }
 
 extension ProjectWorkflow {

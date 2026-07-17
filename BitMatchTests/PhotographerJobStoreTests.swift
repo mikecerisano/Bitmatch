@@ -351,10 +351,10 @@ struct PhotographerJobStoreTests {
             try? FileManager.default.removeItem(at: storeURL.appendingPathExtension("wal"))
         }
 
-        let legacyModel = try #require(legacyModel())
+        let migratedModel = try #require(legacyModel())
         let legacyContainer = NSPersistentContainer(
             name: "BitMatch",
-            managedObjectModel: legacyModel
+            managedObjectModel: migratedModel
         )
         let legacyDescription = NSPersistentStoreDescription(url: storeURL)
         legacyContainer.persistentStoreDescriptions = [legacyDescription]
@@ -502,7 +502,7 @@ struct PhotographerJobStoreTests {
     }
 
     private func loadPersistentStore(for container: NSPersistentContainer) async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             container.loadPersistentStores { _, error in
                 if let error {
                     continuation.resume(throwing: error)

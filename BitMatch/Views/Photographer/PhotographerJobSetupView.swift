@@ -26,6 +26,7 @@ struct PhotographerJobSetupView: View {
             cameraName: cameraName,
             cardNumber: cardNumber,
             recipe: viewModel.draftRecipe,
+            workflow: viewModel.selectedWorkflow,
             duplicateWarningText: viewModel.duplicateWarning?.message,
             hasSource: coordinator.fileSelectionViewModel.sourceURL != nil,
             isPreparing: viewModel.isPreparing
@@ -81,6 +82,8 @@ struct PhotographerJobSetupView: View {
         .onChange(of: coordinator.fileSelectionViewModel.sourceCameraLabel) { _, label in
             if cameraName.isEmpty, let label { cameraName = label }
         }
+        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+        .animation(.easeInOut(duration: 0.2), value: customizeLayers)
     }
 
     private var disclosureHeader: some View {
@@ -161,7 +164,10 @@ struct PhotographerJobSetupView: View {
             }
         }
         .pickerStyle(.segmented)
-        .accessibilityHint("Sets safe folder defaults for new project cards")
+        .disabled(viewModel.isPreparing || viewModel.isWorkflowLocked)
+        .accessibilityHint(viewModel.isWorkflowLocked
+            ? "Project type is retained after the first media package is prepared"
+            : "Sets safe folder defaults for new project media")
     }
 
     private var layerDisclosure: some View {
@@ -185,7 +191,8 @@ struct PhotographerJobSetupView: View {
                     get: { viewModel.draftRecipe.id },
                     set: { viewModel.selectPreset(id: $0) }
                 )) {
-                    Text("Wedding").tag(FolderRecipe.wedding.id)
+                    Text(viewModel.selectedWorkflow.defaultRecipe.name)
+                        .tag(viewModel.selectedWorkflow.defaultRecipe.id)
                     ForEach(viewModel.presets) { preset in
                         Text(preset.name).tag(preset.id)
                     }
@@ -307,7 +314,7 @@ struct PhotographerJobSetupView: View {
 
     private func layerRow(_ layer: FolderLayer, index: Int) -> some View {
         HStack(spacing: DesignSystem.Spacing.sm) {
-            Toggle(layer.kind.title, isOn: Binding(
+            Toggle(layerTitle(layer.kind), isOn: Binding(
                 get: { viewModel.draftRecipe.layers.first { $0.id == layer.id }?.isEnabled ?? false },
                 set: { viewModel.setDraftLayer(layer.id, isEnabled: $0) }
             ))
@@ -318,13 +325,13 @@ struct PhotographerJobSetupView: View {
             }
             .buttonStyle(.plain)
             .disabled(index == 0)
-            .accessibilityLabel("Move \(layer.kind.title) layer up")
+            .accessibilityLabel("Move \(layerTitle(layer.kind)) layer up")
             Button { viewModel.moveDraftLayer(layer.id, direction: .down) } label: {
                 Image(systemName: "arrow.down")
             }
             .buttonStyle(.plain)
             .disabled(index == viewModel.draftRecipe.layers.count - 1)
-            .accessibilityLabel("Move \(layer.kind.title) layer down")
+            .accessibilityLabel("Move \(layerTitle(layer.kind)) layer down")
         }
         .font(DesignSystem.Typography.caption)
     }
@@ -342,6 +349,14 @@ struct PhotographerJobSetupView: View {
         Text(label)
             .font(DesignSystem.Typography.micro)
             .foregroundColor(DesignSystem.Colors.textTertiary)
+    }
+
+    private func layerTitle(_ kind: FolderLayerKind) -> String {
+        switch kind {
+        case .photographer: viewModel.selectedWorkflow.contributorLabel
+        case .cardNumber: "\(viewModel.selectedWorkflow.sourceUnitLabel) number"
+        default: kind.title
+        }
     }
 
     private func setUpCard() {
