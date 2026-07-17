@@ -29,58 +29,6 @@ extension Color {
     }
 }
 
-// MARK: - Transfer Queue Models
-struct QueuedTransfer: Identifiable {
-    let id = UUID()
-    let sourceURL: URL
-    let sourceFolderInfo: FolderInfo?
-    let destinations: [URL]
-    let state: TransferState
-    let progress: Double
-    let currentFile: String?
-    let speed: String?
-    let timeRemaining: String?
-    var createdAt: Date = Date()
-    
-    enum TransferState {
-        case idle
-        case copying
-        case verifying
-        case completed
-        case queued
-        
-        var icon: String {
-            switch self {
-            case .idle: return "folder.fill"
-            case .copying: return "doc.on.doc.fill"
-            case .verifying: return "checkmark.shield.fill"
-            case .completed: return "checkmark.circle.fill"
-            case .queued: return "clock.fill"
-            }
-        }
-        
-        var color: Color {
-            switch self {
-            case .idle: return .white.opacity(0.5)
-            case .copying: return .blue
-            case .verifying: return .orange
-            case .completed: return .green
-            case .queued: return .yellow.opacity(0.8)
-            }
-        }
-        
-        var displayName: String {
-            switch self {
-            case .idle: return "Ready"
-            case .copying: return "Copying"
-            case .verifying: return "Verifying"
-            case .completed: return "Completed"
-            case .queued: return "Queued"
-            }
-        }
-    }
-}
-
 // MARK: - Main ContentView using Modular Architecture
 struct ContentView: View {
     @StateObject private var coordinator = SharedAppCoordinator()

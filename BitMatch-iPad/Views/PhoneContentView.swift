@@ -3,8 +3,6 @@ import SwiftUI
 
 struct PhoneContentView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
-    @State private var cameraLabelExpanded = false
-    @State private var verificationModeExpanded = false
     @State private var showSettings = false
 
     var body: some View {

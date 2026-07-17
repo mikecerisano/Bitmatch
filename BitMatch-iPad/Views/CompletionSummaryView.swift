@@ -51,22 +51,6 @@ struct CompletionStatusHeaderView: View {
         CompletionVerdictPresentation.make(verdict)
     }
 
-    private var statusIcon: String {
-        switch verdict {
-        case .success: "checkmark.circle.fill"
-        case .issues: "exclamationmark.triangle.fill"
-        case .failed: "xmark.circle.fill"
-        }
-    }
-
-    private var statusTitle: String {
-        switch verdict {
-        case .success: "Transfer Completed Successfully"
-        case .issues: "Transfer Completed with Issues"
-        case .failed: "Transfer Failed"
-        }
-    }
-
     private var statusColor: Color {
         switch verdict {
         case .success: .green
