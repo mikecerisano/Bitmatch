@@ -82,9 +82,10 @@ struct RemoteBackupDestinationView: View {
     }
 }
 
-private struct RemoteBackupDestinationManager: View {
+struct RemoteBackupDestinationManager: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
     let coordinator: AppCoordinator
+    var showsDoneButton = true
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var host = ""
@@ -96,7 +97,11 @@ private struct RemoteBackupDestinationManager: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack { Text("SFTP destinations").font(.headline); Spacer(); Button("Done") { dismiss() } }
+            HStack {
+                Text("SFTP destinations").font(.headline)
+                Spacer()
+                if showsDoneButton { Button("Done") { dismiss() } }
+            }
             List {
                 ForEach(viewModel.remoteProfiles) { profile in
                     HStack { VStack(alignment: .leading) { Text(profile.name); Text("\(profile.username)@\(profile.host) · \(profile.root.description)").font(.caption) }; Spacer(); Button("Edit") { load(profile) }; Button("Test") { coordinator.testRemoteProfile(profile) }; Button("Delete", role: .destructive) { viewModel.deleteRemoteProfile(id: profile.id) } }

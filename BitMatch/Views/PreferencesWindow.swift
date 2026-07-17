@@ -11,12 +11,14 @@ struct PreferencesWindow: View {
     
     enum PreferencesTab: String, CaseIterable {
         case general = "General"
+        case destinations = "Destinations"
         case reports = "Reports"
         case cameraDetection = "Camera Detection"
         
         var icon: String {
             switch self {
             case .general: return "gear"
+            case .destinations: return "externaldrive.badge.plus"
             case .reports: return "doc.text"
             case .cameraDetection: return "externaldrive"
             }
@@ -35,6 +37,8 @@ struct PreferencesWindow: View {
                 switch selectedTab {
                 case .general:
                     generalPreferences
+                case .destinations:
+                    destinationPreferences
                 case .reports:
                     reportPreferences
                 case .cameraDetection:
@@ -121,6 +125,24 @@ struct PreferencesWindow: View {
     }
 
     // MARK: - Report Preferences
+
+    @ViewBuilder
+    private var destinationPreferences: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Destinations")
+                .font(.title2)
+                .fontWeight(.semibold)
+            Text("Saved places BitMatch can use for off-site backup. Authentication stays in your macOS SSH agent.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            RemoteBackupDestinationManager(
+                viewModel: coordinator.photographerJobViewModel,
+                coordinator: coordinator,
+                showsDoneButton: false
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
 
     @ViewBuilder
     private var reportPreferences: some View {
