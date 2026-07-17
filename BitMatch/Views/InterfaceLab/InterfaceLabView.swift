@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum InterfaceLabRoute: String, CaseIterable, Identifiable {
+    case welcome = "Welcome"
     case setup = "Setup"
     case transfer = "Transfer"
     case evidence = "Evidence"
@@ -13,6 +14,7 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
 
     static func next(after route: InterfaceLabRoute) -> InterfaceLabRoute {
         switch route {
+        case .welcome: .setup
         case .setup: .transfer
         case .transfer: .evidence
         case .evidence, .issues, .compare, .report, .settings: .setup
@@ -22,7 +24,7 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
 
 /// A no-I/O visual harness. Launch with `--interface-lab` to review the complete UX safely.
 struct InterfaceLabView: View {
-    @State private var route: InterfaceLabRoute = .setup
+    @State private var route: InterfaceLabRoute = .welcome
     @State private var usesProjectWorkflow = true
     @State private var transferPhase = "Copying"
     @State private var progress = 0.62
@@ -112,6 +114,7 @@ struct InterfaceLabView: View {
 
     @ViewBuilder private var content: some View {
         switch route {
+        case .welcome: welcome
         case .setup: setup
         case .transfer: transfer
         case .evidence: evidence
@@ -119,6 +122,47 @@ struct InterfaceLabView: View {
         case .compare: compare
         case .report: report
         case .settings: settings
+        }
+    }
+
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ready when the media is.")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Text("BitMatch stays quiet until you choose a card or folder. There is nothing to configure before the first safe copy.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "camera.badge.ellipsis").font(.system(size: 24)).foregroundColor(.orange)
+                    Text("A card or folder goes here").font(.system(size: 13, weight: .semibold))
+                    Text("Connect media, or choose any source when you are ready.").font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .panel()
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "checkmark.shield").font(.system(size: 24)).foregroundColor(.green)
+                    Text("Nothing is copied yet").font(.system(size: 13, weight: .semibold))
+                    Text("The interface lab uses synthetic media only and never opens a file picker.").font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .panel()
+            }
+            HStack(spacing: 10) {
+                Button { route = .setup } label: {
+                    Label("Preview a transfer", systemImage: "arrow.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryActionButtonStyle())
+                Button("Review destinations") { route = .settings }
+                    .buttonStyle(CustomButtonStyle())
+            }
+            Text("This is the synthetic interface lab. No cards, drives, credentials, or network services are accessed.")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.42))
         }
     }
 
@@ -354,6 +398,7 @@ private extension View { func panel() -> some View { padding(14).background(Roun
 private extension InterfaceLabRoute {
     var symbol: String {
         switch self {
+        case .welcome: "sparkles"
         case .setup: "slider.horizontal.3"
         case .transfer: "arrow.right.circle"
         case .evidence: "checkmark.seal"

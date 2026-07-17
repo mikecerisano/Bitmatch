@@ -16,6 +16,10 @@ struct InterfaceLabNavigationTests {
         #expect(InterfaceLabRoute.allCases.contains(.report))
     }
 
+    @Test func theLabStartsWithTheNoMediaWelcomeState() {
+        #expect(InterfaceLabRoute.next(after: .welcome) == .setup)
+    }
+
     @Test func theLabExposesAnIssuesStateForRecoveryReview() {
         #expect(InterfaceLabRoute.allCases.contains(.issues))
     }
