@@ -49,54 +49,77 @@ struct ResultsTableView: View {
     
     @ViewBuilder
     private var statsHeader: some View {
+        Group {
+            if ResultTableLayoutPolicy.presentation(for: availableWidth) == .detailed {
+                detailedStatsHeader
+            } else {
+                compactStatsHeader
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.03))
+    }
+
+    private var detailedStatsHeader: some View {
         HStack {
-            // File counts
-            HStack(spacing: 12) {
-                fileCountView
-                matchCountView
-                if issueCount > 0 {
-                    issueCountView
-                }
-                if coordinator.progressViewModel.reusedFileCopies > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 10))
-                        Text("Reused \(coordinator.progressViewModel.reusedFileCopies)")
-                            .font(.system(size: 11, design: .monospaced))
-                    }
-                    .foregroundColor(.white.opacity(0.6))
-                }
-            }
-            
+            resultCounts
             Spacer()
-            
-            // Speed indicator when verifying
-            if coordinator.isOperationInProgress {
-                HStack(spacing: 12) {
-                    if progress.filesPerSecond > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "speedometer")
-                                .font(.system(size: 10))
-                            Text(formatSpeed())
-                                .font(.system(size: 11, design: .monospaced))
-                        }
-                        .foregroundColor(.white.opacity(0.5))
-                    }
-                    
-                    if let remaining = progress.estimatedTimeRemaining {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 10))
-                            Text(formatTime(remaining))
-                                .font(.system(size: 11, design: .monospaced))
-                        }
-                        .foregroundColor(.white.opacity(0.5))
-                    }
+            operationIndicators
+            resultControls
+        }
+    }
+
+    private var compactStatsHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                resultCounts
+                Spacer()
+                operationIndicators
+            }
+            HStack {
+                Spacer()
+                resultControls
+            }
+        }
+    }
+
+    private var resultCounts: some View {
+        HStack(spacing: 12) {
+            fileCountView
+            matchCountView
+            if issueCount > 0 { issueCountView }
+            if coordinator.progressViewModel.reusedFileCopies > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 10))
+                    Text("Reused \(coordinator.progressViewModel.reusedFileCopies)")
+                        .font(.system(size: 11, design: .monospaced))
+                }
+                .foregroundColor(.white.opacity(0.6))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var operationIndicators: some View {
+        if coordinator.isOperationInProgress {
+            HStack(spacing: 12) {
+                if progress.filesPerSecond > 0 {
+                    Label(formatSpeed(), systemImage: "speedometer")
+                        .font(.system(size: 11, design: .monospaced))
+                }
+                if let remaining = progress.estimatedTimeRemaining {
+                    Label(formatTime(remaining), systemImage: "clock")
+                        .font(.system(size: 11, design: .monospaced))
                 }
             }
-            
-            // Control buttons
-            HStack(spacing: 8) {
+            .foregroundColor(.white.opacity(0.5))
+        }
+    }
+
+    private var resultControls: some View {
+        HStack(spacing: 8) {
                 // Cancel button when verifying
                 if coordinator.isOperationInProgress {
                     Button {
@@ -134,11 +157,7 @@ struct ResultsTableView: View {
                 .toggleStyle(.button)
                 .controlSize(.small)
                 .buttonStyle(CustomButtonStyle())
-            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.03))
     }
     
     @ViewBuilder
