@@ -8,6 +8,11 @@ struct TransferPlanView: View {
     let selectionView: AnyView
     let onStart: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var usesProjectWorkflow = false
+
+    private var hasPreparedProjectTransfer: Bool {
+        coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -22,7 +27,10 @@ struct TransferPlanView: View {
             }
             .padding(.top, 4)
 
-            PhotographerJobSetupView(coordinator: coordinator)
+            transferKindControl
+            if usesProjectWorkflow || hasPreparedProjectTransfer {
+                PhotographerJobSetupView(coordinator: coordinator)
+            }
             TransferPlanPreflightCard(plan: plan)
             optionSummary
             TransferOptionsView(coordinator: coordinator, isExpanded: $optionsExpanded)
@@ -58,6 +66,58 @@ struct TransferPlanView: View {
                     .accessibilityLabel("Warning: Quick mode does not use checksum verification")
             }
         }
+    }
+
+    private var transferKindControl: some View {
+        HStack(spacing: 10) {
+            Button {
+                usesProjectWorkflow = false
+            } label: {
+                transferKindLabel(
+                    title: "Quick transfer",
+                    detail: "Copy, verify, and finish",
+                    icon: "bolt.fill",
+                    selected: !usesProjectWorkflow && !hasPreparedProjectTransfer
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(hasPreparedProjectTransfer)
+
+            Button {
+                usesProjectWorkflow = true
+            } label: {
+                transferKindLabel(
+                    title: "Project transfer",
+                    detail: "Keep card context and off-site evidence",
+                    icon: "folder.badge.gearshape",
+                    selected: usesProjectWorkflow || hasPreparedProjectTransfer
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transfer workflow")
+    }
+
+    private func transferKindLabel(title: String, detail: String, icon: String, selected: Bool) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(selected ? .green : .white.opacity(0.55))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Text(detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+            }
+            Spacer(minLength: 0)
+            if selected { Image(systemName: "checkmark.circle.fill").foregroundColor(.green) }
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(selected ? Color.green.opacity(0.10) : Color.white.opacity(0.035))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Color.green.opacity(0.35) : Color.white.opacity(0.08)))
+        )
     }
 
     private var actionArea: some View {
