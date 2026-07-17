@@ -51,7 +51,9 @@ struct BitMatchApp: App {
     @ObservedObject private var devModeManager = DevModeManager.shared
     #endif
     private let notifDelegate = NotificationDelegate()
-    private let launchesInterfaceLab = ProcessInfo.processInfo.arguments.contains("--interface-lab")
+    private let launchesInterfaceLab = InterfaceLabLaunchConfiguration.isRequested(
+        arguments: ProcessInfo.processInfo.arguments
+    )
 
     init() {
         UNUserNotificationCenter.current().delegate = notifDelegate
@@ -110,6 +112,13 @@ struct BitMatchApp: App {
             
             #if DEBUG
             CommandMenu("Developer") {
+                Button("Open Interface Lab") {
+                    InterfaceLabLauncher.open()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+
+                Divider()
+
                 Button(devModeManager.isDevModeEnabled ? "Disable Dev Mode" : "Enable Dev Mode") {
                     devModeManager.isDevModeEnabled.toggle()
                 }

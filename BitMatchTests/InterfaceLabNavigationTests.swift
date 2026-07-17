@@ -28,4 +28,8 @@ struct InterfaceLabNavigationTests {
     @Test func windowsRemainManuallyResizable() {
         #expect(WindowPresentationPolicy.allowsManualResizing)
     }
+
+    @Test func theLabHasOneExplicitLaunchArgument() {
+        #expect(InterfaceLabLaunchConfiguration.arguments == ["--interface-lab"])
+    }
 }
