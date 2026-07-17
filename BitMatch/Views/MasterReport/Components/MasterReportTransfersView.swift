@@ -6,6 +6,7 @@ struct MasterReportTransfersView: View {
     @Binding var selectedTransfers: Set<UUID>
     @Binding var productionNotes: String
     let onGenerateReport: () -> Void
+    @State private var availableWidth: CGFloat = MasterReportLayoutPolicy.horizontalThreshold
     
     var body: some View {
         VStack(spacing: 20) {
@@ -14,6 +15,7 @@ struct MasterReportTransfersView: View {
             notesCard
             generateReportButton
         }
+        .background(widthReader)
     }
     
     // MARK: - Components
@@ -34,16 +36,38 @@ struct MasterReportTransfersView: View {
                         .foregroundColor(.white.opacity(0.5))
                 }
                 
-                // Summary stats
-                HStack(spacing: 32) {
-                    StatView(title: "Total Size", value: formatBytes(totalSize), color: .blue)
-                    StatView(title: "Total Files", value: "\(totalFiles)", color: .green)
-                    StatView(title: "Cameras", value: "\(uniqueCameras)", color: .orange)
-                    StatView(
-                        title: "Verified",
-                        value: "\(verifiedCount)/\(foundTransfers.count)",
-                        color: verifiedCount == foundTransfers.count ? .green : .orange
-                    )
+                summaryStats
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var summaryStats: some View {
+        let metrics = [
+            ("Total Size", formatBytes(totalSize), Color.blue),
+            ("Total Files", "\(totalFiles)", Color.green),
+            ("Cameras", "\(uniqueCameras)", Color.orange),
+            ("Verified", "\(verifiedCount)/\(foundTransfers.count)", verifiedCount == foundTransfers.count ? Color.green : Color.orange)
+        ]
+        if MasterReportLayoutPolicy.presentation(for: availableWidth) == .horizontal {
+            HStack(spacing: 32) {
+                ForEach(metrics.indices, id: \.self) { index in
+                    let metric = metrics[index]
+                    StatView(title: metric.0, value: metric.1, color: metric.2)
+                }
+            }
+        } else {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ForEach(metrics.indices, id: \.self) { index in
+                    let metric = metrics[index]
+                    StatView(title: metric.0, value: metric.1, color: metric.2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.045)))
                 }
             }
         }
@@ -143,6 +167,14 @@ struct MasterReportTransfersView: View {
     
     private var verifiedCount: Int {
         foundTransfers.filter { $0.verified }.count
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { availableWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+        }
     }
     
     // MARK: - Helper Methods
