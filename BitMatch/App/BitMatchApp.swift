@@ -187,8 +187,15 @@ struct BitMatchApp: App {
                 // Set window level
                 window.level = .normal
                 
-                // Center window on screen
-                window.center()
+                let savedFrame = UserDefaults.standard.dictionary(forKey: "BitMatch.windowFrame")
+                let hasSavedPlacement = savedFrame?["x"] as? CGFloat != nil
+                    && savedFrame?["y"] as? CGFloat != nil
+                if WindowPresentationPolicy.shouldCenterWindow(
+                    hasSavedPlacement: hasSavedPlacement,
+                    isInterfaceLab: launchesInterfaceLab
+                ) {
+                    window.center()
+                }
             }
         }
     }

@@ -10,4 +10,10 @@ struct HeaderPresentationPolicyTests {
     @Test func theWindowCanGrowIntoAnExpandedWorkbench() {
         #expect(WindowPresentationPolicy.maximumWidth >= 1200)
     }
+
+    @Test func returningUsersKeepTheirWindowPlacement() {
+        #expect(!WindowPresentationPolicy.shouldCenterWindow(hasSavedPlacement: true, isInterfaceLab: false))
+        #expect(WindowPresentationPolicy.shouldCenterWindow(hasSavedPlacement: false, isInterfaceLab: false))
+        #expect(WindowPresentationPolicy.shouldCenterWindow(hasSavedPlacement: true, isInterfaceLab: true))
+    }
 }

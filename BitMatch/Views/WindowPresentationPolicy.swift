@@ -8,4 +8,8 @@ enum WindowPresentationPolicy {
     static let minimumHeight: CGFloat = 550
     static let maximumWidth: CGFloat = 1440
     static let maximumHeight: CGFloat = 1000
+
+    static func shouldCenterWindow(hasSavedPlacement: Bool, isInterfaceLab: Bool) -> Bool {
+        isInterfaceLab || !hasSavedPlacement
+    }
 }
