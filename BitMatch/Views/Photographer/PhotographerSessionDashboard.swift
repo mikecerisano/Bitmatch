@@ -15,7 +15,7 @@ struct PhotographerSessionDashboard: View {
         if !presentation.rows.isEmpty {
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
                 HStack {
-                    Text("Session cards")
+                    Text("Project media")
                         .font(DesignSystem.Typography.heading)
                         .foregroundColor(DesignSystem.Colors.textPrimary)
                     Spacer()
@@ -70,7 +70,7 @@ struct PhotographerSessionDashboard: View {
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
                 HStack(spacing: DesignSystem.Spacing.xs) {
                     Text(row.photographerName).font(DesignSystem.Typography.body)
-                    Text("· \(row.cameraName) · \(row.cardTitle)")
+                    Text("· \(row.cameraName) · \(sourceUnitTitle(row.cardTitle))")
                         .font(DesignSystem.Typography.caption)
                         .foregroundColor(DesignSystem.Colors.textSecondary)
                     Spacer()
@@ -121,6 +121,17 @@ struct PhotographerSessionDashboard: View {
         case "Copying", "Verifying": return DesignSystem.Colors.info
         case "Cancelled": return DesignSystem.Colors.textTertiary
         default: return DesignSystem.Colors.idle
+        }
+    }
+
+    private func sourceUnitTitle(_ cardTitle: String) -> String {
+        switch job.workflow {
+        case .photography:
+            cardTitle
+        case .videoDIT:
+            cardTitle.replacingOccurrences(of: "Card", with: "Media")
+        case .general:
+            cardTitle.replacingOccurrences(of: "Card", with: "Package")
         }
     }
 }
