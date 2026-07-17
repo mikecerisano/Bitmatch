@@ -48,6 +48,7 @@ struct PhotographerJobSetupView: View {
             disclosureHeader
             if !isExpanded { duplicateWarning }
             if isExpanded {
+                workflowPicker
                 setupFields
                     .disabled(viewModel.isPreparing)
                 layerDisclosure
@@ -93,7 +94,7 @@ struct PhotographerJobSetupView: View {
                 Image(systemName: "camera.fill")
                     .foregroundColor(DesignSystem.Colors.textSecondary)
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-                    Text("Photography job")
+                    Text("Project setup")
                         .font(DesignSystem.Typography.heading)
                         .foregroundColor(DesignSystem.Colors.textPrimary)
                     if !isExpanded {
@@ -114,7 +115,7 @@ struct PhotographerJobSetupView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isExpanded ? "Collapse photography job setup" : "Expand photography job setup")
+        .accessibilityLabel(isExpanded ? "Collapse project setup" : "Expand project setup")
         .accessibilityValue(presentation.collapsedSummary)
     }
 
@@ -131,10 +132,10 @@ struct PhotographerJobSetupView: View {
                 }
             }
             GridRow {
-                setupTextField("Photographer", text: $photographerName, prompt: "Mike")
+                setupTextField(viewModel.selectedWorkflow.contributorLabel, text: $photographerName, prompt: "Mike")
                 setupTextField("Camera", text: $cameraName, prompt: "Sony A7 IV")
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-                    fieldLabel("Card")
+                    fieldLabel(viewModel.selectedWorkflow.sourceUnitLabel)
                     Text(String(format: "%03d", cardNumber))
                         .font(DesignSystem.Typography.mono)
                         .foregroundColor(DesignSystem.Colors.textPrimary)
@@ -144,10 +145,23 @@ struct PhotographerJobSetupView: View {
                             RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small)
                                 .fill(DesignSystem.Colors.surfaceElevated)
                         )
-                        .accessibilityLabel("Card number \(cardNumber)")
+                        .accessibilityLabel("\(viewModel.selectedWorkflow.sourceUnitLabel) number \(cardNumber)")
                 }
             }
         }
+    }
+
+    private var workflowPicker: some View {
+        Picker("Workflow", selection: Binding(
+            get: { viewModel.selectedWorkflow },
+            set: { viewModel.selectWorkflow($0) }
+        )) {
+            ForEach(ProjectWorkflow.allCases, id: \.self) { workflow in
+                Text(workflow.title).tag(workflow)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityHint("Sets safe folder defaults for new project cards")
     }
 
     private var layerDisclosure: some View {

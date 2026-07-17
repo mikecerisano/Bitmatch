@@ -66,6 +66,32 @@ struct FolderRecipe: Identifiable, Codable, Equatable, Sendable {
             FolderLayer(id: UUID(), kind: $0, isEnabled: true)
         }
     )
+
+    static let videoDIT = FolderRecipe(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+        name: "Video / DIT",
+        layers: [
+            .dateAndJob, .originals, .camera, .cardNumber
+        ].map { FolderLayer(id: UUID(), kind: $0, isEnabled: true) }
+    )
+
+    static let generalMedia = FolderRecipe(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+        name: "General media",
+        layers: [
+            .dateAndJob, .originals, .cardNumber
+        ].map { FolderLayer(id: UUID(), kind: $0, isEnabled: true) }
+    )
+}
+
+extension ProjectWorkflow {
+    var defaultRecipe: FolderRecipe {
+        switch self {
+        case .photography: .wedding
+        case .videoDIT: .videoDIT
+        case .general: .generalMedia
+        }
+    }
 }
 
 struct FolderRecipeContext: Codable, Equatable, Sendable {

@@ -8,6 +8,16 @@ struct PhotographerJobViewModelTests {
     private let now = Date(timeIntervalSince1970: 200)
     private let renderedPackage = "1970-01-01_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001"
 
+    @Test func selectingVideoWorkflowUsesVideoSafeFolderDefaults() {
+        let viewModel = makeViewModel(store: InMemoryPhotographerJobStore())
+
+        viewModel.selectWorkflow(.videoDIT)
+
+        #expect(viewModel.selectedWorkflow == .videoDIT)
+        #expect(viewModel.draftRecipe.name == "Video / DIT")
+        #expect(!viewModel.draftRecipe.layers.contains { $0.kind == .photographer })
+    }
+
     @Test func weddingJobUsesWeddingDefaultsAndPersistsCreation() throws {
         let store = InMemoryPhotographerJobStore()
         let viewModel = makeViewModel(store: store)

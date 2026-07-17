@@ -34,6 +34,7 @@ final class PhotographerJobViewModel: ObservableObject {
     @Published private(set) var duplicateWarning: DuplicateCardWarning?
     @Published private(set) var lastError: String?
     @Published var draftRecipe = FolderRecipe.wedding
+    @Published private(set) var selectedWorkflow: ProjectWorkflow = .photography
     @Published var focusedCardIngestID: UUID?
     @Published private(set) var dashboardJobID: UUID?
     @Published private(set) var isPreparing = false
@@ -111,6 +112,7 @@ final class PhotographerJobViewModel: ObservableObject {
             recipe: draftRecipe,
             requiredLocalCopyCount: 2,
             cardIngests: [],
+            workflow: selectedWorkflow,
             createdAt: timestamp,
             updatedAt: timestamp
         )
@@ -120,6 +122,20 @@ final class PhotographerJobViewModel: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func selectWorkflow(_ workflow: ProjectWorkflow) {
+        guard selectedWorkflow != workflow else { return }
+        selectedWorkflow = workflow
+        draftRecipe = workflow.defaultRecipe
+        setupPreparationInvalidated = true
+        setupTask?.cancel()
+        setupTask = nil
+        isPreparing = false
+        activeCardDraft = nil
+        renderedRecipe = nil
+        preliminaryAnalysis = nil
+        preparationError = nil
     }
 
     func prepareCard(
