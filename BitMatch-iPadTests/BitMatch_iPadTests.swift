@@ -110,4 +110,14 @@ struct BitMatch_iPadTests {
         #expect(!NotificationPermissionPolicy.requestsAtLaunch)
     }
 
+    @Test func activeTransferUsesTheSamePauseAndVerificationLanguageAsMac() {
+        let paused = TransferOperationPresentation.make(state: .copying, isPaused: true)
+        let verifying = TransferOperationPresentation.make(state: .verifying, isPaused: false)
+
+        #expect(paused.title == "Transfer paused")
+        #expect(paused.controlTitle == "Resume")
+        #expect(verifying.title == "Verifying")
+        #expect(verifying.controlTitle == "Pause")
+    }
+
 }

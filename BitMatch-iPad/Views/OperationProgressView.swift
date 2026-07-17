@@ -96,13 +96,20 @@ struct OperationProgressView: View {
 
 struct ProgressHeaderView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+
+    private var presentation: TransferOperationPresentation {
+        TransferOperationPresentation.make(
+            state: coordinator.operationState,
+            isPaused: coordinator.operationState.isPaused
+        )
+    }
     
     var body: some View {
         VStack(spacing: 8) {
             // Operation title
-            Text(coordinator.currentStage.displayName)
+            Label(presentation.title, systemImage: presentation.symbol)
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(coordinator.operationState.isPaused ? .orange : .white)
             
             // Operation timing
             if let duration = coordinator.operationDuration {
@@ -232,6 +239,13 @@ struct StatView: View {
 
 struct TransferControlsView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+
+    private var presentation: TransferOperationPresentation {
+        TransferOperationPresentation.make(
+            state: coordinator.operationState,
+            isPaused: coordinator.operationState.isPaused
+        )
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -241,9 +255,9 @@ struct TransferControlsView: View {
                     Task { await coordinator.pauseOperation() }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "pause.fill")
+                        Image(systemName: presentation.controlSymbol)
                             .font(.system(size: 12, weight: .semibold))
-                        Text("Pause")
+                        Text(presentation.controlTitle)
                             .font(.system(size: 14, weight: .medium))
                     }
                     .foregroundColor(.white)
@@ -260,9 +274,9 @@ struct TransferControlsView: View {
                     Task { await coordinator.resumeOperation() }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "play.fill")
+                        Image(systemName: presentation.controlSymbol)
                             .font(.system(size: 12, weight: .semibold))
-                        Text("Resume")
+                        Text(presentation.controlTitle)
                             .font(.system(size: 14, weight: .medium))
                     }
                     .foregroundColor(.white)
