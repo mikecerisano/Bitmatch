@@ -95,6 +95,7 @@ struct RemoteBackupDestinationManager: View {
     @State private var verification: RemoteVerificationMode = .sha256
     @State private var editingID: UUID?
     @State private var validationMessage: String?
+    @State private var availableWidth: CGFloat = RemoteDestinationLayoutPolicy.twoColumnThreshold
 
     var body: some View {
         ScrollView {
@@ -134,16 +135,7 @@ struct RemoteBackupDestinationManager: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(editingID == nil ? "Add destination" : "Edit destination")
                         .font(.headline)
-                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
-                        GridRow {
-                            field("Name", text: $name, prompt: "Studio archive")
-                            field("Host", text: $host, prompt: "backup.example.com")
-                        }
-                        GridRow {
-                            field("Port", text: $port, prompt: "22")
-                            field("Username", text: $username, prompt: "mike")
-                        }
-                    }
+                    destinationFields
                     field("Relative root", text: $root, prompt: "Backups/2026")
                     Picker("Verification", selection: $verification) {
                         Text("SHA-256 read-back").tag(RemoteVerificationMode.sha256)
@@ -174,9 +166,41 @@ struct RemoteBackupDestinationManager: View {
                     .foregroundStyle(.secondary)
             }
             .padding()
+            .background(widthReader)
         }
-        .frame(width: 460)
+        .frame(minWidth: 460, idealWidth: 560, maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.2), value: editingID)
+    }
+
+    @ViewBuilder
+    private var destinationFields: some View {
+        if RemoteDestinationLayoutPolicy.presentation(for: availableWidth) == .twoColumn {
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow {
+                    field("Name", text: $name, prompt: "Studio archive")
+                    field("Host", text: $host, prompt: "backup.example.com")
+                }
+                GridRow {
+                    field("Port", text: $port, prompt: "22")
+                    field("Username", text: $username, prompt: "mike")
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                field("Name", text: $name, prompt: "Studio archive")
+                field("Host", text: $host, prompt: "backup.example.com")
+                field("Port", text: $port, prompt: "22")
+                field("Username", text: $username, prompt: "mike")
+            }
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { availableWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+        }
     }
 
     private func destinationRow(_ profile: RemoteDestinationProfile) -> some View {
