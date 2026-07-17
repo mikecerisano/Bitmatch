@@ -14,6 +14,20 @@ struct ResultsTableView: View {
     private var resultSummary: ResultIntegritySummary {
         ResultIntegritySummary(rows: results)
     }
+
+    private var completionPresentation: CompletionVerdictPresentation? {
+        guard !coordinator.isOperationInProgress,
+              coordinator.completionState != .idle else {
+            return nil
+        }
+
+        return CompletionVerdictPresentation.make(
+            state: coordinator.operationState,
+            rows: results,
+            hasErrors: coordinator.sharedCoordinator.hasErrors,
+            hasCriticalErrors: coordinator.sharedCoordinator.hasCriticalErrors
+        )
+    }
     
     private var issueCount: Int {
         resultSummary.issueRows.count
@@ -26,6 +40,12 @@ struct ResultsTableView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            if let completionPresentation {
+                completionVerdict(completionPresentation)
+                Divider()
+                    .overlay(Color.white.opacity(0.1))
+            }
+
             // Filter and stats header with cancel button
             statsHeader
             
@@ -45,6 +65,36 @@ struct ResultsTableView: View {
         )
         .frame(maxHeight: 600)  // FIX: Increased from 400 to 600
         .background(widthReader)
+    }
+
+    private func completionVerdict(_ presentation: CompletionVerdictPresentation) -> some View {
+        let tint = completionTint(for: presentation)
+
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: presentation.symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(presentation.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                Text(presentation.detail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.62))
+                if let guidance = presentation.sourceGuidance {
+                    Text(guidance)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(tint.opacity(0.9))
+                        .padding(.top, 1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(tint.opacity(0.07))
     }
     
     @ViewBuilder
@@ -438,6 +488,17 @@ struct ResultsTableView: View {
             return .blue
         } else {
             return .gray
+        }
+    }
+
+    private func completionTint(for presentation: CompletionVerdictPresentation) -> Color {
+        switch presentation.symbol {
+        case "checkmark.circle.fill":
+            return .green
+        case "exclamationmark.triangle.fill":
+            return .orange
+        default:
+            return .red
         }
     }
 }

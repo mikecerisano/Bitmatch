@@ -31,4 +31,20 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
             )
         }
     }
+
+    static func make(
+        state: OperationState,
+        rows: [ResultRow],
+        hasErrors: Bool,
+        hasCriticalErrors: Bool
+    ) -> Self {
+        make(
+            CompletionVerdict.resolve(
+                state: state,
+                rows: rows,
+                hasErrors: hasErrors,
+                hasCriticalErrors: hasCriticalErrors
+            )
+        )
+    }
 }

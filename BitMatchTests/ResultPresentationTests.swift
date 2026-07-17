@@ -102,6 +102,18 @@ final class ResultPresentationTests: XCTestCase {
         )
     }
 
+    func testCompletionPresentationResolvesTheSharedFailureGuidance() {
+        let presentation = CompletionVerdictPresentation.make(
+            state: .failed,
+            rows: [row("clip.mov", status: "✅ Verified")],
+            hasErrors: false,
+            hasCriticalErrors: false
+        )
+
+        XCTAssertEqual(presentation.title, "Transfer failed")
+        XCTAssertEqual(presentation.sourceGuidance, "Keep source media intact and review the transfer evidence.")
+    }
+
     func testVisibleRowsCapsMoreThanOneThousandIssuesWithoutTrapping() {
         let rows = (0..<1_001).map { row("\($0).mov", status: "❌ Failed") }
 
