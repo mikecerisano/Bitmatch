@@ -334,12 +334,15 @@ class PreferencesWindowController: NSWindowController {
                 width: PreferencesPresentationPolicy.initialWidth,
                 height: PreferencesPresentationPolicy.initialHeight
             ),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         
         window.title = "BitMatch Preferences"
+        if PreferencesPresentationPolicy.allowsManualResizing {
+            window.styleMask.insert(.resizable)
+        }
         window.minSize = NSSize(
             width: PreferencesPresentationPolicy.minimumWidth,
             height: PreferencesPresentationPolicy.minimumHeight
