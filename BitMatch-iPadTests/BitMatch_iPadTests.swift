@@ -5,6 +5,7 @@
 //  Created by Mike Cerisano on 8/28/25.
 //
 
+import Foundation
 import Testing
 @testable import BitMatch_iPad
 
@@ -29,6 +30,28 @@ struct BitMatch_iPadTests {
         #expect(AdaptiveNavigationPolicy.presentation(for: 390) == .compact)
         #expect(AdaptiveNavigationPolicy.presentation(for: 744) == .toolbar)
         #expect(AdaptiveNavigationPolicy.presentation(for: 1_024) == .sidebar)
+    }
+
+    @Test @MainActor func portableProjectStoreRoundTripsProjectAndDestination() throws {
+        let suiteName = "BitMatch-iPadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = UserDefaultsPhotographerJobStore(defaults: defaults)
+        let job = PhotographerJob(
+            id: UUID(), eventDate: .distantPast, clientName: "Acme", jobName: "Campaign",
+            eventType: .wedding, photographers: [], recipe: .wedding,
+            requiredLocalCopyCount: 2, cardIngests: [], createdAt: .distantPast, updatedAt: .distantPast
+        )
+        let profile = RemoteDestinationProfile(
+            id: UUID(), name: "Studio archive", host: "archive.example", port: 22,
+            username: "mike", root: try RemoteRelativePath(components: ["Backups"]), verificationMode: .sha256
+        )
+
+        try store.save(job)
+        try store.save(profile)
+
+        #expect(try store.jobs() == [job])
+        #expect(try store.profiles() == [profile])
     }
 
 }

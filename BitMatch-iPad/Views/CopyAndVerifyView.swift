@@ -40,7 +40,7 @@ struct CopyAndVerifyView: View {
                 // The selection cards remain the owner of iPad Files picker actions.
                 EnhancedSourceDestinationView(coordinator: coordinator)
 
-                TransferPlanPreflightCard(plan: plan)
+                IpadTransferPlanPreflightCard(plan: plan)
                 IpadTransferPlanOptionSummary(plan: plan, isQuickMode: coordinator.verificationMode == .quick)
 
                 DisclosureGroup(isExpanded: $optionsExpanded) {
@@ -107,6 +107,36 @@ struct CopyAndVerifyHeaderView: View {
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.leading)
+        }
+    }
+}
+
+private struct IpadTransferPlanPreflightCard: View {
+    let plan: TransferPlanPresentation
+
+    var body: some View {
+        let display = TransferPlanStatusDisplay.make(plan.status)
+        let tint = color(for: display.tone)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: display.symbol).font(.system(size: 17, weight: .semibold)).foregroundColor(tint)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(display.title).font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+                Text(display.detail).font(.system(size: 13)).foregroundColor(.white.opacity(0.68)).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(tint.opacity(0.1)).overlay(RoundedRectangle(cornerRadius: 12).stroke(tint.opacity(0.2), lineWidth: 1)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preflight: \(display.title). \(display.detail)")
+    }
+
+    private func color(for tone: TransferPlanStatusTone) -> Color {
+        switch tone {
+        case .success: .green
+        case .info: .blue
+        case .warning: .orange
+        case .error: .red
         }
     }
 }
