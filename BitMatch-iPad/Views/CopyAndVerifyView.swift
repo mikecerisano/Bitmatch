@@ -40,7 +40,7 @@ struct CopyAndVerifyView: View {
                 // The selection cards remain the owner of iPad Files picker actions.
                 EnhancedSourceDestinationView(coordinator: coordinator)
 
-                IpadTransferPlanPreflightCard(plan: plan)
+                TransferPlanPreflightCard(plan: plan)
                 IpadTransferPlanOptionSummary(plan: plan, isQuickMode: coordinator.verificationMode == .quick)
 
                 DisclosureGroup(isExpanded: $optionsExpanded) {
@@ -107,54 +107,6 @@ struct CopyAndVerifyHeaderView: View {
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.leading)
-        }
-    }
-}
-
-private struct IpadTransferPlanPreflightCard: View {
-    let plan: TransferPlanPresentation
-
-    var body: some View {
-        let display = statusDisplay
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: display.icon)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(display.tint)
-                .frame(width: 24, height: 24)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(display.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                Text(display.detail)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.68))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(display.tint.opacity(0.1))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(display.tint.opacity(0.2), lineWidth: 1))
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Preflight: \(display.title). \(display.detail)")
-    }
-
-    private var statusDisplay: (title: String, detail: String, icon: String, tint: Color) {
-        switch plan.status {
-        case .ready:
-            return ("Ready to transfer", "Source and backups are ready.", "checkmark.circle.fill", .green)
-        case .analyzing(let message):
-            return ("Analyzing", message, "arrow.triangle.2.circlepath", .blue)
-        case .warning(let warnings):
-            return ("Ready with warnings", warnings.first ?? "Review options before starting.", "exclamationmark.triangle.fill", .orange)
-        case .blocked(let issues):
-            return ("Blocked", issues.first ?? "Resolve the issue to continue.", "xmark.octagon.fill", .red)
-        case .incomplete(let message):
-            return ("Needs setup", message, "info.circle.fill", .orange)
         }
     }
 }

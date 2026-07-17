@@ -126,6 +126,16 @@ struct TransferPlanPresentationTests {
         #expect(plan.optionSummary.contains("Reports: PDF"))
     }
 
+    @Test
+    func readyStatusUsesTheSameSafeLanguageOnEveryDevice() {
+        let display = TransferPlanStatusDisplay.make(.ready)
+
+        #expect(display.title == "Ready to transfer")
+        #expect(display.detail == "Source and backups are ready.")
+        #expect(display.symbol == "checkmark.circle.fill")
+        #expect(display.tone == .success)
+    }
+
     private var folderInfo: FolderInfo {
         FolderInfo(
             url: sourceURL,

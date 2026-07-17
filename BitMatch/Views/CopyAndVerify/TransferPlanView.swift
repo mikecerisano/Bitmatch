@@ -238,25 +238,25 @@ private func planCard(title: String, icon: String, tint: Color, primary: String,
 struct TransferPlanPreflightCard: View {
     let plan: TransferPlanPresentation
     var body: some View {
-        let display = statusDisplay
+        let display = TransferPlanStatusDisplay.make(plan.status)
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: display.icon).foregroundColor(display.tint).font(.system(size: 14, weight: .semibold))
+            Image(systemName: display.symbol).foregroundColor(tint(for: display.tone)).font(.system(size: 14, weight: .semibold))
             VStack(alignment: .leading, spacing: 3) {
                 Text(display.title).font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
                 Text(display.detail).font(.system(size: 11)).foregroundColor(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
-        .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(display.tint.opacity(0.1)))
+        .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(tint(for: display.tone).opacity(0.1)))
         .accessibilityElement(children: .combine).accessibilityLabel("Preflight: \(display.title). \(display.detail)")
     }
-    private var statusDisplay: (title: String, detail: String, icon: String, tint: Color) {
-        switch plan.status {
-        case .ready: return ("Ready to transfer", "Source and backups are ready.", "checkmark.circle.fill", .green)
-        case .analyzing(let message): return ("Analyzing", message, "arrow.triangle.2.circlepath", .blue)
-        case .warning(let warnings): return ("Ready with warnings", warnings.first ?? "Review options before starting.", "exclamationmark.triangle.fill", .orange)
-        case .blocked(let issues): return ("Blocked", issues.first ?? "Resolve the issue to continue.", "xmark.octagon.fill", .red)
-        case .incomplete(let message): return ("Needs setup", message, "info.circle.fill", .orange)
+
+    private func tint(for tone: TransferPlanStatusTone) -> Color {
+        switch tone {
+        case .success: .green
+        case .info: .blue
+        case .warning: .orange
+        case .error: .red
         }
     }
 }

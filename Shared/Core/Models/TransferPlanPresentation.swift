@@ -1,5 +1,34 @@
 import Foundation
 
+enum TransferPlanStatusTone: Equatable {
+    case success
+    case info
+    case warning
+    case error
+}
+
+struct TransferPlanStatusDisplay: Equatable {
+    let title: String
+    let detail: String
+    let symbol: String
+    let tone: TransferPlanStatusTone
+
+    static func make(_ status: TransferPlanPresentation.Status) -> Self {
+        switch status {
+        case .ready:
+            Self(title: "Ready to transfer", detail: "Source and backups are ready.", symbol: "checkmark.circle.fill", tone: .success)
+        case .analyzing(let message):
+            Self(title: "Analyzing", detail: message, symbol: "arrow.triangle.2.circlepath", tone: .info)
+        case .warning(let warnings):
+            Self(title: "Ready with warnings", detail: warnings.first ?? "Review options before starting.", symbol: "exclamationmark.triangle.fill", tone: .warning)
+        case .blocked(let issues):
+            Self(title: "Blocked", detail: issues.first ?? "Resolve the issue to continue.", symbol: "xmark.octagon.fill", tone: .error)
+        case .incomplete(let message):
+            Self(title: "Needs setup", detail: message, symbol: "info.circle.fill", tone: .warning)
+        }
+    }
+}
+
 /// A view-ready summary of transfer setup state.
 ///
 /// This type deliberately contains no validation or transfer policy. Callers
