@@ -313,7 +313,7 @@ struct ReportView: View {
     private var photographyJobSection: some View {
         if let payload = s.photographyJob {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Photography Job")
+                Text("Project evidence")
                     .font(.system(size: 14, weight: .semibold))
 
                 Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
