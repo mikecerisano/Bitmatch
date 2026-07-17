@@ -33,6 +33,7 @@ struct InterfaceLabView: View {
     @State private var destinationName = "Post-production archive"
     @State private var destinationHost = "archive.studio.example"
     @State private var destinationRoot = "Projects/2026"
+    @State private var handoffRecordReady = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -233,7 +234,22 @@ struct InterfaceLabView: View {
                 reportRow("A_CAM · Card 003", detail: "3 verified copies · 218.4 GB", state: "Safe")
                 reportRow("B_CAM · Card 001", detail: "3 verified copies · 119.8 GB", state: "Safe")
             }.panel()
-            HStack { Button("Export job record") {}.buttonStyle(CustomButtonStyle()); Spacer(); Text("PDF + JSON · synthetic preview").font(.system(size: 10)).foregroundColor(.white.opacity(0.45)) }
+            if handoffRecordReady {
+                Label("Handoff record ready · PDF + JSON", systemImage: "checkmark.seal.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.green)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.green.opacity(0.09)))
+            }
+            HStack {
+                Button(handoffRecordReady ? "Handoff record generated" : "Generate handoff record") {
+                    handoffRecordReady = true
+                }
+                .buttonStyle(PrimaryActionButtonStyle())
+                Spacer()
+                Text("PDF + JSON · synthetic preview").font(.system(size: 10)).foregroundColor(.white.opacity(0.45))
+            }
         }
     }
 
