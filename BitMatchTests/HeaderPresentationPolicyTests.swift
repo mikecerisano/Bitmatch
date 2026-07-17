@@ -6,4 +6,8 @@ struct HeaderPresentationPolicyTests {
         #expect(HeaderPresentationPolicy.presentation(for: 760) == .expanded)
         #expect(HeaderPresentationPolicy.presentation(for: 759) == .compact)
     }
+
+    @Test func theWindowCanGrowIntoAnExpandedWorkbench() {
+        #expect(WindowPresentationPolicy.maximumWidth >= 1200)
+    }
 }

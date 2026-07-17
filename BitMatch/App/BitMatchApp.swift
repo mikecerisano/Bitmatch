@@ -165,10 +165,10 @@ struct BitMatchApp: App {
                 window.isMovableByWindowBackground = true
                 window.backgroundColor = NSColor.black
                 
-                // UPDATED: Extreme compactness with tiny center gap when empty
-                window.setContentSize(NSSize(width: 680, height: 650))   // Extreme width reduction
-                window.minSize = NSSize(width: 580, height: 550)         // Minimum width for compressed state
-                window.maxSize = NSSize(width: 1080, height: 1000)       // Allow wider expansion
+                // Start compact, then let the workbench grow into a proper review surface.
+                window.setContentSize(NSSize(width: WindowPresentationPolicy.initialWidth, height: WindowPresentationPolicy.initialHeight))
+                window.minSize = NSSize(width: WindowPresentationPolicy.minimumWidth, height: WindowPresentationPolicy.minimumHeight)
+                window.maxSize = NSSize(width: WindowPresentationPolicy.maximumWidth, height: WindowPresentationPolicy.maximumHeight)
                 
                 // Make window fully opaque
                 window.isOpaque = true

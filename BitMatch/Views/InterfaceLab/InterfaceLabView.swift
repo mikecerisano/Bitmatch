@@ -20,10 +20,6 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
     }
 }
 
-enum WindowPresentationPolicy {
-    static let allowsManualResizing = true
-}
-
 /// A no-I/O visual harness. Launch with `--interface-lab` to review the complete UX safely.
 struct InterfaceLabView: View {
     @State private var route: InterfaceLabRoute = .setup
