@@ -4,6 +4,7 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
     case setup = "Setup"
     case transfer = "Transfer"
     case evidence = "Evidence"
+    case issues = "Issues"
     case compare = "Compare"
     case report = "Report"
     case settings = "Settings"
@@ -14,7 +15,7 @@ enum InterfaceLabRoute: String, CaseIterable, Identifiable {
         switch route {
         case .setup: .transfer
         case .transfer: .evidence
-        case .evidence, .compare, .report, .settings: .setup
+        case .evidence, .issues, .compare, .report, .settings: .setup
         }
     }
 }
@@ -75,6 +76,7 @@ struct InterfaceLabView: View {
         case .setup: setup
         case .transfer: transfer
         case .evidence: evidence
+        case .issues: issues
         case .compare: compare
         case .report: report
         case .settings: settings
@@ -115,7 +117,7 @@ struct InterfaceLabView: View {
                 ProgressView(value: progress).tint(.green)
                 HStack { Text("\(Int(progress * 100))% complete · 302 of 486 files").font(.system(size: 11, design: .monospaced)).foregroundColor(.white.opacity(0.7)); Spacer(); Text("1.2 GB/s · 04:18 left").font(.system(size: 11, design: .monospaced)).foregroundColor(.white.opacity(0.55)) }
                 Slider(value: $progress, in: 0...1).tint(.green)
-                HStack { Button(transferPhase == "Paused" ? "Resume" : "Pause") { transferPhase = transferPhase == "Paused" ? "Copying" : "Paused" }.buttonStyle(CustomButtonStyle()); Button("Cancel") { progress = 0 }.buttonStyle(CustomButtonStyle(isDestructive: true)); Spacer(); Text("DSC_0417.ARW").font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.46)) }
+                HStack { Button(transferPhase == "Paused" ? "Resume" : "Pause") { transferPhase = transferPhase == "Paused" ? "Copying" : "Paused" }.buttonStyle(CustomButtonStyle()); Button("Cancel") { route = .issues }.buttonStyle(CustomButtonStyle(isDestructive: true)); Spacer(); Text("DSC_0417.ARW").font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.46)) }
             }.panel()
             Button { route = InterfaceLabRoute.next(after: route) } label: { Label("Show completed evidence", systemImage: "checkmark.circle") .frame(maxWidth: .infinity) }
                 .buttonStyle(.plain).font(.system(size: 14, weight: .semibold)).foregroundColor(.black).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 11).fill(Color.green))
@@ -154,6 +156,29 @@ struct InterfaceLabView: View {
                     .font(.system(size: 11)).foregroundColor(.white.opacity(0.62))
             }.panel()
             Button("Compare another pair") { route = .setup }.buttonStyle(CustomButtonStyle())
+        }
+    }
+
+    private var issues: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionTitle("Nothing is hidden", detail: "BitMatch stops before calling a transfer safe, and gives you the smallest useful next step.")
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 34)).foregroundColor(.orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("1 file needs attention").font(.system(size: 17, weight: .semibold))
+                    Text("485 files were copied and verified before the interruption.").font(.system(size: 11)).foregroundColor(.white.opacity(0.62))
+                }
+                Spacer()
+            }.panel()
+            VStack(alignment: .leading, spacing: 9) {
+                HStack { Text("Action required").font(.system(size: 13, weight: .semibold)); Spacer(); Text("NOT SAFE YET").font(.system(size: 9, weight: .bold)).foregroundColor(.orange) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("DSC_0417.ARW").font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    Text("Copy stopped while writing the safety drive. The existing verified copies remain untouched.").font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
+                }
+                .padding(10).background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.08)))
+                HStack { Button("Resume safely") { route = .transfer; transferPhase = "Copying" }.buttonStyle(CustomButtonStyle()); Button("Start over") { route = .setup }.buttonStyle(CustomButtonStyle(isDestructive: true)); Spacer() }
+            }.panel()
         }
     }
 

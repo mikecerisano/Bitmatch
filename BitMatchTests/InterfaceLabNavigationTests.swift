@@ -16,6 +16,10 @@ struct InterfaceLabNavigationTests {
         #expect(InterfaceLabRoute.allCases.contains(.report))
     }
 
+    @Test func theLabExposesAnIssuesStateForRecoveryReview() {
+        #expect(InterfaceLabRoute.allCases.contains(.issues))
+    }
+
     @Test func windowsRemainManuallyResizable() {
         #expect(WindowPresentationPolicy.allowsManualResizing)
     }
