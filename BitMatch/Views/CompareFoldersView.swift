@@ -250,16 +250,8 @@ struct CompareFoldersView: View {
                 coordinator.startOperation()
             } label: {
                 Label("Verify", systemImage: "checkmark.shield.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.green)
-                    )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PrimaryActionButtonStyle(isEnabled: coordinator.canStartOperation))
             .disabled(!coordinator.canStartOperation)
         }
     }

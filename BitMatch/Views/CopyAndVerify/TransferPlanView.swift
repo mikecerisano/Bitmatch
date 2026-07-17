@@ -188,12 +188,8 @@ struct TransferPlanView: View {
             Button(action: onStart) {
                 Label(plan.actionTitle, systemImage: "arrow.right.doc.on.clipboard")
                     .frame(maxWidth: .infinity)
-                    .font(.system(size: 14, weight: .semibold))
-                    .padding(.vertical, 11)
             }
-            .buttonStyle(.plain)
-            .foregroundColor(canStart ? .black : .white.opacity(0.45))
-            .background(RoundedRectangle(cornerRadius: 10).fill(canStart ? Color.green : Color.white.opacity(0.1)))
+            .buttonStyle(PrimaryActionButtonStyle(isEnabled: canStart))
             .disabled(!canStart)
             .accessibilityLabel(plan.actionTitle)
             .accessibilityHint(photographerStart?.blocker ?? "Starts the transfer")

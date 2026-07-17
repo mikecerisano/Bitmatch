@@ -128,16 +128,8 @@ struct MasterReportTransfersView: View {
                     Image(systemName: "doc.richtext")
                     Text("Generate Master Report")
                 }
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.black)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(selectedTransfers.isEmpty ? Color.gray : Color.green)
-                )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PrimaryActionButtonStyle(isEnabled: !selectedTransfers.isEmpty))
             .disabled(selectedTransfers.isEmpty)
             
             Spacer()

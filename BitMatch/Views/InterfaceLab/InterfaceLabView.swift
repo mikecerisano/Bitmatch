@@ -136,7 +136,7 @@ struct InterfaceLabView: View {
                 }.panel()
             }
             Button { route = InterfaceLabRoute.next(after: route) } label: { Label("Review transfer", systemImage: "arrow.right") .frame(maxWidth: .infinity) }
-                .buttonStyle(.plain).font(.system(size: 14, weight: .semibold)).foregroundColor(.black).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 11).fill(Color.green))
+                .buttonStyle(PrimaryActionButtonStyle())
         }
     }
 
@@ -152,7 +152,7 @@ struct InterfaceLabView: View {
                 HStack { Button(transferPhase == "Paused" ? "Resume" : "Pause") { transferPhase = transferPhase == "Paused" ? "Copying" : "Paused" }.buttonStyle(CustomButtonStyle()); Button("Cancel") { route = .issues }.buttonStyle(CustomButtonStyle(isDestructive: true)); Spacer(); Text("DSC_0417.ARW").font(.system(size: 10, design: .monospaced)).foregroundColor(.white.opacity(0.46)) }
             }.panel()
             Button { route = InterfaceLabRoute.next(after: route) } label: { Label("Show completed evidence", systemImage: "checkmark.circle") .frame(maxWidth: .infinity) }
-                .buttonStyle(.plain).font(.system(size: 14, weight: .semibold)).foregroundColor(.black).padding(.vertical, 12).background(RoundedRectangle(cornerRadius: 11).fill(Color.green))
+                .buttonStyle(PrimaryActionButtonStyle())
         }
     }
 
