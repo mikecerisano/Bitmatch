@@ -68,9 +68,9 @@ struct BitMatchApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
             
-            // Add Preferences to the main app menu
+            // Saved destinations and transfer defaults live in Settings.
             CommandGroup(after: .appInfo) {
-                Button("Preferences...") {
+                Button("Settings…") {
                     NotificationCenter.default.post(name: .showPreferences, object: nil)
                 }
                 .keyboardShortcut(",", modifiers: .command)
