@@ -97,11 +97,85 @@ struct CopyAndVerifyView: View {
                     showsReadinessBanner: false,
                     startsProjectTransfer: usesProjectWorkflow || hasPreparedProjectTransfer
                 )
+
+                if let job = coordinator.photographerJobViewModel.dashboardJob,
+                   !job.cardIngests.isEmpty {
+                    MobileProjectEvidenceView(
+                        viewModel: coordinator.photographerJobViewModel,
+                        job: job
+                    )
+                }
             }
         }
         .padding(.horizontal, 20)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: cameraLabelExpanded)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: verificationModeExpanded)
+    }
+}
+
+private struct MobileProjectEvidenceView: View {
+    @ObservedObject var viewModel: PhotographerJobViewModel
+    let job: PhotographerJob
+
+    private var presentation: PhotographerSessionPresentation {
+        PhotographerSessionPresentation.make(job: job)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Project media").font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Text(presentation.requiredCopyTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.54))
+            }
+            ForEach(presentation.rows) { row in
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 7) {
+                        Image(systemName: row.statusSymbol)
+                            .foregroundColor(statusColor(row.statusTitle))
+                        Text("\(row.photographerName) · \(row.cameraName)")
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Text(row.statusTitle)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(statusColor(row.statusTitle))
+                    }
+                    Text("\(row.cardTitle) · \(row.fileCountTitle) · \(row.verifiedCopyTitle)")
+                        .font(.system(size: 12)).foregroundColor(.white.opacity(0.66))
+                    Text(row.renderedPath)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5)).lineLimit(1).truncationMode(.middle)
+                    ForEach(row.remoteBackupPresentations.keys.sorted { $0.uuidString < $1.uuidString }, id: \.self) { id in
+                        if let remote = row.remoteBackupPresentations[id] {
+                            Label(remote.title, systemImage: remote.symbol)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(remote.isWarning ? .orange : (remote.isFullyBackedUp ? .green : .white.opacity(0.6)))
+                        }
+                    }
+                    if row.statusTitle == "Locally Safe", job.remoteBackupConfiguration?.isEnabled == true {
+                        Label("Remote backup continues on Mac", systemImage: "laptopcomputer")
+                            .font(.system(size: 11)).foregroundColor(.white.opacity(0.54))
+                    }
+                }
+                .padding(11)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.17)))
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.035)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08))))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Project media. \(presentation.requiredCopyTitle)")
+    }
+
+    private func statusColor(_ title: String) -> Color {
+        switch title {
+        case "Locally Safe": .green
+        case "Issues": .red
+        case "Copying", "Verifying": .blue
+        default: .white.opacity(0.6)
+        }
     }
 }
 
