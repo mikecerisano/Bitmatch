@@ -23,19 +23,23 @@ final class BitMatchUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testSyntheticWelcomeCanReachTransferPreview() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["--interface-lab"]
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.staticTexts["Ready when the media is."].waitForExistence(timeout: 5))
+        app.buttons["Preview a transfer"].tap()
+        XCTAssertTrue(app.buttons["Review transfer"].waitForExistence(timeout: 2))
     }
 
     @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            let app = XCUIApplication()
+            app.launchArguments = ["--interface-lab"]
+            app.launch()
         }
     }
 }
