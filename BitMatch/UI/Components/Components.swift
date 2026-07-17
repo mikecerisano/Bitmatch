@@ -32,6 +32,7 @@ struct CustomButtonStyle: ButtonStyle {
 /// The one high-emphasis action treatment used when BitMatch is ready to proceed.
 struct PrimaryActionButtonStyle: ButtonStyle {
     var isEnabled = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -51,7 +52,7 @@ struct PrimaryActionButtonStyle: ButtonStyle {
             .shadow(color: isEnabled ? Color.green.opacity(configuration.isPressed ? 0.12 : 0.22) : .clear, radius: 9, y: 3)
             .scaleEffect(configuration.isPressed && isEnabled ? 0.985 : 1)
             .opacity(isEnabled ? 1 : 0.75)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
