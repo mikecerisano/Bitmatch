@@ -228,23 +228,18 @@ class IOSDriverScanner: NSObject {
     #endif
     
     private static func parseReportToTransferCard(data: Data, reportURL: URL) throws -> TransferCard? {
-        // Try parsing as EnhancedJSONReport first (current format)
+        // Try parsing as ReportSnapshot first (current format)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let enhancedReport: EnhancedJSONReport = try? decoder.decode(EnhancedJSONReport.self, from: data) {
+        if let enhancedReport: ReportSnapshot = try? decoder.decode(ReportSnapshot.self, from: data) {
             return convertEnhancedReportToTransferCard(enhancedReport, reportURL: reportURL)
-        }
-        
-        // Try parsing as legacy format if needed
-        if let legacyReport = try? parseLegacyReport(data: data) {
-            return convertLegacyReportToTransferCard(legacyReport, reportURL: reportURL)
         }
 
         SharedLogger.warning("Unable to parse report format at \(reportURL.path)")
         return nil
     }
     
-    private static func convertEnhancedReportToTransferCard(_ report: EnhancedJSONReport, reportURL: URL) -> TransferCard {
+    private static func convertEnhancedReportToTransferCard(_ report: ReportSnapshot, reportURL: URL) -> TransferCard {
         // Extract camera name
         let cameraName = report.source.cameraDetected ?? extractCameraNameFromPath(report.source.path)
         
@@ -301,23 +296,6 @@ class IOSDriverScanner: NSObject {
             ),
             progress: verified ? 1.0 : 0.8,
             state: verified ? .completed(OperationCompletionInfo(success: true, message: "Verified")) : .completed(OperationCompletionInfo(success: false, message: "Issues found"))
-        )
-    }
-    
-    private static func parseLegacyReport(data: Data) throws -> LegacyReportFormat? {
-        // Implement legacy report parsing if needed
-        return nil
-    }
-    
-    private static func convertLegacyReportToTransferCard(_ report: LegacyReportFormat, reportURL: URL) -> TransferCard {
-        // Implement legacy conversion if needed
-        return TransferCard(
-            source: FolderInfo(url: reportURL, fileCount: 0, totalSize: 0, lastModified: Date(), isInternalDrive: true),
-            destinations: [],
-            cameraCard: nil,
-            metadata: nil,
-            progress: 0,
-            state: .idle
         )
     }
     
@@ -401,13 +379,9 @@ struct VolumeInfo {
     }
 }
 
-struct LegacyReportFormat {
-    // Define legacy report structure if needed
-}
-
 // Minimal representation of the enhanced JSON report used by BitMatch
 // This mirrors the fields needed for TransferCard conversion
-struct EnhancedJSONReport: Decodable {
+struct ReportSnapshot: Decodable {
     let timestamp: Date
     let source: SourceInfo
     let destinations: [DestinationInfo]

@@ -145,7 +145,7 @@ final class ReportExporter {
             try? PhotographerReportPayload.make(context: $0, results: results, finishedAt: finished)
         }
         
-        let summary = ReportView.Summary(
+        let summary = ReportSummary(
             jobID: jobID,
             started: started,
             finished: finished,
@@ -204,7 +204,7 @@ final class ReportExporter {
     
     #if os(macOS)
     @MainActor
-    private static func generatePDF(summary: ReportView.Summary, results: [ResultRow]) -> Data {
+    private static func generatePDF(summary: ReportSummary, results: [ResultRow]) -> Data {
         let view = ReportView(s: summary, rows: results)
 
         // Use ImageRenderer if available (macOS 13+)
@@ -277,7 +277,7 @@ final class ReportExporter {
 
     @MainActor
     @available(macOS, deprecated: 13.0, message: "Use generatePDF with ImageRenderer")
-    private static func generatePDFLegacy(summary: ReportView.Summary, results: [ResultRow]) -> Data {
+    private static func generatePDFLegacy(summary: ReportSummary, results: [ResultRow]) -> Data {
         let view = ReportView(s: summary, rows: results)
         let hosting = NSHostingView(rootView: view)
         let pageSize = NSSize(width: 612, height: 792)

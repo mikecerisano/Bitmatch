@@ -25,6 +25,10 @@ class OperationStateService: ObservableObject {
     private var pausedOperationData: SavedOperationState?
     private let userDefaults = UserDefaults.standard
     private let savedOperationsKey = "BitMatch_SavedOperations"
+
+    /// Single source of truth for state-transition legality. `currentState`
+    /// stays the published facade; every mutation goes through `applyTransition`.
+    private let stateMachine = OperationStateMachine()
     
     // MARK: - Initialization
     
@@ -32,12 +36,25 @@ class OperationStateService: ObservableObject {
         loadSavedOperations()
         setupSystemNotifications()
     }
+
+    // MARK: - Transition Validation
+
+    @discardableResult
+    private func applyTransition(_ newState: OperationState) -> Bool {
+        guard stateMachine.transition(to: newState) else {
+            SharedLogger.warning("StateService: rejected invalid transition to \(newState)", category: .transfer)
+            return false
+        }
+        currentState = newState
+        return true
+    }
     
     // MARK: - Operation Lifecycle
     
     func startOperation(id: UUID, sourceURL: URL, destinationURLs: [URL], totalFiles: Int, totalBytes: Int64, verificationMode: String? = nil, mode: String? = nil) {
         currentOperationId = id
-        currentState = .inProgress
+        stateMachine.reset()
+        applyTransition(.inProgress)
         currentSourceURL = sourceURL
         currentDestinationURLs = destinationURLs
         currentVerificationMode = verificationMode
@@ -66,7 +83,7 @@ class OperationStateService: ObservableObject {
             reason: reason
         )
         
-        currentState = .paused(pauseInfo)
+        applyTransition(.paused(pauseInfo))
         
         // Save operation state for persistence
         if let progress = currentProgress {
@@ -99,7 +116,7 @@ class OperationStateService: ObservableObject {
         guard currentState.canResume,
               let operationId = currentOperationId else { return false }
         
-        currentState = .resuming
+        applyTransition(.resuming)
         
         // Remove from saved operations since we're resuming
         if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
@@ -112,7 +129,7 @@ class OperationStateService: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.currentOperationId == expectedOpId else { return }
             if self.currentState == .resuming {
-                self.currentState = .inProgress
+                self.applyTransition(.inProgress)
             }
         }
         
@@ -136,7 +153,7 @@ class OperationStateService: ObservableObject {
     func cancelOperation() {
         guard let operationId = currentOperationId else { return }
         
-        currentState = .cancelled
+        applyTransition(.cancelled)
         
         // Clean up saved state
         if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
@@ -163,6 +180,7 @@ class OperationStateService: ObservableObject {
     
     func restoreFromSavedOperation(_ savedState: SavedOperationState) {
         currentOperationId = savedState.operationId
+        stateMachine.restorePaused(savedState.pauseInfo)
         currentState = .paused(savedState.pauseInfo)
         pausedOperationData = savedState
         

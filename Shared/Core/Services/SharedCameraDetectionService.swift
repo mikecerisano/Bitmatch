@@ -18,8 +18,7 @@ class SharedCameraDetectionService: CameraDetectionService {
                 SharedLogger.debug("Skip SharedCameraDetectionService on large volume: \(ByteCountFormatter.string(fromByteCount: Int64(cap), countStyle: .file)) at \(folderURL.path)", category: .transfer)
                 return CameraDetectionResult(cameraCard: nil, confidence: 0.0, metadata: ["skip": "large_volume"], detectionMethod: "guard", processingTime: Date().timeIntervalSince(startTime))
             }
-            // Fast path: use orchestrator’s folder/name heuristics when available (macOS target)
-            #if os(macOS)
+            // Fast path: use orchestrator’s folder/name heuristics on every platform.
             if let orchestrated = CameraDetectionOrchestrator.shared.detectCamera(at: folderURL) {
                 metadata["orchestrator_hint"] = orchestrated
                 // Parse manufacturer/model from the returned string
@@ -49,7 +48,6 @@ class SharedCameraDetectionService: CameraDetectionService {
                     )
                 }
             }
-            #endif
 
             // Step 1: Analyze folder structure
             let folderStructure = try await analyzeFolderStructure(at: folderURL)

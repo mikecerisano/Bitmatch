@@ -42,6 +42,12 @@ final class OperationStateMachine: ObservableObject {
         currentState = .notStarted
     }
 
+    /// Rehydrate a persisted paused state (e.g., after relaunch). This is not
+    /// a normal transition — it restores state from disk without validation.
+    func restorePaused(_ info: PauseInfo) {
+        currentState = .paused(info)
+    }
+
     // MARK: - Convenience Transitions
 
     func startOperation() -> Bool {

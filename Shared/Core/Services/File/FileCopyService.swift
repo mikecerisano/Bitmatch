@@ -980,13 +980,21 @@ final class FileCopyService {
 
         if verificationMode == .paranoid {
             let matches = try await byteComparison(source: source, pinnedDestination: destination)
+            // Paranoid mode still byte-compares, but also computes a real
+            // SHA-256 digest so MHL files carry a usable checksum instead of
+            // a "byte-comparison" placeholder.
+            let digest = try await checksumVerification(
+                source: source,
+                pinnedDestination: destination,
+                type: .sha256
+            )
             return VerificationResult(
-                sourceChecksum: "byte-comparison",
-                destinationChecksum: "byte-comparison",
+                sourceChecksum: digest.sourceChecksum,
+                destinationChecksum: digest.destinationChecksum,
                 matches: matches,
                 checksumType: .sha256,
                 processingTime: Date().timeIntervalSince(startTime),
-                fileSize: try sourceFileSize(source)
+                fileSize: digest.fileSize
             )
         }
 

@@ -62,11 +62,14 @@ final class UnifiedMetadataDetectionService {
                 }
             }
             
-            // Try to extract camera info from media files
+            // Try to extract camera info from media files. Spotlight/mdls is
+            // macOS-only; iOS media metadata comes from the other services.
             for mediaFile in mediaFiles {
+                #if os(macOS)
                 if let cameraInfo = extractCameraFromMediaFile(mediaFile) {
                     return cameraInfo
                 }
+                #endif
             }
         }
         

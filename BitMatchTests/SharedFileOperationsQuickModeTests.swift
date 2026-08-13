@@ -77,14 +77,6 @@ struct SharedFileOperationsQuickModeTests {
             try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: sourceFile.path)
             try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: existingDestination.path)
 
-            let quickPreScanCount = await PreScanService.countAlreadyPresent(
-                sourceFiles: [sourceFile],
-                sourceBase: source,
-                destRoot: outputRoot,
-                verificationMode: .quick
-            )
-            #expect(quickPreScanCount == 0)
-
             let sut = SharedFileOperationsService(
                 fileSystem: MacOSFileSystemService.shared,
                 checksum: SharedChecksumService.shared

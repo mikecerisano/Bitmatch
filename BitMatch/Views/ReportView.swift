@@ -7,29 +7,7 @@ import UIKit
 #endif
 
 struct ReportView: View {
-    struct Summary {
-        let jobID: UUID
-        let started: Date
-        let finished: Date
-        let mode: AppMode
-        let source: String
-        let destinations: [String]
-        let totalFiles: Int
-        let matched: Int
-        let issues: Int
-        let workers: Int
-        let appVersion: String
-        let osVersion: String
-        let client: String
-        let production: String
-        let company: String
-        let verificationMethod: String
-        let totalBytesProcessed: Int64
-        let averageSpeed: Double // MB/s
-        let clientLogoData: Data?
-        let companyLogoData: Data?
-        let photographyJob: PhotographerReportPayload?
-    }
+    typealias Summary = ReportSummary
 
     let s: Summary
     let rows: [ResultRow]

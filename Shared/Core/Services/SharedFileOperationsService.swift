@@ -428,6 +428,10 @@ class SharedFileOperationsService: FileOperationsService {
         // Perf 7: adaptive copy worker count
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
+        // Collect each destination's resolved output root so per-destination
+        // MHL files can be written after verification finishes.
+        var resolvedDestinations: [(raw: URL, root: URL)] = []
+
         for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
             // Pin the selected destination and every recipe component before
             // copying. Subsequent directory creation and publish are relative
@@ -446,6 +450,7 @@ class SharedFileOperationsService: FileOperationsService {
                 rootComponents: rootComponents
             )
             let destFolder = pinnedDestination.logicalRootURL
+            resolvedDestinations.append((raw: destinationURL, root: destFolder))
 
             SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
             do {
@@ -750,6 +755,38 @@ class SharedFileOperationsService: FileOperationsService {
         // Wait for any in-flight pipelined verifications to complete.
         await finishVerificationTasks(in: verifyTaskStore, cancelling: false)
         try Task.checkCancellation()
+
+        // Generate per-destination MHL files for paranoid transfers once all
+        // verification rows are final. Entries are limited to successfully
+        // verified destination files so the manifest never carries a
+        // "byte-comparison" placeholder checksum.
+        if operation.verificationMode == .paranoid {
+            let finalResultsForMHL = await resultStore.snapshot()
+            for resolved in resolvedDestinations {
+                let verifiedFiles: [(url: URL, hash: String, size: Int64)] = finalResultsForMHL.compactMap { result -> (url: URL, hash: String, size: Int64)? in
+                    guard result.success,
+                          let verification = result.verificationResult,
+                          verification.isValid,
+                          resolved.root.isAncestor(of: result.destinationURL) else {
+                        return nil
+                    }
+                    return (url: result.destinationURL, hash: verification.destinationChecksum, size: result.fileSize)
+                }
+                guard !verifiedFiles.isEmpty else { continue }
+                do {
+                    _ = try MHLGenerator.generateMHL(
+                        for: verifiedFiles,
+                        sourceURL: operation.sourceURL,
+                        destinationURL: resolved.root,
+                        algorithm: .sha256,
+                        jobID: operation.id,
+                        startTime: startTime
+                    )
+                } catch {
+                    SharedLogger.error("MHL generation failed for \(resolved.root.path): \(error.localizedDescription)", category: .transfer)
+                }
+            }
+        }
 
         let finalMetrics = await progressState.snapshot()
 

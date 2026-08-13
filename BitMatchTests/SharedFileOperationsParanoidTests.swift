@@ -43,7 +43,9 @@ struct SharedFileOperationsParanoidTests {
             #expect(op.results.count >= 2)
             let verifiedCount = op.results.filter { $0.verificationResult?.isValid == true }.count
             #expect(verifiedCount >= 2)
-            #expect(op.results.allSatisfy { $0.verificationResult?.sourceChecksum == "byte-comparison" })
+            // Paranoid mode now emits a real SHA-256 digest (used for MHL),
+            // not a "byte-comparison" placeholder.
+            #expect(op.results.allSatisfy { ($0.verificationResult?.sourceChecksum.count ?? 0) == 64 })
 
             // Cleanup
             try? fm.removeItem(at: source)

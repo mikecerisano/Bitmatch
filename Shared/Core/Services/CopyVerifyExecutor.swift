@@ -340,7 +340,6 @@ final class CopyVerifyExecutor {
 
         SharedLogger.info("Auto-report queued for job \(operation.id) with \(fileCount) rows", category: .transfer)
 
-        #if os(macOS)
         let reportMode = config.currentMode
         let reportSettings = config.reportSettings
         let reportResults = results
@@ -365,9 +364,6 @@ final class CopyVerifyExecutor {
                 photographerContext: reportContext
             )
         }
-        #else
-        SharedLogger.info("Report export not available on iOS", category: .transfer)
-        #endif
     }
 
     static func photographerLifecycleAfterAuthoritativeCompletion(
