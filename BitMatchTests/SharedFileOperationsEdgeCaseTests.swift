@@ -311,6 +311,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .quick,
                 workers: 1,
+                checksumService: SharedChecksumService.shared,
                 onProgress: { _, _ in },
                 onError: { _, error in
                     Issue.record("Pinned copy unexpectedly failed: \(error.localizedDescription)")
@@ -362,6 +363,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .standard,
                 workers: 1,
+                checksumService: SharedChecksumService.shared,
                 onProgress: { _, _ in
                     Issue.record("Escape-tree checksum match must not be reused as verified evidence")
                 },

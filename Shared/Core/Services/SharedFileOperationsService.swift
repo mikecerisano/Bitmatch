@@ -451,6 +451,7 @@ class SharedFileOperationsService: FileOperationsService {
             // below still performs its own O_NOFOLLOW, descriptor-relative walk
             // to obtain the pinned handle used for every subsequent write, so
             // this does not weaken the TOCTOU protection that walk provides.
+            try Task.checkCancellation()
             var precreateFolder = destinationURL
             for component in rootComponents {
                 precreateFolder.appendPathComponent(component, isDirectory: true)
@@ -478,6 +479,7 @@ class SharedFileOperationsService: FileOperationsService {
                 toPinnedRoot: pinnedDestination,
                 verificationMode: operation.verificationMode,
                 workers: copyWorkers,
+                checksumService: self.checksumService,
                 preEnumeratedFiles: sourceFileURLs,
                 pauseCheck: {
                     try await pauseState.waitIfPaused()

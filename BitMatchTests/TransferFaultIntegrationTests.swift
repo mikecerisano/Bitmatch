@@ -420,7 +420,14 @@ private final class MutatingChecksumService: ChecksumService, @unchecked Sendabl
         useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        try await SharedChecksumService.shared.generateChecksum(
+        // Production now computes the source digest for pinned verification
+        // through generateChecksum rather than verifyFileIntegrity, so the
+        // mutation trigger must fire here too to keep simulating "source
+        // changed mid-verification".
+        if fileURL.standardizedFileURL == target.standardizedFileURL, claimMutation() {
+            try Data("source changed after publication".utf8).write(to: target, options: .atomic)
+        }
+        return try await SharedChecksumService.shared.generateChecksum(
             for: fileURL,
             type: type,
             useCache: useCache,
