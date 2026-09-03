@@ -292,13 +292,36 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
     var didObserveCancellation: Bool { get async { await gate.didObserveCancellation } }
     func release() async { await gate.release() }
 
+    /// Verification (in production) is driven through `generateChecksum` for
+    /// the source digest, so that call must gate/observe cancellation exactly
+    /// like `verifyFileIntegrity` used to for these tests to exercise the
+    /// same start/cancel/release timing.
+    private func blockUntilReleasedOrCancelled() async throws {
+        await gate.begin()
+        await withTaskCancellationHandler {
+            await gate.waitForRelease()
+        } onCancel: { [gate] in
+            Task { await gate.observeCancellation() }
+        }
+        try Task.checkCancellation()
+    }
+
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
         useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        "hash"
+        try await blockUntilReleasedOrCancelled()
+        // Production now compares this source digest against the real
+        // destination digest read through the pinned handle, so this must
+        // be the file's actual checksum rather than a fixed placeholder.
+        return try await SharedChecksumService.shared.generateChecksum(
+            for: fileURL,
+            type: type,
+            useCache: false,
+            progressCallback: nil
+        )
     }
 
     func verifyFileIntegrity(
@@ -308,13 +331,7 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
         useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
-        await gate.begin()
-        await withTaskCancellationHandler {
-            await gate.waitForRelease()
-        } onCancel: { [gate] in
-            Task { await gate.observeCancellation() }
-        }
-        try Task.checkCancellation()
+        try await blockUntilReleasedOrCancelled()
         return VerificationResult(
             sourceChecksum: "hash",
             destinationChecksum: "hash",

@@ -56,8 +56,15 @@ final class BitMatchPersistenceController {
         guard !didStartStoreLoad, persistentStoreLoadError == nil else { return }
         didStartStoreLoad = true
         container.loadPersistentStores { [weak self] _, error in
-            Task { @MainActor in
-                self?.finishStoreLoad(error)
+            // Synchronous store loads (the default, and always the case for
+            // in-memory stores) complete on the calling main thread. Finish
+            // inline so `isStoreLoaded` and the readiness observers flip
+            // together; deferring through a Task lets callers observe the
+            // store as loaded before `whenStoreReady` callbacks have run.
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.finishStoreLoad(error) }
+            } else {
+                Task { @MainActor in self?.finishStoreLoad(error) }
             }
         }
     }

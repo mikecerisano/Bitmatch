@@ -311,6 +311,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .quick,
                 workers: 1,
+                checksumService: SharedChecksumService.shared,
                 onProgress: { _, _ in },
                 onError: { _, error in
                     Issue.record("Pinned copy unexpectedly failed: \(error.localizedDescription)")
@@ -352,7 +353,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 rootComponents: ["Job", "Card-001"]
             )
             try fm.createDirectory(at: originalJob.appendingPathComponent("Card-001/DCIM"), withIntermediateDirectories: true)
-            try heldContents.write(to: originalJob.appendingPathComponent(relativePath))
+            try heldContents.write(to: originalJob.appendingPathComponent("Card-001/\(relativePath)"))
             try fm.moveItem(at: originalJob, to: heldJob)
             try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
 
@@ -362,6 +363,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .standard,
                 workers: 1,
+                checksumService: SharedChecksumService.shared,
                 onProgress: { _, _ in
                     Issue.record("Escape-tree checksum match must not be reused as verified evidence")
                 },
@@ -405,7 +407,8 @@ struct SharedFileOperationsEdgeCaseTests {
                 source: source.appendingPathComponent(relativePath),
                 pinnedRoot: pinnedRoot,
                 relativePath: relativePath,
-                verificationMode: .thorough
+                verificationMode: .thorough,
+                checksumService: SharedChecksumService.shared
             )
 
             #expect(result.matches)

@@ -235,7 +235,7 @@ struct PhotographerJobViewModelTests {
 
         let began = viewModel.beginIngest(destinationCount: 1)
 
-        #expect(viewModel.lastError == "This job requires 2 verified local destinations.")
+        #expect(viewModel.lastError == "Add 1 more destination for this 2-copy job")
         #expect(!began)
         #expect(viewModel.activeCard?.localState == .notStarted)
     }
@@ -744,7 +744,7 @@ struct PhotographerJobViewModelTests {
             }
         )
         viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
-        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony", analysis: analysis("preliminary"))
+        try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony A7 IV", analysis: analysis("preliminary"))
         viewModel.beginIngest(destinationCount: 2)
         let secondary = verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Secondary")
         let primary = verifiedRow(path: "/card/A.ARW", checksum: "abc", destination: "Primary")
