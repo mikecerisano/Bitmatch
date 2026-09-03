@@ -25,7 +25,7 @@ final class BitMatchPersistenceController {
             description.shouldInferMappingModelAutomatically = true
 
             if inMemory {
-                description.url = URL(fileURLWithPath: "/dev/null")
+                description.url = nil
             } else if let storeURL {
                 description.url = storeURL
             }
