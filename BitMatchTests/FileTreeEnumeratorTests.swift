@@ -58,8 +58,9 @@ final class FileTreeEnumeratorTests: XCTestCase {
         }
 
         let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
-        // Compare trailing components: the enumerator may return /private/var for a /var temp root.
-        XCTAssertEqual(entries.map { $0.url.pathComponents.suffix(2).joined(separator: "/") }, ["DCIM/A001.MOV"])
+        // The temp root is /var/..., which the enumerator reports as /private/var/...;
+        // nested structure must survive that alias instead of collapsing to "A001.MOV".
+        XCTAssertEqual(entries.map(\.relativePath), ["DCIM/A001.MOV"])
     }
 
     /// An unreadable directory that is NOT known volume metadata must still fail loudly.

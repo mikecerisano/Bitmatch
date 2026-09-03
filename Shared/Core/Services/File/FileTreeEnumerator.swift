@@ -33,7 +33,24 @@ enum FileTreeEnumerator {
     static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
         try Task.checkCancellation()
         let fileManager = FileManager.default
-        let basePath = base.path
+        // The enumerator may report URLs through a different alias than the
+        // caller supplied (macOS resolves /var to /private/var, and Foundation
+        // strips /private again when resolving). Compare against both forms,
+        // and fail closed rather than flattening a nested file to its bare name.
+        let rawBasePath = base.path
+        let resolvedBasePath = base.resolvingSymlinksInPath().path
+        func relativePath(of item: URL) throws -> String {
+            for candidate in [item.path, item.resolvingSymlinksInPath().path] {
+                for basePath in [rawBasePath, resolvedBasePath] where candidate.hasPrefix(basePath + "/") {
+                    return String(candidate.dropFirst(basePath.count + 1))
+                }
+            }
+            throw NSError(
+                domain: "FileTreeEnumerator",
+                code: NSFileReadUnknownError,
+                userInfo: [NSLocalizedDescriptionKey: "Could not determine the path of \(item.lastPathComponent) relative to \(base.lastPathComponent)"]
+            )
+        }
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
             .isDirectoryKey,
@@ -79,12 +96,9 @@ enum FileTreeEnumerator {
             if values.isSymbolicLink == true || values.isRegularFile != true {
                 continue
             }
-            let relativePath = item.path.hasPrefix(basePath + "/")
-                ? String(item.path.dropFirst(basePath.count + 1))
-                : item.lastPathComponent
             entries.append(FileEntry(
                 url: item,
-                relativePath: relativePath,
+                relativePath: try relativePath(of: item),
                 size: Int64(values.fileSize ?? 0),
                 modificationDate: values.contentModificationDate
             ))
