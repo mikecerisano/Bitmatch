@@ -366,8 +366,12 @@ final class FileCopyService {
                         // Compute relative path before do block so it's available in catch
                         // Fallback to lastPathComponent if file isn't under src (symlinks, etc.)
                         let relPath: String = {
-                            let srcPath = src.path
-                            let filePath = fileURL.path
+                            // Resolve both sides (e.g. /var -> /private/var) before
+                            // comparing; the enumerator's URLs are already resolved,
+                            // and an unresolved `src` here would otherwise collapse
+                            // nested files down to their last path component.
+                            let srcPath = src.resolvingSymlinksInPath().path
+                            let filePath = fileURL.resolvingSymlinksInPath().path
                             if filePath.hasPrefix(srcPath + "/") {
                                 return String(filePath.dropFirst(srcPath.count + 1))
                             } else {
@@ -864,8 +868,14 @@ final class FileCopyService {
     #endif
 
     private static func relativePath(of fileURL: URL, below root: URL) -> String {
-        let sourcePath = root.path
-        let filePath = fileURL.path
+        // FileManager's directory enumerator resolves macOS's system aliases
+        // (e.g. /var -> /private/var) in the URLs it yields, while `root` is
+        // typically the caller-supplied, unresolved path. Comparing the raw
+        // paths would then miss the prefix and silently collapse nested
+        // files to their last path component. Resolve both sides the same
+        // way before comparing so real subdirectory structure is preserved.
+        let sourcePath = root.resolvingSymlinksInPath().path
+        let filePath = fileURL.resolvingSymlinksInPath().path
         if filePath.hasPrefix(sourcePath + "/") {
             return String(filePath.dropFirst(sourcePath.count + 1))
         }

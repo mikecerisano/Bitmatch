@@ -24,13 +24,9 @@ final class TransferFaultIntegrationTests: XCTestCase {
             defer { fixture.cleanup() }
             let source = canonicalFileURL(fixture.source)
             let targetRelativePath = "DCIM/100MEDIA/MEDIA_0000.bin"
-            let mutatingChecksum = MutatingChecksumService(
-                target: source.appendingPathComponent(targetRelativePath)
-            )
-            let service = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
-                checksum: mutatingChecksum
-            )
+            let targetSourceURL = source.appendingPathComponent(targetRelativePath)
+            let service = makeService()
+            let mutationTrigger = OneShot()
 
             let operation = try await service.performFileOperation(
                 sourceURL: source,
@@ -39,7 +35,21 @@ final class TransferFaultIntegrationTests: XCTestCase {
                 settings: CameraLabelSettings(),
                 estimatedTotalBytes: nil,
                 progressCallback: { _ in },
-                onFileResult: nil
+                onFileResult: { result in
+                    // Local destinations verify through a descriptor-pinned,
+                    // fd-safe checksum read that intentionally does not go
+                    // through an injectable ChecksumService (that would
+                    // reopen the destination by path, defeating the symlink
+                    // -swap protection). So instead of hooking verification,
+                    // mutate the source the instant its copy result is
+                    // published -- guaranteed to happen before the pipelined
+                    // verify task for this file is even created -- to
+                    // simulate a card that changes between copy and verify.
+                    guard result.verificationResult == nil,
+                          result.sourceURL.path == targetSourceURL.path,
+                          mutationTrigger.take() else { return }
+                    try? Data("source changed after publication".utf8).write(to: targetSourceURL, options: .atomic)
+                }
             )
 
             let targetResult = try XCTUnwrap(operation.results.first {
@@ -402,68 +412,5 @@ private final class FaultInjectingFileSystemService: FileSystemService, @uncheck
             injected = false
         }
         return available
-    }
-}
-
-private final class MutatingChecksumService: ChecksumService, @unchecked Sendable {
-    private let target: URL
-    private let lock = NSLock()
-    private var didMutate = false
-
-    init(target: URL) {
-        self.target = target
-    }
-
-    func generateChecksum(
-        for fileURL: URL,
-        type: ChecksumAlgorithm,
-        useCache: Bool,
-        progressCallback: ProgressCallback?
-    ) async throws -> String {
-        try await SharedChecksumService.shared.generateChecksum(
-            for: fileURL,
-            type: type,
-            useCache: useCache,
-            progressCallback: progressCallback
-        )
-    }
-
-    func verifyFileIntegrity(
-        sourceURL: URL,
-        destinationURL: URL,
-        type: ChecksumAlgorithm,
-        useCache: Bool,
-        progressCallback: ProgressCallback?
-    ) async throws -> VerificationResult {
-        if sourceURL.standardizedFileURL == target.standardizedFileURL, claimMutation() {
-            try Data("source changed after publication".utf8).write(to: target, options: .atomic)
-        }
-        return try await SharedChecksumService.shared.verifyFileIntegrity(
-            sourceURL: sourceURL,
-            destinationURL: destinationURL,
-            type: type,
-            useCache: useCache,
-            progressCallback: progressCallback
-        )
-    }
-
-    func performByteComparison(
-        sourceURL: URL,
-        destinationURL: URL,
-        progressCallback: ProgressCallback?
-    ) async throws -> Bool {
-        try await SharedChecksumService.shared.performByteComparison(
-            sourceURL: sourceURL,
-            destinationURL: destinationURL,
-            progressCallback: progressCallback
-        )
-    }
-
-    private func claimMutation() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didMutate else { return false }
-        didMutate = true
-        return true
     }
 }

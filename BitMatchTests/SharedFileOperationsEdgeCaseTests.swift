@@ -352,7 +352,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 rootComponents: ["Job", "Card-001"]
             )
             try fm.createDirectory(at: originalJob.appendingPathComponent("Card-001/DCIM"), withIntermediateDirectories: true)
-            try heldContents.write(to: originalJob.appendingPathComponent(relativePath))
+            try heldContents.write(to: originalJob.appendingPathComponent("Card-001/\(relativePath)"))
             try fm.moveItem(at: originalJob, to: heldJob)
             try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
 
