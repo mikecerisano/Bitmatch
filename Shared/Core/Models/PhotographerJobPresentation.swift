@@ -114,7 +114,9 @@ struct PhotographerStartPresentation: Equatable, Sendable {
         } else if !context.setupMatches {
             blocker = "Setup changed; set up the card again"
         } else if context.destinationCount < context.requiredDestinationCount {
-            blocker = insufficientDestinationError(requiredCount: context.requiredDestinationCount)
+            let missing = context.requiredDestinationCount - context.destinationCount
+            let noun = missing == 1 ? "destination" : "destinations"
+            blocker = "Add \(missing) more \(noun) for this \(context.requiredDestinationCount)-copy job"
         } else {
             blocker = nil
         }

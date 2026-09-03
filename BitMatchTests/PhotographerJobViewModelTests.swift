@@ -235,7 +235,7 @@ struct PhotographerJobViewModelTests {
 
         let began = viewModel.beginIngest(destinationCount: 1)
 
-        #expect(viewModel.lastError == "This job requires 2 verified local destinations.")
+        #expect(viewModel.lastError == "Add 1 more destination for this 2-copy job")
         #expect(!began)
         #expect(viewModel.activeCard?.localState == .notStarted)
     }
