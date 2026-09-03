@@ -445,6 +445,17 @@ class SharedFileOperationsService: FileOperationsService {
                 source: operation.sourceURL,
                 settings: operation.settings
             )
+            // Create the destination root through the injected FileSystemService
+            // first (as before the pinned-directory hardening) so callers can
+            // observe/intercept directory setup. PinnedDestinationDirectory.open
+            // below still performs its own O_NOFOLLOW, descriptor-relative walk
+            // to obtain the pinned handle used for every subsequent write, so
+            // this does not weaken the TOCTOU protection that walk provides.
+            var precreateFolder = destinationURL
+            for component in rootComponents {
+                precreateFolder.appendPathComponent(component, isDirectory: true)
+            }
+            try fileSystem.createDirectory(at: precreateFolder)
             let pinnedDestination = try PinnedDestinationDirectory.open(
                 destination: destinationURL,
                 rootComponents: rootComponents
@@ -511,7 +522,8 @@ class SharedFileOperationsService: FileOperationsService {
                                         source: srcURL,
                                         pinnedRoot: pinnedDestination,
                                         relativePath: relativePath,
-                                        verificationMode: mode
+                                        verificationMode: mode,
+                                        checksumService: self.checksumService
                                     )
                                     let verified = FileOperationResult(
                                         sourceURL: srcURL,
@@ -714,7 +726,8 @@ class SharedFileOperationsService: FileOperationsService {
                                 source: fileURL,
                                 pinnedRoot: pinnedDestination,
                                 relativePath: relativePath,
-                                verificationMode: operation.verificationMode
+                                verificationMode: operation.verificationMode,
+                                checksumService: self.checksumService
                             )
                             
                             let fileSize = sizeForVerify

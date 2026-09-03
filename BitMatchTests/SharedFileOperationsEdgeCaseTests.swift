@@ -405,7 +405,8 @@ struct SharedFileOperationsEdgeCaseTests {
                 source: source.appendingPathComponent(relativePath),
                 pinnedRoot: pinnedRoot,
                 relativePath: relativePath,
-                verificationMode: .thorough
+                verificationMode: .thorough,
+                checksumService: SharedChecksumService.shared
             )
 
             #expect(result.matches)

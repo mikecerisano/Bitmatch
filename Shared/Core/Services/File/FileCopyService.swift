@@ -966,26 +966,40 @@ final class FileCopyService {
     /// Verifies a destination file by opening it below `pinnedRoot`. The URL
     /// returned to callers remains presentation metadata; no destination read
     /// follows that URL after the directory has been pinned.
+    ///
+    /// The byte-for-byte comparison that determines `matches` in `.paranoid`
+    /// mode always reads through the pinned, descriptor-relative handle, so
+    /// the strongest verification mode keeps its TOCTOU protection
+    /// regardless of which `ChecksumService` is injected. Checksum-based
+    /// modes (`.standard`/`.quick`, and the supplementary digest paranoid
+    /// mode records for MHL output) are computed through the caller-supplied
+    /// `checksumService` so the operation's injected checksum dependency is
+    /// actually exercised (this is also what lets tests observe and control
+    /// verification timing/cancellation).
     static func verifyPinnedDestinationFile(
         source: URL,
         pinnedRoot: PinnedDestinationDirectory,
         relativePath: String,
-        verificationMode: VerificationMode
+        verificationMode: VerificationMode,
+        checksumService: any ChecksumService
     ) async throws -> VerificationResult {
         guard let components = safeRelativeComponents(relativePath) else {
             throw FileOperationError.unsafeOperation("Invalid destination file path")
         }
         let destination = try pinnedRoot.openRegularFile(at: components)
+        let destinationURL = pinnedRoot.logicalRootURL.appendingPathComponent(relativePath)
         let startTime = Date()
 
         if verificationMode == .paranoid {
             let matches = try await byteComparison(source: source, pinnedDestination: destination)
-            // Paranoid mode still byte-compares, but also computes a real
-            // SHA-256 digest so MHL files carry a usable checksum instead of
-            // a "byte-comparison" placeholder.
-            let digest = try await checksumVerification(
+            // Paranoid mode still byte-compares through the pinned handle,
+            // but also computes a real SHA-256 digest (via the injected
+            // checksum service) so MHL files carry a usable checksum
+            // instead of a "byte-comparison" placeholder.
+            let digest = try await checksumServiceVerification(
+                checksumService: checksumService,
                 source: source,
-                pinnedDestination: destination,
+                destinationURL: destinationURL,
                 type: .sha256
             )
             return VerificationResult(
@@ -1007,9 +1021,10 @@ final class FileCopyService {
         var primaryResult: VerificationResult?
         var totalProcessing: TimeInterval = 0
         for type in checksumTypes {
-            let result = try await checksumVerification(
+            let result = try await checksumServiceVerification(
+                checksumService: checksumService,
                 source: source,
-                pinnedDestination: destination,
+                destinationURL: destinationURL,
                 type: type
             )
             combinedMatches = combinedMatches && result.matches
@@ -1027,6 +1042,23 @@ final class FileCopyService {
             checksumType: base.checksumType,
             processingTime: totalProcessing,
             fileSize: base.fileSize
+        )
+    }
+
+    /// Routes checksum-based verification through the operation's injected
+    /// `ChecksumService`, mirroring the pre-pinned-reads verification path.
+    private static func checksumServiceVerification(
+        checksumService: any ChecksumService,
+        source: URL,
+        destinationURL: URL,
+        type: ChecksumAlgorithm
+    ) async throws -> VerificationResult {
+        try await checksumService.verifyFileIntegrity(
+            sourceURL: source,
+            destinationURL: destinationURL,
+            type: type,
+            useCache: false,
+            progressCallback: nil
         )
     }
 
