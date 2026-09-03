@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-03
+
 - Fix: Read free space correctly on exFAT/FAT destinations; the APFS-only "important usage" capacity reports 0 there, which wrongly aborted transfers with "Insufficient space: 0.0GB available" (GitHub issue).
 - Fix: Skip macOS volume metadata folders (.Spotlight-V100, .fseventsd, .Trashes, .TemporaryItems, .DocumentRevisions-V100) when reading a card, so offloads no longer fail with a permission error without Full Disk Access (GitHub issue).
 - Fix: Preserve nested folder structure when the source or destination path is reached through a symlink or the /private alias; previously nested files could be flattened to their bare names.
