@@ -63,6 +63,21 @@ final class FileTreeEnumeratorTests: XCTestCase {
         XCTAssertEqual(entries.map(\.relativePath), ["DCIM/A001.MOV"])
     }
 
+    /// Only the volume root's metadata folders are skipped; a user folder that shares
+    /// one of those names deeper in the tree is real data and must be kept.
+    func testNestedFolderNamedLikeVolumeMetadataIsKept() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("nested-metadata-name-\(UUID().uuidString)", isDirectory: true)
+        let nested = root.appendingPathComponent("DCIM/.Trashes", isDirectory: true)
+        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("clip".utf8).write(to: nested.appendingPathComponent("A002.MOV"))
+        defer { try? fm.removeItem(at: root) }
+
+        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
+        XCTAssertEqual(entries.map(\.relativePath), ["DCIM/.Trashes/A002.MOV"])
+    }
+
     /// An unreadable directory that is NOT known volume metadata must still fail loudly.
     func testUnreadableUserDirectoryStillThrows() throws {
         let fm = FileManager.default

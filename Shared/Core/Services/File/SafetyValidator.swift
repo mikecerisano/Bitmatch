@@ -347,7 +347,7 @@ final class SafetyValidator {
 
     static func validateSourceTreeForCopy(source: URL) throws {
         let fm = FileManager.default
-        let basePath = source.path
+        let resolver = RelativePathResolver(base: source)
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]
         var relativePaths: [String] = []
 
@@ -366,14 +366,7 @@ final class SafetyValidator {
                 continue
             }
 
-            let itemPath = item.path
-            let relativePath: String
-            if itemPath.hasPrefix(basePath + "/") {
-                relativePath = String(itemPath.dropFirst(basePath.count + 1))
-            } else {
-                relativePath = item.lastPathComponent
-            }
-            relativePaths.append(relativePath)
+            relativePaths.append(try resolver.resolve(item))
         }
 
         try validatePortableRelativePaths(relativePaths)

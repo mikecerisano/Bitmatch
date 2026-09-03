@@ -142,7 +142,15 @@ final class OperationOwnershipTests: XCTestCase {
                 settings: CameraLabelSettings()
             )
             let fileSystem = BlockingFailureFileSystem(failingDirectory: failingRoot)
-            let service = SharedFileOperationsService(fileSystem: fileSystem, checksum: checksum)
+            let failingDestination = fixture.destinations[1].standardizedFileURL
+            let service = SharedFileOperationsService(
+                fileSystem: fileSystem,
+                checksum: checksum,
+                destinationSetupHook: { destination in
+                    guard destination.standardizedFileURL == failingDestination else { return }
+                    try fileSystem.enterFailingDirectory()
+                }
+            )
             let callbackCount = AsyncCounter()
             let operationFinished = AsyncFlag()
 
@@ -191,6 +199,37 @@ final class OperationOwnershipTests: XCTestCase {
                 callbacksBeforeVerifierRelease,
                 "A verifier callback escaped operation return"
             )
+        }
+    }
+
+    func testCancellationDuringDestinationSetupDoesNotFabricateFailureRows() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try OwnershipTransferFixture(destinationCount: 2)
+            defer { fixture.cleanup() }
+            let service = SharedFileOperationsService(
+                fileSystem: OwnershipFileSystem(),
+                checksum: SharedChecksumService.shared,
+                destinationSetupHook: { _ in throw CancellationError() }
+            )
+            let callbackCount = AsyncCounter()
+
+            do {
+                _ = try await service.performFileOperation(
+                    sourceURL: fixture.source,
+                    destinationURLs: fixture.destinations,
+                    verificationMode: .standard,
+                    settings: CameraLabelSettings(),
+                    estimatedTotalBytes: nil,
+                    progressCallback: { _ in },
+                    onFileResult: { _ in await callbackCount.increment() }
+                )
+                XCTFail("Cancellation during destination setup must propagate")
+            } catch is CancellationError {
+                // Expected.
+            }
+
+            let rows = await callbackCount.value
+            XCTAssertEqual(rows, 0, "Cancellation must not be reported as per-file destination failures")
         }
     }
 
@@ -386,10 +425,12 @@ private final class BlockingFailureFileSystem: FileSystemService, @unchecked Sen
     nonisolated func getFileSize(for url: URL) throws -> Int64 { try base.getFileSize(for: url) }
 
     nonisolated func createDirectory(at url: URL) throws {
-        guard url.standardizedFileURL.path == failingPath else {
-            try base.createDirectory(at: url)
-            return
-        }
+        try base.createDirectory(at: url)
+    }
+
+    /// Blocks the caller until released, then fails, simulating a destination
+    /// whose setup hangs and then errors out.
+    nonisolated func enterFailingDirectory() throws {
         condition.lock()
         entered = true
         condition.broadcast()

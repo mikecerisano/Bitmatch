@@ -341,6 +341,7 @@ final class FileCopyService {
         }
 
         try await createDirectoryTreeSafely(from: src, toRoot: dstRoot, onError: onError)
+        let sourceResolver = RelativePathResolver(base: src)
 
         // Streaming copy with bounded concurrency
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -363,21 +364,16 @@ final class FileCopyService {
                             try await pauseCheck()
                         }
                         guard let fileURL = await nextFile() else { break }
-                        // Compute relative path before do block so it's available in catch
-                        // Fallback to lastPathComponent if file isn't under src (symlinks, etc.)
-                        let relPath: String = {
-                            // Resolve both sides (e.g. /var -> /private/var) before
-                            // comparing; the enumerator's URLs are already resolved,
-                            // and an unresolved `src` here would otherwise collapse
-                            // nested files down to their last path component.
-                            let srcPath = src.resolvingSymlinksInPath().path
-                            let filePath = fileURL.resolvingSymlinksInPath().path
-                            if filePath.hasPrefix(srcPath + "/") {
-                                return String(filePath.dropFirst(srcPath.count + 1))
-                            } else {
-                                return fileURL.lastPathComponent
-                            }
-                        }()
+                        // Compute relative path before do block so it's available in catch.
+                        // A file that cannot be placed below `src` is reported, never
+                        // flattened to its bare name.
+                        let relPath: String
+                        do {
+                            relPath = try sourceResolver.resolve(fileURL)
+                        } catch {
+                            await onError(fileURL.lastPathComponent, error)
+                            continue
+                        }
                         // Security 11: reject path traversal components
                         if relPath.split(separator: "/").contains("..") {
                             await onError(relPath, NSError(
@@ -469,6 +465,7 @@ final class FileCopyService {
         onError: @escaping (String, Error) async -> Void
     ) async throws {
         try await createDirectoryTreeSafely(from: src, in: pinnedRoot, onError: onError)
+        let sourceResolver = RelativePathResolver(base: src)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             let nextFile: @Sendable () async -> URL?
@@ -486,7 +483,13 @@ final class FileCopyService {
                         try Task.checkCancellation()
                         if let pauseCheck { try await pauseCheck() }
                         guard let fileURL = await nextFile() else { break }
-                        let relativePath = relativePath(of: fileURL, below: src)
+                        let relativePath: String
+                        do {
+                            relativePath = try sourceResolver.resolve(fileURL)
+                        } catch {
+                            await onError(fileURL.lastPathComponent, error)
+                            continue
+                        }
                         guard let components = safeRelativeComponents(relativePath) else {
                             await onError(relativePath, NSError(
                                 domain: "FileCopyService",
@@ -769,7 +772,7 @@ final class FileCopyService {
         onError: @escaping (String, Error) async -> Void
     ) async throws {
         let fm = FileManager.default
-        let sourceRootPath = sourceRoot.path
+        let resolver = RelativePathResolver(base: sourceRoot)
         let destinationRootPath = destinationRoot.standardized.resolvingSymlinksInPath().path
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
 
@@ -787,12 +790,12 @@ final class FileCopyService {
                 continue
             }
 
-            let itemPath = item.path
             let relPath: String
-            if itemPath.hasPrefix(sourceRootPath + "/") {
-                relPath = String(itemPath.dropFirst(sourceRootPath.count + 1))
-            } else {
-                relPath = item.lastPathComponent
+            do {
+                relPath = try resolver.resolve(item)
+            } catch {
+                await onError(item.lastPathComponent, error)
+                continue
             }
 
             guard !relPath.split(separator: "/").contains("..") else {
@@ -838,6 +841,7 @@ final class FileCopyService {
         onError: @escaping (String, Error) async -> Void
     ) async throws {
         let fm = FileManager.default
+        let resolver = RelativePathResolver(base: sourceRoot)
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let enumerator = fm.enumerator(
             at: sourceRoot,
@@ -850,7 +854,13 @@ final class FileCopyService {
             guard let values = try? item.resourceValues(forKeys: Set(keys)),
                   values.isSymbolicLink != true,
                   values.isDirectory == true else { continue }
-            let relative = relativePath(of: item, below: sourceRoot)
+            let relative: String
+            do {
+                relative = try resolver.resolve(item)
+            } catch {
+                await onError(item.lastPathComponent, error)
+                continue
+            }
             guard let components = safeRelativeComponents(relative) else {
                 await onError(relative, NSError(
                     domain: "FileCopyService",
@@ -868,21 +878,6 @@ final class FileCopyService {
         }
     }
     #endif
-
-    private static func relativePath(of fileURL: URL, below root: URL) -> String {
-        // FileManager's directory enumerator resolves macOS's system aliases
-        // (e.g. /var -> /private/var) in the URLs it yields, while `root` is
-        // typically the caller-supplied, unresolved path. Comparing the raw
-        // paths would then miss the prefix and silently collapse nested
-        // files to their last path component. Resolve both sides the same
-        // way before comparing so real subdirectory structure is preserved.
-        let sourcePath = root.resolvingSymlinksInPath().path
-        let filePath = fileURL.resolvingSymlinksInPath().path
-        if filePath.hasPrefix(sourcePath + "/") {
-            return String(filePath.dropFirst(sourcePath.count + 1))
-        }
-        return fileURL.lastPathComponent
-    }
 
     private static func safeRelativeComponents(_ relativePath: String) -> [String]? {
         let components = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)

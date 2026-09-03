@@ -212,6 +212,10 @@ class SharedFileOperationsService: FileOperationsService {
 
     private let fileSystem: FileSystemService
     private let checksumService: any ChecksumService
+    /// Test seam invoked with the raw destination URL immediately before that
+    /// destination is pinned. It performs no filesystem work in production
+    /// (nil); tests use it to block or fail destination setup deterministically.
+    private let destinationSetupHook: (@Sendable (URL) throws -> Void)?
     private let activeOperations = ActiveOperationRegistry()
     private let pauseState = PauseState()
     private let verifyCounter = VerifyCounter()
@@ -231,9 +235,14 @@ class SharedFileOperationsService: FileOperationsService {
         }
     }
     
-    init(fileSystem: FileSystemService, checksum: any ChecksumService) {
+    init(
+        fileSystem: FileSystemService,
+        checksum: any ChecksumService,
+        destinationSetupHook: (@Sendable (URL) throws -> Void)? = nil
+    ) {
         self.fileSystem = fileSystem
         self.checksumService = checksum
+        self.destinationSetupHook = destinationSetupHook
     }
     
     // MARK: - FileOperationsService Protocol Implementation
@@ -447,18 +456,10 @@ class SharedFileOperationsService: FileOperationsService {
                     source: operation.sourceURL,
                     settings: operation.settings
                 )
-                // Create the destination root through the injected FileSystemService
-                // first (as before the pinned-directory hardening) so callers can
-                // observe/intercept directory setup. PinnedDestinationDirectory.open
-                // below still performs its own O_NOFOLLOW, descriptor-relative walk
-                // to obtain the pinned handle used for every subsequent write, so
-                // this does not weaken the TOCTOU protection that walk provides.
+                // No pathname-based write happens here: PinnedDestinationDirectory.open
+                // creates every recipe component descriptor-relative with O_NOFOLLOW.
                 try Task.checkCancellation()
-                var precreateFolder = destinationURL
-                for component in rootComponents {
-                    precreateFolder.appendPathComponent(component, isDirectory: true)
-                }
-                try fileSystem.createDirectory(at: precreateFolder)
+                try destinationSetupHook?(destinationURL)
                 pinnedDestination = try PinnedDestinationDirectory.open(
                     destination: destinationURL,
                     rootComponents: rootComponents
@@ -470,6 +471,10 @@ class SharedFileOperationsService: FileOperationsService {
                 // the whole operation aborts rather than silently treating
                 // the attack as "this destination is unavailable".
                 throw error
+            } catch is CancellationError {
+                // Cancellation is never "this destination failed": it must not
+                // fabricate failure rows or move on to the next destination.
+                throw CancellationError()
             } catch {
                 // A single inaccessible destination (e.g. permission denied,
                 // volume ejected) must not abort the whole multi-destination

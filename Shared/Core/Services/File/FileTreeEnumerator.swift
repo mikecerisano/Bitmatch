@@ -15,10 +15,44 @@ struct FileEntry: Sendable {
     }
 }
 
+/// Computes paths relative to a base folder. FileManager's enumerator may report
+/// URLs through a different alias than the caller supplied (macOS resolves /var to
+/// /private/var, and Foundation strips /private again when resolving), so both forms
+/// are compared. It never guesses: an item that cannot be placed below the base
+/// throws, because flattening it to a bare filename would misplace or overwrite data.
+struct RelativePathResolver: Sendable {
+    let base: URL
+    private let basePaths: [String]
+
+    init(base: URL) {
+        self.base = base
+        var paths = [base.path, base.resolvingSymlinksInPath().path, base.standardizedFileURL.path]
+        paths = paths.map { $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0 }
+        var unique: [String] = []
+        for path in paths where !unique.contains(path) { unique.append(path) }
+        basePaths = unique
+    }
+
+    func resolve(_ item: URL) throws -> String {
+        for candidate in [item.path, item.resolvingSymlinksInPath().path] {
+            for basePath in basePaths where candidate.hasPrefix(basePath + "/") {
+                return String(candidate.dropFirst(basePath.count + 1))
+            }
+        }
+        throw NSError(
+            domain: "FileTreeEnumerator",
+            code: NSFileReadUnknownError,
+            userInfo: [NSLocalizedDescriptionKey: "Could not determine the path of \(item.lastPathComponent) relative to \(base.lastPathComponent)"]
+        )
+    }
+}
+
 enum FileTreeEnumerator {
     /// macOS volume metadata directories written to the root of removable media. They are
     /// not user data and are frequently unreadable without Full Disk Access, so descending
-    /// into them would abort the whole transfer with a permission error.
+    /// into them would abort the whole transfer with a permission error. Only direct
+    /// children of the source root are skipped; a user folder that happens to share one
+    /// of these names deeper in the tree is real data and is kept.
     static let skippedVolumeMetadataDirectories: Set<String> = [
         ".Spotlight-V100",
         ".fseventsd",
@@ -33,24 +67,7 @@ enum FileTreeEnumerator {
     static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
         try Task.checkCancellation()
         let fileManager = FileManager.default
-        // The enumerator may report URLs through a different alias than the
-        // caller supplied (macOS resolves /var to /private/var, and Foundation
-        // strips /private again when resolving). Compare against both forms,
-        // and fail closed rather than flattening a nested file to its bare name.
-        let rawBasePath = base.path
-        let resolvedBasePath = base.resolvingSymlinksInPath().path
-        func relativePath(of item: URL) throws -> String {
-            for candidate in [item.path, item.resolvingSymlinksInPath().path] {
-                for basePath in [rawBasePath, resolvedBasePath] where candidate.hasPrefix(basePath + "/") {
-                    return String(candidate.dropFirst(basePath.count + 1))
-                }
-            }
-            throw NSError(
-                domain: "FileTreeEnumerator",
-                code: NSFileReadUnknownError,
-                userInfo: [NSLocalizedDescriptionKey: "Could not determine the path of \(item.lastPathComponent) relative to \(base.lastPathComponent)"]
-            )
-        }
+        let resolver = RelativePathResolver(base: base)
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
             .isDirectoryKey,
@@ -89,6 +106,7 @@ enum FileTreeEnumerator {
             let values = try item.resourceValues(forKeys: keys)
             if values.isDirectory == true,
                values.isSymbolicLink != true,
+               enumerator.level == 1,
                skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
                 enumerator.skipDescendants()
                 continue
@@ -98,7 +116,7 @@ enum FileTreeEnumerator {
             }
             entries.append(FileEntry(
                 url: item,
-                relativePath: try relativePath(of: item),
+                relativePath: try resolver.resolve(item),
                 size: Int64(values.fileSize ?? 0),
                 modificationDate: values.contentModificationDate
             ))

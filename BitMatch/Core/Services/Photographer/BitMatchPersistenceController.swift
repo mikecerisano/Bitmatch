@@ -8,9 +8,15 @@ final class BitMatchPersistenceController {
     private(set) var persistentStoreLoadError: Error?
     private var storeReadyObservers: [() -> Void] = []
     private var didStartStoreLoad = false
+    private var didFinishStoreLoad = false
 
+    /// True only once `finishStoreLoad` has run, so callers can never observe the
+    /// store as loaded before the readiness observers have been delivered, whether
+    /// the load completed synchronously or on a background queue.
     var isStoreLoaded: Bool {
-        persistentStoreLoadError == nil && !container.persistentStoreCoordinator.persistentStores.isEmpty
+        didFinishStoreLoad
+            && persistentStoreLoadError == nil
+            && !container.persistentStoreCoordinator.persistentStores.isEmpty
     }
 
     init(
@@ -71,6 +77,7 @@ final class BitMatchPersistenceController {
 
     private func finishStoreLoad(_ error: Error?) {
         persistentStoreLoadError = error
+        didFinishStoreLoad = true
         guard error == nil else {
             storeReadyObservers.removeAll()
             return

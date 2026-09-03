@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 - Fix: Read free space correctly on exFAT/FAT destinations; the APFS-only "important usage" capacity reports 0 there, which wrongly aborted transfers with "Insufficient space: 0.0GB available" (GitHub issue).
 - Fix: Skip macOS volume metadata folders (.Spotlight-V100, .fseventsd, .Trashes, .TemporaryItems, .DocumentRevisions-V100) when reading a card, so offloads no longer fail with a permission error without Full Disk Access (GitHub issue).
 - Fix: Preserve nested folder structure when the source or destination path is reached through a symlink or the /private alias; previously nested files could be flattened to their bare names.
-- Fix: A single inaccessible destination now reports its files as failed and lets other destinations continue, instead of aborting the whole transfer.
+- Fix: A destination that cannot be pinned when its turn comes (for example, permissions changed after preflight) now reports its files as failed and lets other destinations continue. Preflight failures and safety rejections still abort the whole transfer, and cancellation is never recorded as a destination failure.
 - Fix: Cancellation again waits for verifier cleanup, and the operation's injected file-system and checksum services are exercised on the pinned copy path while destination reads stay descriptor-pinned.
 - Fix: Core Data readiness callbacks fire together with store availability; coordinator bindings no longer invalidate a prepared card on launch.
 - Photographer jobs: Add persistent job, photographer, camera, and card identities with reusable folder recipes and preserved local card packages.
