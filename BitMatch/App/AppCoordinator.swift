@@ -341,8 +341,14 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func setupFileSelectionBindings() {
-        // Camera detection with memory when source changes
-        fileSelectionViewModel.$sourceURL.sink { [weak self] url in
+        // Camera detection with memory when source changes. `dropFirst()`
+        // skips the synchronous replay Combine delivers immediately upon
+        // subscribing to `$sourceURL`; without it, every AppCoordinator
+        // init reports a spurious "source changed to nil" to the
+        // photographer job view model and permanently invalidates any
+        // already-prepared card's source signature before the user has
+        // touched anything.
+        fileSelectionViewModel.$sourceURL.dropFirst().sink { [weak self] url in
             if let url = url { self?.cameraLabelViewModel.detectCameraWithMemory(at: url) }
             else { self?.cameraLabelViewModel.clearCameraLabel() }
             self?.photographerJobViewModel.sourceDidChange(to: url)
