@@ -436,19 +436,55 @@ class SharedFileOperationsService: FileOperationsService {
             // Pin the selected destination and every recipe component before
             // copying. Subsequent directory creation and publish are relative
             // to that descriptor, never a re-resolved pathname.
-            _ = try SafetyValidator.resolvedDestinationRootChecked(
-                source: operation.sourceURL,
-                destination: destinationURL,
-                settings: operation.settings
-            )
-            let rootComponents = SafetyValidator.destinationRootComponents(
-                source: operation.sourceURL,
-                settings: operation.settings
-            )
-            let pinnedDestination = try PinnedDestinationDirectory.open(
-                destination: destinationURL,
-                rootComponents: rootComponents
-            )
+            let pinnedDestination: PinnedDestinationDirectory
+            do {
+                _ = try SafetyValidator.resolvedDestinationRootChecked(
+                    source: operation.sourceURL,
+                    destination: destinationURL,
+                    settings: operation.settings
+                )
+                let rootComponents = SafetyValidator.destinationRootComponents(
+                    source: operation.sourceURL,
+                    settings: operation.settings
+                )
+                pinnedDestination = try PinnedDestinationDirectory.open(
+                    destination: destinationURL,
+                    rootComponents: rootComponents
+                )
+            } catch let error as FileOperationError {
+                // A safety-policy rejection (e.g. a symlink substituted into
+                // the destination path) is a fail-closed signal, not a
+                // per-destination access problem -- surface it as before so
+                // the whole operation aborts rather than silently treating
+                // the attack as "this destination is unavailable".
+                throw error
+            } catch {
+                // A single inaccessible destination (e.g. permission denied,
+                // volume ejected) must not abort the whole multi-destination
+                // transfer. Report every planned file for this destination as
+                // failed and move on to the next one.
+                SharedLogger.error("Unable to open destination #\(destIndex + 1): \(error.localizedDescription)", category: .transfer)
+                let fallbackRoot = SafetyValidator.resolvedDestinationRoot(
+                    source: operation.sourceURL,
+                    destination: destinationURL,
+                    settings: operation.settings
+                )
+                for entry in sourceManifest {
+                    let result = FileOperationResult(
+                        sourceURL: entry.url,
+                        destinationURL: fallbackRoot.appendingPathComponent(entry.relativePath),
+                        success: false,
+                        error: error,
+                        fileSize: 0,
+                        verificationResult: nil,
+                        processingTime: 0
+                    )
+                    await destProgress.increment(destIndex: destIndex)
+                    await resultStore.upsert(result)
+                    await onFileResult?(result)
+                }
+                continue
+            }
             let destFolder = pinnedDestination.logicalRootURL
             resolvedDestinations.append((raw: destinationURL, root: destFolder))
 
