@@ -377,6 +377,10 @@ class SharedFileOperationsService: FileOperationsService {
         // Step 2: Build one fail-closed source manifest before safety validation.
         SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
         let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let manifestURLByRelativePath = Dictionary(
+            sourceManifest.map { ($0.relativePath, $0.url) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let manifestBytes = try sourceManifest.reduce(Int64(0)) { total, entry in
             let (sum, overflow) = total.addingReportingOverflow(max(0, entry.size))
             guard !overflow else {
@@ -496,6 +500,7 @@ class SharedFileOperationsService: FileOperationsService {
                         verificationResult: nil,
                         processingTime: 0
                     )
+                    _ = await progressState.recordCopyError()
                     await destProgress.increment(destIndex: destIndex)
                     await resultStore.upsert(result)
                     await onFileResult?(result)
@@ -539,7 +544,11 @@ class SharedFileOperationsService: FileOperationsService {
                     }
                     // fileName here is the relative path; emit per-file copy result, and enqueue verify if enabled
                     let relativePath = fileName
-                    let srcURL = operation.sourceURL.appendingPathComponent(relativePath)
+                    // Key result rows by the manifest's URL so copy and verify rows
+                    // for one file share an identity even when the enumerator
+                    // reports the source through a different path alias.
+                    let srcURL = manifestURLByRelativePath[relativePath]
+                        ?? operation.sourceURL.appendingPathComponent(relativePath)
                     let dstURL = destFolder.appendingPathComponent(relativePath)
                     let copyResult = FileOperationResult(
                         sourceURL: srcURL,

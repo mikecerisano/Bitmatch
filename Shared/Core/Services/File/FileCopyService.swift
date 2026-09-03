@@ -371,7 +371,7 @@ final class FileCopyService {
                         do {
                             relPath = try sourceResolver.resolve(fileURL)
                         } catch {
-                            await onError(fileURL.lastPathComponent, error)
+                            await onError(fileURL.path, error)
                             continue
                         }
                         // Security 11: reject path traversal components
@@ -487,7 +487,7 @@ final class FileCopyService {
                         do {
                             relativePath = try sourceResolver.resolve(fileURL)
                         } catch {
-                            await onError(fileURL.lastPathComponent, error)
+                            await onError(fileURL.path, error)
                             continue
                         }
                         guard let components = safeRelativeComponents(relativePath) else {
@@ -789,12 +789,19 @@ final class FileCopyService {
                   values.isDirectory == true else {
                 continue
             }
+            if enumerator.level == 1,
+               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+                // Mirrors the manifest: root-level volume metadata is neither
+                // copied nor recreated as an empty folder on the destination.
+                enumerator.skipDescendants()
+                continue
+            }
 
             let relPath: String
             do {
                 relPath = try resolver.resolve(item)
             } catch {
-                await onError(item.lastPathComponent, error)
+                await onError(item.path, error)
                 continue
             }
 
@@ -854,11 +861,18 @@ final class FileCopyService {
             guard let values = try? item.resourceValues(forKeys: Set(keys)),
                   values.isSymbolicLink != true,
                   values.isDirectory == true else { continue }
+            if enumerator.level == 1,
+               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+                // Mirrors the manifest: root-level volume metadata is neither
+                // copied nor recreated as an empty folder on the destination.
+                enumerator.skipDescendants()
+                continue
+            }
             let relative: String
             do {
                 relative = try resolver.resolve(item)
             } catch {
-                await onError(item.lastPathComponent, error)
+                await onError(item.path, error)
                 continue
             }
             guard let components = safeRelativeComponents(relative) else {

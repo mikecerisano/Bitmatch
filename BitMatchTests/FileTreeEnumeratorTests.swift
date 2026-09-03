@@ -93,4 +93,43 @@ final class FileTreeEnumeratorTests: XCTestCase {
 
         XCTAssertThrowsError(try FileTreeEnumerator.enumerateRegularFiles(base: root))
     }
+
+    // MARK: - RelativePathResolver
+
+    func testResolverPreservesNestingWhenAnAncestorIsASymlink() throws {
+        let fm = FileManager.default
+        let real = fm.temporaryDirectory
+            .appendingPathComponent("resolver-real-\(UUID().uuidString)", isDirectory: true)
+        let link = fm.temporaryDirectory
+            .appendingPathComponent("resolver-link-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: real.appendingPathComponent("card/DCIM/100MEDIA"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: real.appendingPathComponent("card/DCIM/100MEDIA/A.MOV"))
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? fm.removeItem(at: link); try? fm.removeItem(at: real) }
+
+        // The selected folder is real, but it is reached through a symlinked parent.
+        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: link.appendingPathComponent("card"))
+        XCTAssertEqual(entries.map(\.relativePath), ["DCIM/100MEDIA/A.MOV"])
+    }
+
+    func testResolverAcceptsTrailingSlashAndPrivateAlias() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("resolver-alias-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("DCIM/A.ARW")
+        try Data("x".utf8).write(to: file)
+        defer { try? fm.removeItem(at: root) }
+
+        // Temp roots live under /var, which macOS reports as /private/var.
+        let resolver = RelativePathResolver(base: URL(fileURLWithPath: root.path + "/", isDirectory: true))
+        XCTAssertEqual(try resolver.resolve(file), "DCIM/A.ARW")
+        XCTAssertEqual(try resolver.resolve(URL(fileURLWithPath: "/private" + file.path)), "DCIM/A.ARW")
+    }
+
+    func testResolverThrowsForItemsOutsideTheBase() {
+        let resolver = RelativePathResolver(base: URL(fileURLWithPath: "/Volumes/CARD"))
+        XCTAssertThrowsError(try resolver.resolve(URL(fileURLWithPath: "/Volumes/CARD2/DCIM/A.ARW")))
+        XCTAssertThrowsError(try resolver.resolve(URL(fileURLWithPath: "/Volumes/OTHER/A.ARW")))
+    }
 }

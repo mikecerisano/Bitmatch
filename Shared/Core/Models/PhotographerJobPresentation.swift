@@ -122,10 +122,6 @@ struct PhotographerStartPresentation: Equatable, Sendable {
         }
         return Self(blocker: blocker)
     }
-
-    static func insufficientDestinationError(requiredCount: Int) -> String {
-        "This job requires \(requiredCount) verified local destinations."
-    }
 }
 
 struct RemoteBackupStatusPresentation: Equatable, Sendable {
