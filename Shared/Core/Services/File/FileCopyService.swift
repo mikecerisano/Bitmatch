@@ -168,7 +168,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
             fd = openExisting()
         }
         guard fd >= 0 else {
-            if errno == ELOOP {
+            if errno == ELOOP || (errno == ENOTDIR && isSymbolicLink(named: name, relativeTo: parentFD)) {
                 throw FileOperationError.unsafeOperation("Destination component \(name) is a symbolic link")
             }
             throw posixError("Unable to open destination directory \(name)")
