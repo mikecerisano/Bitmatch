@@ -41,6 +41,14 @@ class MacOSPlatformManager: PlatformManager {
     // MARK: - Platform-specific UI Methods
     
     func presentAlert(title: String, message: String) async {
+        // A modal alert under XCTest blocks the whole run until a human clicks
+        // OK. Tests should inject a silent PlatformManager; this is the safety
+        // net for any path that still reaches the real one.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil {
+            SharedLogger.warning("Suppressed alert during tests: \(title) - \(message)", category: .ui)
+            return
+        }
         await MainActor.run {
             let alert = NSAlert()
             alert.messageText = title

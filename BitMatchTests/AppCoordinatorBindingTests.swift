@@ -319,7 +319,7 @@ final class AppCoordinatorBindingTests: XCTestCase {
                 sourcePaths: ["/card/A.ARW"]
             )
         )
-        let coordinator = AppCoordinator(photographerJobViewModel: viewModel)
+        let coordinator = AppCoordinator(photographerJobViewModel: viewModel, platformManager: SilentPlatformManager())
         coordinator.fileSelectionViewModel.sourceURL = sourceURL
         coordinator.fileSelectionViewModel.isFetchingSourceInfo = false
         coordinator.fileSelectionViewModel.destinationURLs = [
@@ -366,7 +366,10 @@ final class AppCoordinatorBindingTests: XCTestCase {
     }
 
     private func makeTestCoordinator() -> AppCoordinator {
-        AppCoordinator(photographerJobViewModel: PhotographerJobViewModel(store: InMemoryPhotographerJobStore()))
+        AppCoordinator(
+            photographerJobViewModel: PhotographerJobViewModel(store: InMemoryPhotographerJobStore()),
+            platformManager: SilentPlatformManager()
+        )
     }
 
     private func waitForPresentationThrottle() {
@@ -416,4 +419,19 @@ private final class NotificationState: @unchecked Sendable {
 
 private enum CoordinatorFixtureError: Error {
     case saveFailed
+}
+
+/// The real macOS services, minus modal alerts: an error surfaced during a test
+/// must never block the run waiting for someone to click OK.
+private final class SilentPlatformManager: PlatformManager {
+    private let real = MacOSPlatformManager.shared
+    nonisolated var fileSystem: FileSystemService { real.fileSystem }
+    nonisolated var checksum: ChecksumService { real.checksum }
+    nonisolated var fileOperations: FileOperationsService { real.fileOperations }
+    nonisolated var cameraDetection: CameraDetectionService { real.cameraDetection }
+    nonisolated var supportsDragAndDrop: Bool { real.supportsDragAndDrop }
+
+    func presentAlert(title: String, message: String) async {}
+    func presentError(_ error: Error) async {}
+    func openURL(_ url: URL) async -> Bool { false }
 }

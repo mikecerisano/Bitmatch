@@ -13,7 +13,7 @@ final class AppCoordinator: ObservableObject {
         let id = UUID()
     }
     // MARK: - Shared Core (single source of truth)
-    let sharedCoordinator = SharedAppCoordinator(platformManager: MacOSPlatformManager.shared)
+    let sharedCoordinator: SharedAppCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var lastSharedBytesProcessed: Int64 = 0
 
@@ -307,7 +307,13 @@ final class AppCoordinator: ObservableObject {
     }
 
     // MARK: - Initialization
-    init(photographerJobViewModel: PhotographerJobViewModel? = nil) {
+    /// `platformManager` defaults to the real macOS manager; tests inject one
+    /// that does not present modal alerts.
+    init(
+        photographerJobViewModel: PhotographerJobViewModel? = nil,
+        platformManager: PlatformManager = MacOSPlatformManager.shared
+    ) {
+        self.sharedCoordinator = SharedAppCoordinator(platformManager: platformManager)
         if let photographerJobViewModel {
             self.photographerJobViewModel = photographerJobViewModel
         } else {
