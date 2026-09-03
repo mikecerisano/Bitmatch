@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Fix: Read free space correctly on exFAT/FAT destinations; the APFS-only "important usage" capacity reports 0 there, which wrongly aborted transfers with "Insufficient space: 0.0GB available" (GitHub issue).
+- Fix: Skip macOS volume metadata folders (.Spotlight-V100, .fseventsd, .Trashes, .TemporaryItems, .DocumentRevisions-V100) when reading a card, so offloads no longer fail with a permission error without Full Disk Access (GitHub issue).
 - Photographer jobs: Add persistent job, photographer, camera, and card identities with reusable folder recipes and preserved local card packages.
 - Safety: Require exact verified local-copy manifests before a card becomes locally safe, and surface duplicate-card fingerprint warnings without discarding sidecars or failed rows.
 - Reporting: Add photographer-aware PDF, CSV, and enhanced JSON provenance with package paths, companion counts, fingerprints, exact-copy evidence, warnings, and complete authoritative results.

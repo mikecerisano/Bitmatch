@@ -21,6 +21,18 @@ final class SafetyValidatorTests: XCTestCase {
         )
     }
 
+    /// exFAT/FAT volumes report `volumeAvailableCapacityForImportantUsage` as 0 (not nil),
+    /// so a zero must fall back to the standard capacity. See GitHub issue: "Insufficient space: 0.0GB available".
+    func testAvailableSpaceFallsBackWhenImportantUsageCapacityIsZero() {
+        XCTAssertEqual(
+            SafetyValidator.resolvedAvailableSpace(
+                importantUsage: 0,
+                standardCapacity: 2_000_000_000
+            ),
+            2_000_000_000
+        )
+    }
+
     // MARK: - System Directory Rejection
 
     func testRejectsSystemDirectories() {

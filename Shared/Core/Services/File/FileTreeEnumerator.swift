@@ -16,6 +16,17 @@ struct FileEntry: Sendable {
 }
 
 enum FileTreeEnumerator {
+    /// macOS volume metadata directories written to the root of removable media. They are
+    /// not user data and are frequently unreadable without Full Disk Access, so descending
+    /// into them would abort the whole transfer with a permission error.
+    static let skippedVolumeMetadataDirectories: Set<String> = [
+        ".Spotlight-V100",
+        ".fseventsd",
+        ".Trashes",
+        ".TemporaryItems",
+        ".DocumentRevisions-V100",
+    ]
+
     /// Perf 1: Enumerate regular files once and cache the list.
     /// Pass result to both copy and verify phases to eliminate triple filesystem walk.
     /// ~20 bytes per entry overhead for 100K files ≈ 20MB - acceptable.
@@ -25,6 +36,7 @@ enum FileTreeEnumerator {
         let basePath = base.path
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
+            .isDirectoryKey,
             .isSymbolicLinkKey,
             .fileSizeKey,
             .contentModificationDateKey
@@ -58,6 +70,12 @@ enum FileTreeEnumerator {
         while let item = enumerator.nextObject() as? URL {
             try Task.checkCancellation()
             let values = try item.resourceValues(forKeys: keys)
+            if values.isDirectory == true,
+               values.isSymbolicLink != true,
+               skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+                enumerator.skipDescendants()
+                continue
+            }
             if values.isSymbolicLink == true || values.isRegularFile != true {
                 continue
             }

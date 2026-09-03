@@ -419,11 +419,17 @@ final class SafetyValidator {
         }
     }
 
+    /// `volumeAvailableCapacityForImportantUsage` is only meaningful on APFS. On exFAT/FAT
+    /// (typical external SSDs and camera cards) macOS reports it as 0, not nil, so a
+    /// non-positive value must fall back to the standard capacity.
     static func resolvedAvailableSpace(
         importantUsage: Int64?,
         standardCapacity: Int?
     ) -> Int64 {
-        importantUsage ?? Int64(standardCapacity ?? 0)
+        if let importantUsage, importantUsage > 0 {
+            return importantUsage
+        }
+        return Int64(standardCapacity ?? 0)
     }
 
     static func checkedRequiredSpace(sourceBytes: Int64, headroomBytes: Int64) throws -> Int64 {
