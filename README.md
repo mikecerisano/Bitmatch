@@ -1,8 +1,8 @@
 # BitMatch
 
-**Verified camera-card backups for photographers and filmmakers.**
+**A free, open source alternative to ShotPut Pro, Silverstack, and Hedge.** Offload camera cards to multiple drives, verify the copies with SHA-256, generate reports. For indie filmmakers, YouTubers, photographers, and small productions that don't want a subscription just to copy files.
 
-BitMatch is a free, open-source app for macOS and iPadOS. Copy photos and video to multiple drives, verify the copies with SHA-256, and keep a report of the results. Organize a whole shoot with photographer jobs, reusable folder recipes, and a record of each card.
+Now with photographer jobs, reusable folder recipes, and optional SFTP backups on Mac. Because apparently “I'll just add one more feature” wasn't a joke.
 
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20iPadOS-blue)](https://github.com/mikecerisano/Bitmatch)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -12,52 +12,66 @@ BitMatch is a free, open-source app for macOS and iPadOS. Copy photos and video 
 
 ![BitMatch macOS app](screenshot.png)
 
-*Current development build with synthetic local demo files. The downloadable release may look different.*
+*The current development build, using test files. The download may look a little different.*
 
 <details>
 <summary>Watch the copy-and-verify demo</summary>
 
 ![BitMatch transfer setup and verified results](docs/demo/bitmatch-demo.gif)
 
-Real app screenshots: 12 sample files copied to two local folders, with all 24 copies independently checked against SHA-256 hashes. This animated screenshot sequence shows setup and completion; its timing is not measured transfer time. [Reproduce the demo](docs/demo/README.md).
+The actual app copying 12 test files to two local folders. All 24 copies were checked independently with SHA-256. This is a slideshow of setup and completion, not a speed test. [Try it yourself](docs/demo/README.md).
 
 </details>
 
-## Get started
+## Download
 
-The [macOS release](https://github.com/mikecerisano/Bitmatch/releases) is Developer ID signed and Apple-notarized, with support for Apple Silicon and Intel Macs. Requires **macOS 15.5 or newer**. The iPad app requires **iPadOS 18.5 or newer** and is currently available by building from source.
+Signed and notarized macOS build on the [Releases page](https://github.com/mikecerisano/Bitmatch/releases). Supports Apple Silicon and Intel Macs.
 
-1. Connect your camera card and backup drives.
-2. Choose the source and destinations. For a shoot with several cards, create a project and choose its folder recipe.
-3. Review the transfer plan: output folders, available space, verification mode, reports, and any blockers.
-4. Start the transfer. **Standard SHA-256 verification is the default.**
-5. Review the results for every destination and keep the report before clearing the source card.
+Requires **macOS 15.5 or newer**. For iPad, build from source for now; the target requires **iPadOS 18.5 or newer**.
 
-## What you can do
+## How It Works
 
-- **Back up to multiple drives.** Copy a card or folder to several destinations and see each destination's results.
-- **Organize a shoot.** Save jobs, photographers, cameras, and card identities. Reuse folder recipes while preserving the names and structure inside each card package.
-- **Track verified local copies.** A card becomes locally safe only when the required number of exact local copies has verification evidence. Duplicate-card fingerprints provide warnings about previous ingests.
-- **Keep sidecars with their media.** Reports include RAW/JPEG companion information, sidecars, warnings, and failed files.
-- **Recognize camera structures.** Detection covers Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM layouts. Hardware coverage varies; see the beta guidance below.
-- **Compare existing folders.** Check copies you already have with the folder comparison workflow.
-- **Export evidence.** Generate PDF, CSV, and JSON reports, including photographer and card provenance. MHL generation is available in Thorough and Paranoid modes.
-- **Add an off-site copy on Mac.** Send a verified local card package to an SFTP destination, with separate upload and remote-verification results.
+```text
+📷 Camera Card
+       │
+       ▼
+   BitMatch
+    │    │
+    ▼    ▼
+  💾 A   💾 B
+```
 
-## Verification modes
+Plug in your card and drives. Choose what you're copying and where the backups go. Check the transfer plan, hit copy, and let BitMatch verify the results. **Standard SHA-256 verification is the default.** Review every destination and keep the report before clearing the card.
 
-| Mode | Verification |
+One card to dump? Use **One-time transfer**. A whole shoot with several cards and cameras? Use **Project transfer**.
+
+## What It Does
+
+- **Multi destination copy** with SHA-256 verification. Each backup gets its own results.
+- **Photographer jobs** for shoots with several photographers, cameras, and cards. Save the setup instead of rebuilding it every time.
+- **Folder recipes** to organize the job without renaming or flattening the files on your card.
+- **Card tracking** so you can see which cards have enough verified local copies. Duplicate-card warnings help catch the “did I already dump this one?” moment.
+- **RAW/JPEG and sidecar reporting.** The little files count too. So do failures.
+- **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM.
+- **Folder compare** for stuff you already copied.
+- **PDF, CSV, and JSON reports** for producers who want documentation, or you when you want to check what happened. MHL generation is available in Thorough and Paranoid modes.
+- **Transfer preflight on Mac and iPad** shows the source, backups, options, and anything that needs fixing before Start.
+- **Optional SFTP backup on Mac** if you want an off-site copy after the local one is verified.
+
+## Verification Modes
+
+| Mode | What it checks |
 | --- | --- |
 | Quick | Copy only; no checksum verification |
 | Standard — default | SHA-256 |
 | Thorough | SHA-256 and MD5 |
 | Paranoid | Byte-by-byte comparison plus SHA-256 verification |
 
-Quick mode does not prove that the source and destination contents match. Completion, local-copy safety, and remote verification are separate states in the app.
+Quick means copy only. It does **not** prove the contents match. A finished copy, a verified local backup, and a verified off-site backup are different things, and the app keeps them separate.
 
-## Photographer jobs
+## Photographer Jobs
 
-Keep a wedding, event, or other shoot together across multiple photographers, cameras, and cards. Folder recipes organize the outer package; original media filenames and folders stay intact.
+A wedding with two photographers, three cameras, and a pile of cards gets messy fast. Jobs keep it together. Pick a folder recipe, tell BitMatch whose card it is, and keep the original card contents intact.
 
 For example:
 
@@ -70,42 +84,50 @@ For example:
                 └── [original card contents]
 ```
 
-The project dashboard records card ingests and local-copy evidence. Reports retain package paths, card fingerprints, companion counts, warnings, and the full results used to determine completion.
+The dashboard keeps track of each card and its verified backups. Reports include where everything went, card fingerprints, RAW/JPEG companion counts, warnings, and failures. A card only becomes locally safe when the required number of exact local copies has been verified.
 
-## Optional SFTP backup — macOS
+## Optional SFTP Backup — Mac
 
-Configure an SFTP destination for a project, then queue a backup from a verified local card package. Remote backup reads that local copy rather than the camera card.
+Have a server to back up to? Save an SFTP destination for the job and queue an upload once the local copy is verified. The upload reads that local backup, so it doesn't need to keep reading your camera card.
 
-- Authentication uses your SSH agent, with explicit host-key confirmation for a new host.
-- The server needs SFTP and SSH shell access with standard file utilities, including hard-link support for publishing files without replacing existing ones. An SFTP-only account is insufficient.
-- **SHA-256 read-back** downloads the remote file to check its contents, using additional bandwidth and local temporary space.
-- **Upload only** is reported as **Uploaded · Unverified**.
-- iPad can retain the project's remote destination settings; uploads run on Mac. S3 and WebDAV providers are not currently available.
+A few things to know:
 
-Local copy, verification, and reporting work without a remote destination. BitMatch has no app analytics upload path; optional SFTP transfers send your selected backup data to the server you configure.
+- Authentication uses your SSH agent. You'll confirm the host key when connecting to a new host.
+- The server needs SFTP **and SSH shell access**, with standard file utilities and hard-link support. An SFTP-only account won't do.
+- **SHA-256 read-back** downloads the remote file to check it. That costs extra bandwidth and local temporary space.
+- **Upload only** means **Uploaded · Unverified**. Getting it onto the server isn't proof that the contents match.
+- iPad can keep the project's remote settings, but uploads run on Mac. S3 and WebDAV aren't available yet.
 
-## Safety and beta status
+You can ignore SFTP entirely and keep everything local. No app analytics uploads. If you set up remote backup, your selected data goes to the server you chose.
 
-BitMatch reads the source without writing to it. It copies through temporary files and does not overwrite conflicting destination files. Checksum modes reuse an existing file only after verifying that it matches.
+## Before You Trust It With Your Footage
 
-Source scanning rejects unreadable metadata, unsafe paths, and portable filename collisions. Hidden files and empty folders are preserved, except for designated macOS metadata folders at the volume root; symlink entries are skipped. Verification rejects files that change size or identity while being read. Completion screens and reports include failures and sidecars in their verdicts.
+BitMatch reads the source without writing to it. It copies through temporary files and doesn't overwrite conflicting destination files. Checksum modes reuse an existing file only after verifying that it matches.
 
-**BitMatch is beta software.** Camera, filesystem, drive, hub, and OS coverage is still growing. Test with disposable files before using it on a job, keep source cards until all required destinations complete cleanly, and retain an independent copy of irreplaceable media.
+Source scanning rejects unreadable metadata, unsafe paths, and portable filename collisions. Hidden files and empty folders are preserved, except for designated macOS metadata folders at the volume root; symlink entries are skipped. Verification rejects files that change size or identity while being read. Completion screens and reports count failures and sidecars too.
 
-Automated coverage includes source mutation, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. The [hardware testing procedure](docs/HARDWARE_TESTING.md) describes physical-media checks and fault/soak harnesses. See the [validation status](docs/HARDWARE_COMPATIBILITY.md) for recorded evidence, or submit a [hardware test report](https://github.com/mikecerisano/Bitmatch/issues/new?template=hardware-test.yml). Automated tests do not establish compatibility with every device.
+**This is beta software from a one-person project.** I have not tested every camera, drive, filesystem, hub, or OS combination. Try it with disposable files before using it on a job. Keep the source card until every required backup finishes cleanly and you've checked the report. Keep another independent copy of anything you can't replace.
 
-See the [0.1.4 release notes](https://github.com/mikecerisano/Bitmatch/releases/tag/v0.1.4) for the latest release's fixes, build validation, and download checksum.
+There are automated tests for changing source files, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. That doesn't mean every drive and hub has been tested. The [validation status](docs/HARDWARE_COMPATIBILITY.md) shows what we actually ran, including failures and things we couldn't test. If you want to help, follow the [hardware testing procedure](docs/HARDWARE_TESTING.md) and send a [hardware test report](https://github.com/mikecerisano/Bitmatch/issues/new?template=hardware-test.yml).
 
-## Build from source
+The [0.1.4 release notes](https://github.com/mikecerisano/Bitmatch/releases/tag/v0.1.4) have the latest release's fixes, build checks, and download checksum.
 
-Use Xcode 16 or newer with SDKs that support the deployment targets above. CI uses Xcode 16.4.
+## Who It's For
+
+YouTube creators, short film folks, wedding and event photographers, web commercials, Instagram ads, anyone who wants verified backups without another subscription.
+
+Not for big budget shows or union shoots with a full DIT cart. Use the enterprise tools, you can afford them.
+
+## Building
+
+Xcode 16 or newer, with SDKs for the targets above. CI uses Xcode 16.4.
 
 1. Clone this repository and open `BitMatch.xcodeproj`.
-2. Select `BitMatch` for Mac or `BitMatch-iPad` for iPad.
+2. Pick `BitMatch` for Mac or `BitMatch-iPad` for iPad.
 3. For an iPad device build, set your development team in Signing & Capabilities.
 4. Build and run.
 
-Run checks from the repository root:
+Tests, from the repository root:
 
 ```bash
 bash test.sh mac-test       # macOS unit and integration tests
@@ -117,12 +139,30 @@ bash test.sh release-builds # macOS and iPad Release builds
 
 CI runs `mac-test` and `ipad-build` on pushes and pull requests.
 
-## Contribute
+## FAQ
 
-Bug reports, hardware test results, and pull requests are welcome. For a transfer problem, include your BitMatch and OS versions, source and destination filesystems, verification mode, connection setup, and steps to reproduce it. Remove private filenames and client information from any shared report.
+**Will it work with my camera?** Probably. I personally shoot Sony, so that's the path I've beaten on. Detection for the other brands is in there, but that isn't the same as testing every camera. Open an issue if yours gives you trouble.
 
-Build both the Mac and iPad schemes when contributing code, since they share the transfer core. For physical-media tests, follow the [hardware testing procedure](docs/HARDWARE_TESTING.md).
+**Does it work on iPad?** Yes. It uses the Files app for external drives. Build from source for now; remote uploads are a Mac task.
 
-## License
+**Why open source?** So you can trust it. The code is here. Read it before you trust your footage to it.
 
-BitMatch is free and open source under the [MIT License](LICENSE).
+## Contributing
+
+PRs welcome. Build both the Mac and iPad schemes before submitting. Shared code means changes can break one platform silently.
+
+Found a transfer problem? Include your app and OS versions, drives and filesystems, verification mode, and what you did. Strip private filenames and client info from shared reports. Hardware test results are especially useful; here's [how to record them](docs/HARDWARE_TESTING.md).
+
+## License (MIT, but read this)
+
+MIT licensed, do what you want. The spirit:
+
+**Please do** fork it, use it, improve it, credit me.
+
+**Please don't** slap it on the App Store unchanged and charge for it. I can't legally stop you, but it's lazy. If you redistribute commercially, actually do something with it.
+
+I might eventually put a compiled version on the App Store for the price of a coffee. Source stays here either way.
+
+---
+
+Built over six months of "I'll just add one more feature." MIT License, be a good person. See [LICENSE](LICENSE) for the legal text.
