@@ -1,0 +1,160 @@
+{
+  "baseSeed" : 20260711,
+  "completedIterations" : 25,
+  "destinationsPerIteration" : 2,
+  "formatVersion" : 1,
+  "iterations" : [
+    {
+      "iteration" : 0,
+      "manifestFiles" : 9,
+      "seed" : 20260711,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 1,
+      "manifestFiles" : 9,
+      "seed" : 20260712,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 2,
+      "manifestFiles" : 9,
+      "seed" : 20260713,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 3,
+      "manifestFiles" : 9,
+      "seed" : 20260714,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 4,
+      "manifestFiles" : 9,
+      "seed" : 20260715,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 5,
+      "manifestFiles" : 9,
+      "seed" : 20260716,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 6,
+      "manifestFiles" : 9,
+      "seed" : 20260717,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 7,
+      "manifestFiles" : 9,
+      "seed" : 20260718,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 8,
+      "manifestFiles" : 9,
+      "seed" : 20260719,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 9,
+      "manifestFiles" : 9,
+      "seed" : 20260720,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 10,
+      "manifestFiles" : 9,
+      "seed" : 20260721,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 11,
+      "manifestFiles" : 9,
+      "seed" : 20260722,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 12,
+      "manifestFiles" : 9,
+      "seed" : 20260723,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 13,
+      "manifestFiles" : 9,
+      "seed" : 20260724,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 14,
+      "manifestFiles" : 9,
+      "seed" : 20260725,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 15,
+      "manifestFiles" : 9,
+      "seed" : 20260726,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 16,
+      "manifestFiles" : 9,
+      "seed" : 20260727,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 17,
+      "manifestFiles" : 9,
+      "seed" : 20260728,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 18,
+      "manifestFiles" : 9,
+      "seed" : 20260729,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 19,
+      "manifestFiles" : 9,
+      "seed" : 20260730,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 20,
+      "manifestFiles" : 9,
+      "seed" : 20260731,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 21,
+      "manifestFiles" : 9,
+      "seed" : 20260732,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 22,
+      "manifestFiles" : 9,
+      "seed" : 20260733,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 23,
+      "manifestFiles" : 9,
+      "seed" : 20260734,
+      "verifiedOutputs" : 18
+    },
+    {
+      "iteration" : 24,
+      "manifestFiles" : 9,
+      "seed" : 20260735,
+      "verifiedOutputs" : 18
+    }
+  ],
+  "requestedIterations" : 25,
+  "verificationMode" : "standard"
+}

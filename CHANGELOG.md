@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 - Usability: Clarify source and backup selection, explain verification modes, show all preflight issues, and add next-step guidance beside Start and after completion.
 - Usability: Rename the one-time workflow to avoid confusion with Quick verification; preserve distinguishing suffixes in long destination names.
 - Testing: Retain fault/soak evidence and support reusable build directories without modifying their generated test configurations.
-- Documentation: Refresh the public README and add a hardware validation register, reporting template, and GitHub hardware-test form.
+- Documentation: Refresh the public README, screenshots, and demo; add a hardware validation register, reporting template, and GitHub hardware-test form.
 
 ## [0.1.4] - 2026-09-03
 

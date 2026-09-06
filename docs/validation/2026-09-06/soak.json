@@ -1,0 +1,11 @@
+{
+  "result": "Passed",
+  "totalTestCount": 1,
+  "passedTests": 1,
+  "failedTests": 0,
+  "skippedTests": 0,
+  "startTime": 1788707557.788,
+  "finishTime": 1788707566.164,
+  "testFailures": [],
+  "provenance": "Redacted xcresulttool summary; device identifiers and private paths omitted."
+}

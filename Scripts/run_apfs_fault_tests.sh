@@ -56,11 +56,13 @@ RESULT_BUNDLE="$EVIDENCE/results.xcresult"
 
 # SafetyValidator requires a 1 GB free-space buffer before copying. A 2 GB
 # image keeps this focused fault test above that production preflight threshold.
-hdiutil create -quiet -size 2g -fs APFS -volname BitMatchFault "$IMAGE"
+hdiutil create -size 2g -fs APFS -volname BitMatchFault "$IMAGE" \
+  2>&1 | tee "$EVIDENCE/setup.log"
 # Mark attachment as requiring cleanup before the attach command begins. This
 # closes the signal window between a successful attach and state assignment.
 ATTACHED=1
-hdiutil attach -quiet -nobrowse -mountpoint "$MOUNT" "$IMAGE"
+hdiutil attach -nobrowse -mountpoint "$MOUNT" "$IMAGE" \
+  2>&1 | tee -a "$EVIDENCE/setup.log"
 touch "$MOUNT_CANONICAL/.bitmatch-disposable-fixture"
 
 xcodebuild -quiet \

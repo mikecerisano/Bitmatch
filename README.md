@@ -12,6 +12,17 @@ BitMatch is a free, open-source app for macOS and iPadOS. Copy photos and video 
 
 ![BitMatch macOS app](screenshot.png)
 
+*Current development build with synthetic local demo files. The downloadable release may look different.*
+
+<details>
+<summary>Watch the copy-and-verify demo</summary>
+
+![BitMatch transfer setup and verified results](docs/demo/bitmatch-demo.gif)
+
+Real app screenshots: 12 sample files copied to two local folders, with all 24 copies independently checked against SHA-256 hashes. This animated screenshot sequence shows setup and completion; its timing is not measured transfer time. [Reproduce the demo](docs/demo/README.md).
+
+</details>
+
 ## Get started
 
 The [macOS release](https://github.com/mikecerisano/Bitmatch/releases) is Developer ID signed and Apple-notarized, with support for Apple Silicon and Intel Macs. Requires **macOS 15.5 or newer**. The iPad app requires **iPadOS 18.5 or newer** and is currently available by building from source.
@@ -40,7 +51,7 @@ The [macOS release](https://github.com/mikecerisano/Bitmatch/releases) is Develo
 | Quick | Copy only; no checksum verification |
 | Standard — default | SHA-256 |
 | Thorough | SHA-256 and MD5 |
-| Paranoid | Byte-by-byte comparison plus SHA-256, MD5, and SHA-1 |
+| Paranoid | Byte-by-byte comparison plus SHA-256 verification |
 
 Quick mode does not prove that the source and destination contents match. Completion, local-copy safety, and remote verification are separate states in the app.
 

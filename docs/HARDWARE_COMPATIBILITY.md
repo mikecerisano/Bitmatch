@@ -11,6 +11,10 @@ No physical-device test reports are recorded in this matrix yet. APFS, exFAT, en
 
 These rows describe available tests, not claims that they passed. A published automated result must include the run date, revision, working-tree state, exit status, test totals (including skipped tests), and a link to retained evidence. Automated results do not count as physical cable-pull or power-loss results.
 
+## Recorded automated validation
+
+[2026-09-06 development validation](validation/2026-09-06/README.md): the Mac suite passed on rerun, the iPad simulator build passed, and the seeded soak verified 450 destination outputs. The report retains the initial pause-reset timeout. APFS image creation was blocked by the host's “Resource busy” error before tests began. The real app demo independently verified 24 local copies. None of these results establishes physical-device compatibility.
+
 ## Physical results
 
 | Report | Date | App revision / OS | Source and destinations / filesystems | Connection | Scenario | Outcome |

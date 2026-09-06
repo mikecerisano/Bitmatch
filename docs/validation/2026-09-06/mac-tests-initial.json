@@ -1,0 +1,16 @@
+{
+  "result": "Failed",
+  "totalTestCount": 447,
+  "passedTests": 445,
+  "failedTests": 1,
+  "skippedTests": 1,
+  "startTime": 1788707404.579,
+  "finishTime": 1788707456.903,
+  "testFailures": [
+    {
+      "failureText": "Expectation failed: completed",
+      "testIdentifierString": "SharedFileOperationsServiceTests/testStalePauseDoesNotBlockNextOperation()"
+    }
+  ],
+  "provenance": "Redacted xcresulttool summary; device identifiers and private paths omitted."
+}
