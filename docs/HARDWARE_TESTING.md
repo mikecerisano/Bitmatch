@@ -42,3 +42,32 @@ Repeat the one-destination-removal and sleep cases through the approved low-powe
 For every run, retain the seed or source manifest, BitMatch result export, independent post-run hashes, exact fault timing, expected outcome, actual outcome, and photos or topology notes that identify the devices. Treat a hang, silent retry, stale success row, unexpected overwrite, or leftover temporary file as a failure even if another destination completes.
 
 The automated APFS image test in `Scripts/run_apfs_fault_tests.sh` is a safer first step, but it does not simulate cable, bridge firmware, power-loss, or exFAT behavior. Passing it is not evidence that physical removal is safe.
+
+## Reproducible automated runs
+
+Run these commands from the repository root on a Mac with Xcode selected:
+
+```sh
+# Seeded Standard-mode transfers with two destinations and independent hashes.
+BITMATCH_EVIDENCE_ROOT="$HOME/Desktop/BitMatch-evidence" \
+  BITMATCH_SOAK_SEED=20260711 BITMATCH_SOAK_ITERATIONS=25 \
+  bash Scripts/run_soak_tests.sh
+
+# An inaccessible-destination fault inside a disposable 2 GB APFS disk image.
+BITMATCH_EVIDENCE_ROOT="$HOME/Desktop/BitMatch-evidence" \
+  bash Scripts/run_apfs_fault_tests.sh
+```
+
+The APFS harness changes accessibility inside its own mounted disk image; it does **not** unplug a drive or simulate a controller losing power. The soak harness uses temporary directories on the host filesystem, not a physical-device compatibility matrix. Both require space for an Xcode build; the APFS run also needs its disk image.
+
+Each invocation creates a unique evidence directory containing `environment.txt`, build/test logs, and an Xcode result bundle when test execution starts. The soak run also retains `soak-result.json` when produced. Evidence survives test failure and fixture cleanup. The default evidence root is `${TMPDIR:-/tmp}/bitmatch-evidence`; set `BITMATCH_EVIDENCE_ROOT` to a durable location for records you intend to keep. A run stopped before tests begin may have no result bundle. Consult `exit_status`, the logs, and the result bundle together; a missing result is not a pass.
+
+To reuse an existing build directory, set `BITMATCH_DERIVED_DATA_PATH` to an absolute path. Run harnesses sequentially when they share that directory. A caller-supplied build directory is retained; the default temporary build directory is removed. Do not point evidence or build paths at throwaway removable media used for faults. Open a retained bundle with `open /path/to/results.xcresult`.
+
+Before sharing evidence, review it for local paths, usernames, device identifiers, and private filenames. Keep full raw records privately and publish a redacted copy. Record the revision and whether the working tree contained changes; a revision alone does not identify uncommitted source changes.
+
+## Recording and publishing physical results
+
+Use the [hardware report template](HARDWARE_REPORT_TEMPLATE.md) for each configuration and submit it through the repository's **Hardware test report** issue form. Keep outcomes separate for baseline copy, source removal, one-destination removal, sleep, and cancellation. Mark cases you did not run as **Not tested**. A completed transfer without independent destination hashes is **Inconclusive**, not a verified pass.
+
+The [validation status](HARDWARE_COMPATIBILITY.md) records the scope of published evidence. Add a result only after its report and evidence are available; link the report and record the tested revision. A passing result applies to that configuration and scenario, not every device from the same manufacturer.

@@ -137,10 +137,10 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     
     var description: String {
         switch self {
-        case .quick: return "Copy only, no checksum verification"
-        case .standard: return "Basic checksum verification"
-        case .thorough: return "Multiple checksum algorithms"
-        case .paranoid: return "Byte-by-byte comparison + checksums"
+        case .quick: return "Quick checks file sizes only; file contents are not checksum-verified."
+        case .standard: return "Standard compares SHA-256 checksums to verify each copy matches its source."
+        case .thorough: return "Thorough verifies each copy with SHA-256 and MD5 checksums."
+        case .paranoid: return "Paranoid adds a byte-by-byte comparison to checksum verification."
         }
     }
     

@@ -136,6 +136,19 @@ struct TransferPlanPresentationTests {
         #expect(display.tone == .success)
     }
 
+    @Test
+    func preflightDisplaysAllDestinationIssuesAndWarnings() {
+        let issues = ["Backup A: Not enough space", "Backup B: Destination overlaps source"]
+        let blocked = TransferPlanStatusDisplay.make(.blocked(issues))
+        #expect(blocked.detail == issues.joined(separator: "\n"))
+        #expect(blocked.tone == .error)
+
+        let warnings = ["Quick mode checks size only", "Limited space on Backup B"]
+        let warning = TransferPlanStatusDisplay.make(.warning(warnings))
+        #expect(warning.detail == warnings.joined(separator: "\n"))
+        #expect(warning.tone == .warning)
+    }
+
     private var folderInfo: FolderInfo {
         FolderInfo(
             url: sourceURL,

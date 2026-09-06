@@ -101,9 +101,9 @@ struct BitMatch_iPadTests {
     }
 
     @Test func projectWorkflowUsesTheSameProductLanguageAsMac() {
-        #expect(TransferWorkflowPresentation.quick.title == "Quick transfer")
+        #expect(TransferWorkflowPresentation.quick.title == "One-time transfer")
         #expect(TransferWorkflowPresentation.project.title == "Project transfer")
-        #expect(TransferWorkflowPresentation.project.detail == "Keep card context and off-site evidence")
+        #expect(TransferWorkflowPresentation.project.detail == "Organize cards by job and track backups")
     }
 
     @Test func notificationPermissionIsNotRequestedAtLaunch() {

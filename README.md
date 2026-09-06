@@ -81,7 +81,7 @@ Source scanning rejects unreadable metadata, unsafe paths, and portable filename
 
 **BitMatch is beta software.** Camera, filesystem, drive, hub, and OS coverage is still growing. Test with disposable files before using it on a job, keep source cards until all required destinations complete cleanly, and retain an independent copy of irreplaceable media.
 
-Automated coverage includes source mutation, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. The [hardware testing procedure](docs/HARDWARE_TESTING.md) describes physical-media checks and fault/soak harnesses. Automated tests do not establish compatibility with every device.
+Automated coverage includes source mutation, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. The [hardware testing procedure](docs/HARDWARE_TESTING.md) describes physical-media checks and fault/soak harnesses. See the [validation status](docs/HARDWARE_COMPATIBILITY.md) for recorded evidence, or submit a [hardware test report](https://github.com/mikecerisano/Bitmatch/issues/new?template=hardware-test.yml). Automated tests do not establish compatibility with every device.
 
 See the [0.1.4 release notes](https://github.com/mikecerisano/Bitmatch/releases/tag/v0.1.4) for the latest release's fixes, build validation, and download checksum.
 

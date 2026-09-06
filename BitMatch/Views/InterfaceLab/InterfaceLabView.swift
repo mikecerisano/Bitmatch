@@ -213,8 +213,8 @@ struct InterfaceLabView: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
             }
             HStack(spacing: 10) {
-                workflowButton("Quick transfer", detail: "Copy, verify, finish", selected: !usesProjectWorkflow) { usesProjectWorkflow = false }
-                workflowButton("Project transfer", detail: "Keep context and evidence", selected: usesProjectWorkflow) { usesProjectWorkflow = true }
+                workflowButton(TransferWorkflowPresentation.quick.title, detail: TransferWorkflowPresentation.quick.detail, selected: !usesProjectWorkflow) { usesProjectWorkflow = false }
+                workflowButton(TransferWorkflowPresentation.project.title, detail: TransferWorkflowPresentation.project.detail, selected: usesProjectWorkflow) { usesProjectWorkflow = true }
             }
             if usesProjectWorkflow {
                 VStack(alignment: .leading, spacing: 10) {

@@ -60,12 +60,12 @@ struct TransferPlanView: View {
                     Text("Transfer route")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
-                    Text("Choose what leaves the card and where the verified copies land.")
+                    Text("Choose the card or folder to copy, then add a folder on each backup drive.")
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.58))
                 }
                 Spacer(minLength: 12)
-                Text(presentation == .expanded ? "WORKBENCH" : "COMPACT")
+                Text("TRANSFER SETUP")
                     .font(.system(size: 9, weight: .bold))
                     .tracking(0.9)
                     .foregroundColor(.white.opacity(0.38))
@@ -93,6 +93,10 @@ struct TransferPlanView: View {
                     }
                 }
             }
+            Text(coordinator.verificationMode.description)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
             if coordinator.verificationMode == .quick {
                 Label("Quick mode does not use checksum verification.", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 10)).foregroundColor(.orange)
@@ -192,9 +196,19 @@ struct TransferPlanView: View {
             .buttonStyle(PrimaryActionButtonStyle(isEnabled: canStart))
             .disabled(!canStart)
             .accessibilityLabel(plan.actionTitle)
-            .accessibilityHint(photographerStart?.blocker ?? "Starts the transfer")
-            if let disabledReason = photographerStart?.blocker {
-                Text(disabledReason).font(.system(size: 11)).foregroundColor(.white.opacity(0.58))
+            .accessibilityHint(photographerStart?.blocker ?? (canStart
+                ? "Copies files to each selected destination and leaves the source unchanged"
+                : TransferPlanStatusDisplay.make(plan.status).detail))
+            if !canStart {
+                Text(photographerStart?.blocker ?? TransferPlanStatusDisplay.make(plan.status).detail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Your source files stay in place. When the transfer finishes, review the results for every destination.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.58))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)

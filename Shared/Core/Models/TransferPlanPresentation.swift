@@ -20,9 +20,9 @@ struct TransferPlanStatusDisplay: Equatable {
         case .analyzing(let message):
             Self(title: "Analyzing", detail: message, symbol: "arrow.triangle.2.circlepath", tone: .info)
         case .warning(let warnings):
-            Self(title: "Ready with warnings", detail: warnings.first ?? "Review options before starting.", symbol: "exclamationmark.triangle.fill", tone: .warning)
+            Self(title: "Ready with warnings", detail: warnings.isEmpty ? "Review options before starting." : warnings.joined(separator: "\n"), symbol: "exclamationmark.triangle.fill", tone: .warning)
         case .blocked(let issues):
-            Self(title: "Blocked", detail: issues.first ?? "Resolve the issue to continue.", symbol: "xmark.octagon.fill", tone: .error)
+            Self(title: "Resolve before starting", detail: issues.isEmpty ? "Resolve the issue to continue." : issues.joined(separator: "\n"), symbol: "xmark.octagon.fill", tone: .error)
         case .incomplete(let message):
             Self(title: "Needs setup", detail: message, symbol: "info.circle.fill", tone: .warning)
         }

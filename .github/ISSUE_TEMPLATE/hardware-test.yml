@@ -1,0 +1,47 @@
+name: Hardware test report
+description: Record a physical storage test, including failures or incomplete results.
+title: "Hardware test: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Follow [the hardware testing procedure](https://github.com/mikecerisano/Bitmatch/blob/main/docs/HARDWARE_TESTING.md) using disposable data. Use the [report template](https://github.com/mikecerisano/Bitmatch/blob/main/docs/HARDWARE_REPORT_TEMPLATE.md) for detailed results. Remove serial numbers, usernames, private paths, and client information from shared evidence.
+  - type: textarea
+    id: environment
+    attributes:
+      label: App and host
+      description: BitMatch version/revision, clean or modified working tree, host model, and OS version. Write Unknown where necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: storage
+    attributes:
+      label: Storage and connection
+      description: Source and each destination model/filesystem, enclosure or bridge, hub/dock, cables, and power setup.
+    validations:
+      required: true
+  - type: textarea
+    id: procedure
+    attributes:
+      label: Test and expected behavior
+      description: Verification mode, synthetic dataset/seed, scenario, exact steps, fault timing, and expected result.
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - Inconclusive
+        - Pass
+        - Fail
+        - Not tested
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Actual behavior and evidence
+      description: Include independent destination hash comparisons, redacted result exports/logs, temporary-file cleanup, and any missing evidence. Without independent hashes a completed transfer is Inconclusive. Mark unrun cases Not tested.
+    validations:
+      required: true

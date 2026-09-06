@@ -70,7 +70,7 @@ struct HorizontalFlowView: View {
     
     @ViewBuilder
     private var sourceSectionHeader: some View {
-        Text("SOURCE")
+        Text("1 · SOURCE")
             .font(.system(size: 9, weight: .semibold))
             .foregroundColor(.white.opacity(0.5))
             .tracking(1.2)
@@ -189,7 +189,7 @@ struct HorizontalFlowView: View {
                 .font(.system(size: 9))
                 .foregroundColor(.white.opacity(0.3))
 
-            Button("Choose...") {
+            Button("Choose Source…") {
                 selectSourceFolder()
             }
             .buttonStyle(CustomButtonStyle())
@@ -216,7 +216,7 @@ struct HorizontalFlowView: View {
     @ViewBuilder
     private var compactDestinationsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("DESTINATIONS")
+            Text("2 · BACKUP DESTINATIONS")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(.white.opacity(0.5))
                 .tracking(1.2)
@@ -228,7 +228,7 @@ struct HorizontalFlowView: View {
                         .font(.system(size: 24))
                         .foregroundColor(isAddDestinationTargeted ? .green.opacity(0.7) : .white.opacity(0.3))
 
-                    Text("Drag backup drives here")
+                    Text("Drag backup folders or drives here")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(isAddDestinationTargeted ? .green.opacity(0.8) : .white.opacity(0.5))
 
@@ -323,6 +323,8 @@ struct HorizontalFlowView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(url.path)
                 
                 Spacer()
                 

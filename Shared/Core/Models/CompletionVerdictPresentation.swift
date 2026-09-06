@@ -13,7 +13,7 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
                 title: "Transfer complete",
                 detail: "Every reported file has a verified result.",
                 symbol: "checkmark.circle.fill",
-                sourceGuidance: nil
+                sourceGuidance: "Review the results for every destination before clearing source media."
             )
         case .issues:
             return Self(
