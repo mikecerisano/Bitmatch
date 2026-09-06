@@ -40,8 +40,7 @@ media. Each run creates new directories and leaves existing data untouched.
 Only capture the application window. Exclude folder pickers, personal paths,
 notifications, other windows, report history, and client information. Keep an
 adjacent caption identifying the files and destinations as synthetic local demo
-data. A GIF assembled from stills should be described as a screenshot sequence;
-its playback timing is not measured transfer time.
+data.
 
 ## Independently check the copies
 
@@ -61,9 +60,6 @@ when finished; the helper scripts do not delete anything.
   destinations.
 - [`02-complete.png`](02-complete.png): the completed transfer, with 24 verified
   file results (12 source files × 2 destinations) and zero issues.
-- [`bitmatch-demo.gif`](bitmatch-demo.gif): an animated sequence of those two
-  screenshots. Each state is held for readability; playback is not transfer
-  timing. No simulated progress or Interface Lab state is shown.
 
 Captured from the macOS Debug build, version 0.1.4 (5), built from the working
 source on 2026-09-06. The independent verifier passed all 24 destination copies.

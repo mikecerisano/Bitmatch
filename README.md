@@ -14,15 +14,6 @@ Now with photographer jobs, reusable folder recipes, and optional SFTP backups o
 
 *The current development build, using test files. The download may look a little different.*
 
-<details>
-<summary>Watch the copy-and-verify demo</summary>
-
-![BitMatch transfer setup and verified results](docs/demo/bitmatch-demo.gif)
-
-The actual app copying 12 test files to two local folders. All 24 copies were checked independently with SHA-256. This is a slideshow of setup and completion, not a speed test. [Try it yourself](docs/demo/README.md).
-
-</details>
-
 ## Download
 
 Signed and notarized macOS build on the [Releases page](https://github.com/mikecerisano/Bitmatch/releases). Supports Apple Silicon and Intel Macs.
