@@ -31,7 +31,9 @@ class SharedAppCoordinator: ObservableObject {
     
     // MARK: - Published State
     @Published var currentMode: AppMode = .copyAndVerify
-    @Published var verificationMode: VerificationMode = .standard
+    @Published var verificationMode: VerificationMode = .standard {
+        didSet { if oldValue != verificationMode { lastCompareStats = nil } }
+    }
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
     @Published var generateASCMHL: Bool = UserDefaults.standard.object(forKey: "BitMatchGenerateASCMHL") as? Bool ?? true {
@@ -647,6 +649,8 @@ class SharedAppCoordinator: ObservableObject {
             return
         }
 
+        guard !isOperationInProgress else { return }
+        let comparedMode = verificationMode
         isOperationInProgress = true
         operationState = .inProgress
         results = []
@@ -666,13 +670,19 @@ class SharedAppCoordinator: ObservableObject {
             let stats = try await comparisonCoordinator.compareFolders(
                 left: left,
                 right: right,
-                verificationMode: verificationMode,
+                verificationMode: comparedMode,
                 onProgress: { [weak self] prog in
                     self?.progress = prog
                 }
             )
             if Task.isCancelled || comparisonCoordinator.isCancellationRequested {
                 throw CancellationError()
+            }
+            guard leftURL == left, rightURL == right, verificationMode == comparedMode else {
+                isOperationInProgress = false
+                operationState = .notStarted
+                progress = nil
+                return
             }
             self.lastCompareStats = stats
             isOperationInProgress = false
@@ -708,7 +718,8 @@ class SharedAppCoordinator: ObservableObject {
     /// thrown errors instead of opening a temporary summary elsewhere.
     func completionExportDocument(asCSV: Bool) throws -> TransferHistoryDocument {
         guard let id = activeJournalRecordID,
-              let record = transferJournal.records.first(where: { $0.id == id }) else {
+              let record = transferJournal.records.first(where: { $0.id == id }),
+              record.state != .queued, record.state != .running else {
             throw CompletionExportError.noFinishedTransfer
         }
         return try TransferHistoryDocument(record: record, asCSV: asCSV)

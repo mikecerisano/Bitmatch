@@ -104,12 +104,15 @@ struct TransferLibraryView: View {
                         do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
                         catch { errorMessage = error.localizedDescription }
                     }
+                    if record.projectID == nil {
+                        Button("Reconnect…") { reauthorizeRecord = record }
+                    }
                 } else if record.canRetry {
                     Button("Retry") { coordinator.retryTransfer(record.id) }
                     Button("Reconnect…") { reauthorizeRecord = record }
                 }
                 Spacer()
-                if !record.results.isEmpty {
+                if record.state != .queued && record.state != .running {
                     Menu("Export") {
                         Button("JSON report") { export(record, asCSV: false) }
                         Button("CSV results") { export(record, asCSV: true) }
@@ -176,11 +179,13 @@ private struct ReauthorizeLocationsView: View {
         journal.records.first { $0.id == recordID }
     }
 
-    private var locations: [(index: Int, title: String, path: String)] {
+    private var locations: [(index: Int, title: String, path: String, identityCanBeConfirmed: Bool)] {
         guard let record else { return [] }
-        let urls = [record.source.url] + record.destinations.map(\.url)
+        let resources = [record.source] + record.destinations
+        let urls = resources.map(\.url)
         return urls.indices.map { i in
-            (index: i, title: i == 0 ? "Source" : "Backup \(i)", path: urls[i].path)
+            (index: i, title: i == 0 ? "Source" : "Backup \(i)", path: urls[i].path,
+             identityCanBeConfirmed: resources[i].volumeID != nil && resources[i].resourceID != nil)
         }
     }
 
@@ -207,6 +212,11 @@ private struct ReauthorizeLocationsView: View {
                                 Spacer()
                                 if stale == nil {
                                     ProgressView().controlSize(.small)
+                                } else if stale?.contains(location.index) == true && !location.identityCanBeConfirmed {
+                                    Label("Cannot reconnect", systemImage: "exclamationmark.triangle")
+                                        .font(.callout)
+                                        .foregroundStyle(.orange)
+                                        .labelStyle(.titleAndIcon)
                                 } else if stale?.contains(location.index) == true {
                                     Button("Choose") {
                                         pickingIndex = location.index
@@ -219,6 +229,13 @@ private struct ReauthorizeLocationsView: View {
                                         .labelStyle(.iconOnly)
                                 }
                             }
+                        }
+                    }
+                    if let stale, locations.contains(where: { stale.contains($0.index) && !$0.identityCanBeConfirmed }) {
+                        Section {
+                            Text("BitMatch cannot safely reconnect a location whose original volume and folder identity was not recorded. Start a new transfer for that location.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     if stale?.isEmpty == true {
@@ -394,11 +411,12 @@ struct TransferHistoryDocument: FileDocument {
     init(record: LocalTransferRecord, asCSV: Bool) throws {
         if asCSV {
             func quote(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-            let header = "source,destination,status,bytes,checksum,verification,transfer_state,transfer_summary,project,asc_mhl\n"
+            let header = "source,destination,status,bytes,checksum,verification,transfer_state,transfer_summary,project,asc_mhl,client\n"
             let rows = record.results.map { row in
                 [row.path, row.destinationPath ?? row.destination ?? "", row.status, String(row.size), row.checksum ?? "",
                  record.verificationMode.rawValue, record.state.rawValue, record.summary,
-                 record.reportSettings.projectName, record.generateASCMHL ? "requested" : "not requested"].map(quote).joined(separator: ",")
+                 record.reportSettings.projectName, record.generateASCMHL ? "requested" : "not requested",
+                 record.reportSettings.clientName].map(quote).joined(separator: ",")
             }
             data = Data((header + rows.joined(separator: "\n") + "\n").utf8)
         } else {

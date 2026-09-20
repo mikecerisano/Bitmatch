@@ -133,6 +133,8 @@ struct PhotographerReportTests {
         #expect(report.statistics.totalFiles == 2)
         #expect(report.statistics.matches == 1)
         #expect(report.results.map(\.status) == ["✅ Verified", "⚠️ Checksum Missing"])
+        #expect(report.results.first?.checksum == "raw-checksum")
+        #expect(report.results.first?.byteCount == results().first?.size)
     }
 
     @Test func nilPhotographyContextLeavesNewCSVProvenanceColumnsEmpty() throws {
@@ -145,8 +147,9 @@ struct PhotographerReportTests {
         )
         let lines = csv.split(separator: "\n", omittingEmptySubsequences: false)
 
-        #expect(lines.first == "Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp")
+        #expect(lines.first == "Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp,Bytes,Checksum")
         #expect(lines[1].contains(",,,,,Verified,"))
+        #expect(lines[1].hasSuffix(",100,raw-checksum"))
         #expect(lines[2].contains(",,,,,⚠️ Checksum Missing,"))
     }
 
@@ -177,7 +180,7 @@ struct PhotographerReportTests {
 
         #expect(report.photographyJob?.results.count == 2)
         #expect(report.photographyJob?.results.last?.successful == false)
-        #expect(csv.hasPrefix("Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp\n"))
+        #expect(csv.hasPrefix("Status,File Path,Target Path,Job,Photographer,Camera,Card,Package Path,Details,Timestamp,Bytes,Checksum\n"))
         #expect(csv.contains("Smith Wedding,Mike,Sony A7 IV,Card 001,2025-07-14_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001"))
         #expect(csv.contains("⚠️ Checksum Missing"))
         #expect(csv.contains("DSC0001.XMP"))

@@ -6,6 +6,25 @@ import XCTest
 final class AppCoordinatorBindingTests: XCTestCase {
     private let renderedPackage = "1970-01-01_Smith-Wedding/Originals/Mike/Sony-A7-IV/Card-001"
 
+    func testChangingMacComparisonFoldersClearsPreviousEvidence() {
+        let coordinator = makeTestCoordinator()
+        coordinator.fileSelectionViewModel.leftURL = URL(fileURLWithPath: "/tmp/old-source")
+        coordinator.fileSelectionViewModel.rightURL = URL(fileURLWithPath: "/tmp/old-backup")
+        coordinator.sharedCoordinator.lastCompareStats = CompareStats(
+            onlyInLeftCount: 0, onlyInRightCount: 1, commonCount: 1, mismatchedCount: 0,
+            onlyInRightPaths: ["extra.mov"])
+
+        coordinator.fileSelectionViewModel.leftURL = URL(fileURLWithPath: "/tmp/new-source")
+        XCTAssertNil(coordinator.sharedCoordinator.lastCompareStats)
+        XCTAssertEqual(coordinator.sharedCoordinator.leftURL, coordinator.fileSelectionViewModel.leftURL)
+
+        coordinator.sharedCoordinator.lastCompareStats = CompareStats(
+            onlyInLeftCount: 0, onlyInRightCount: 0, commonCount: 1, mismatchedCount: 0)
+        coordinator.fileSelectionViewModel.rightURL = URL(fileURLWithPath: "/tmp/new-backup")
+        XCTAssertNil(coordinator.sharedCoordinator.lastCompareStats)
+        XCTAssertEqual(coordinator.sharedCoordinator.rightURL, coordinator.fileSelectionViewModel.rightURL)
+    }
+
     func testFileSelectionChangeNotifiesOnNextRunLoopTurn() {
         let coordinator = makeTestCoordinator()
         drainMainRunLoop()

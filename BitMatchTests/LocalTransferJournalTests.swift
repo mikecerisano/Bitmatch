@@ -119,6 +119,34 @@ struct LocalTransferJournalTests {
         #expect(try journal.staleResourceIndexes(id: id) == [1])
     }
 
+    @Test func reauthorizeRejectsAResourceWithPartialIdentity() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var id = UUID()
+        do {
+            var journal: LocalTransferJournal? = LocalTransferJournal(fileURL: f.journal)
+            id = try journal!.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs())
+            let record = try #require(journal!.records.first)
+
+            // Simulate a legacy journal that recorded only one identity
+            // component. Reauthorization must fail closed instead of treating
+            // the missing component as a wildcard.
+            var payload = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode([record])) as? [[String: Any]])
+            var destinations = try #require(payload[0]["destinations"] as? [[String: Any]])
+            destinations[0].removeValue(forKey: "volumeID")
+            payload[0]["destinations"] = destinations
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            try data.write(to: f.journal, options: .atomic)
+            journal = nil
+        }
+        let restored = LocalTransferJournal(fileURL: f.journal)
+        #expect(try restored.staleResourceIndexes(id: id) == [1])
+        #expect(throws: LocalTransferJournalError.self) {
+            try restored.reauthorize(id: id, resourceIndex: 1, newURL: f.destination)
+        }
+    }
+
     @Test func reauthorizeAcceptsTheOriginalFolderAndKeepsEvidence() throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
@@ -288,6 +316,7 @@ struct LocalTransferJournalTests {
         let csvText = String(decoding: csv.data, as: UTF8.self)
         #expect(csvText.contains("transfer_summary,project,asc_mhl"))
         #expect(csvText.contains("\"Done\",\"Venice Shoot\",\"requested\""))
+        #expect(csvText.contains("\"requested\",\"Studio\""))
     }
 
     @Test func cancelledTransfersStayVisibleInQueueForRetry() {

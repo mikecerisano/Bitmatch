@@ -332,6 +332,7 @@ struct CompletionActionButtonsView: View {
             .buttonStyle(.borderedProminent)
             .tint(.green)
         }
+        .disabled(coordinator.isOperationInProgress)
         .fileExporter(
             isPresented: $showExport,
             document: exportDocument,

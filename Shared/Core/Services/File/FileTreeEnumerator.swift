@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 /// Lightweight entry for cached file enumeration (Perf 1)
 struct FileEntry: Sendable {
@@ -61,6 +64,27 @@ enum FileTreeEnumerator {
         ".DocumentRevisions-V100",
     ]
 
+    /// A metadata name is skipped only when the root item is actually a
+    /// directory. A user file with the same name remains part of the
+    /// manifest, and a symlink is never treated as metadata.
+    static func isRootVolumeMetadataDirectory(_ url: URL) -> Bool {
+        guard skippedVolumeMetadataDirectories.contains(url.lastPathComponent) else {
+            return false
+        }
+#if canImport(Darwin)
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return (info.st_mode & S_IFMT) == S_IFDIR
+#else
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return false
+        }
+        return (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == false
+#endif
+    }
+
     /// Perf 1: Enumerate regular files once and cache the list.
     /// Pass result to both copy and verify phases to eliminate triple filesystem walk.
     /// ~20 bytes per entry overhead for 100K files ≈ 20MB - acceptable.
@@ -103,14 +127,17 @@ enum FileTreeEnumerator {
 
         while let item = enumerator.nextObject() as? URL {
             try Task.checkCancellation()
-            let values = try item.resourceValues(forKeys: keys)
-            if values.isDirectory == true,
-               values.isSymbolicLink != true,
-               enumerator.level == 1,
-               skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+
+            // Volume bookkeeping is intentionally outside the copy manifest.
+            // Check its name before loading resource values because removable
+            // media metadata is often unreadable without Full Disk Access.
+            if enumerator.level == 1,
+               isRootVolumeMetadataDirectory(item) {
                 enumerator.skipDescendants()
                 continue
             }
+
+            let values = try item.resourceValues(forKeys: keys)
             if values.isSymbolicLink == true || values.isRegularFile != true {
                 continue
             }

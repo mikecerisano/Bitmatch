@@ -78,6 +78,19 @@ final class FileTreeEnumeratorTests: XCTestCase {
         XCTAssertEqual(entries.map(\.relativePath), ["DCIM/.Trashes/A002.MOV"])
     }
 
+    func testRootRegularFileNamedLikeVolumeMetadataIsKept() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("metadata-file-name-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("user data".utf8).write(to: root.appendingPathComponent(".Trashes"))
+        defer { try? fm.removeItem(at: root) }
+
+        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
+        XCTAssertEqual(entries.map(\.relativePath), [".Trashes"])
+        XCTAssertNoThrow(try SafetyValidator.validateSourceTreeForCopy(source: root))
+    }
+
     /// An unreadable directory that is NOT known volume metadata must still fail loudly.
     func testUnreadableUserDirectoryStillThrows() throws {
         let fm = FileManager.default

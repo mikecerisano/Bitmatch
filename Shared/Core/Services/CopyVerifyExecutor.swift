@@ -88,6 +88,8 @@ final class CopyVerifyExecutor {
     // MARK: - State
     private let maxResultsInMemory = 5_000
     private var handoffTask: Task<[String], Error>?
+    private var reportTask: Task<Void, Error>?
+    private var cancellationRequested = false
 
     // MARK: - Initialization
 
@@ -113,6 +115,7 @@ final class CopyVerifyExecutor {
         config: CopyVerifyConfig,
         callbacks: CopyVerifyCallbacks
     ) async throws -> FileOperation? {
+        cancellationRequested = false
         SharedLogger.info("CopyVerifyExecutor: starting operation \(config.operationId)", category: .transfer)
 
         // Create overflow service for large transfers
@@ -268,12 +271,13 @@ final class CopyVerifyExecutor {
                 return try finalizer(allResults)
             }
         )
+        try checkCancellation()
         let handoffIssues = try await createASCMHLHistories(operation: operation, config: config, callbacks: callbacks)
         // A failed requested report is a structured outcome, not a silent side effect:
         // verified media stays described as verified, but completion is issues.
         let reportIssue: String?
         if config.reportSettings.makeReport && !allResults.isEmpty {
-            reportIssue = await generateReport(
+            reportIssue = try await generateReport(
                 operation: operation,
                 results: allResults,
                 config: config,
@@ -283,6 +287,7 @@ final class CopyVerifyExecutor {
         } else {
             reportIssue = nil
         }
+        try checkCancellation()
         let succeeded = fileResultsSucceeded && photographerLifecycle.permitsSuccessfulCompletion && handoffIssues.isEmpty && config.verificationMode != .quick && reportIssue == nil
         var completionMessage: String
         if !photographerLifecycle.didPersist {
@@ -416,7 +421,8 @@ final class CopyVerifyExecutor {
         config: CopyVerifyConfig,
         photographerContext: PhotographerReportContext?,
         handoffSummary: String? = nil
-    ) async -> String? {
+    ) async throws -> String? {
+        try checkCancellation()
         let matchCount = results.filter { $0.isSuccessStatus }.count
         let totalBytesProcessed = config.estimatedBytes
         let fileCount = results.count
@@ -432,27 +438,34 @@ final class CopyVerifyExecutor {
         let reportOperation = operation
         let reportContext = photographerContext
 
+        let work = Task.detached(priority: .utility) {
+            try await ReportExporter.export(
+                mode: reportMode,
+                jobID: reportOperation.id,
+                started: reportOperation.startTime,
+                finished: reportOperation.endTime ?? Date(),
+                sourceURL: reportOperation.sourceURL,
+                destinationURLs: reportOperation.destinationURLs,
+                results: reportResults,
+                fileCount: fileCount,
+                matchCount: matchCount,
+                prefs: reportSettings,
+                workers: workers,
+                totalBytesProcessed: totalBytesProcessed,
+                generateFullReport: reportSettings.makeReport,
+                photographerContext: reportContext
+            )
+        }
+        reportTask = work
+        defer { reportTask = nil }
         do {
-            try await Task.detached(priority: .utility) {
-                try await ReportExporter.export(
-                    mode: reportMode,
-                    jobID: reportOperation.id,
-                    started: reportOperation.startTime,
-                    finished: reportOperation.endTime ?? Date(),
-                    sourceURL: reportOperation.sourceURL,
-                    destinationURLs: reportOperation.destinationURLs,
-                    results: reportResults,
-                    fileCount: fileCount,
-                    matchCount: matchCount,
-                    prefs: reportSettings,
-                    workers: workers,
-                    totalBytesProcessed: totalBytesProcessed,
-                    generateFullReport: reportSettings.makeReport,
-                    photographerContext: reportContext
-                )
-            }.value
+            try await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
+            try checkCancellation()
             return nil
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            try checkCancellation()
             SharedLogger.error("Auto-report failed for job \(operation.id): \(error.localizedDescription)", category: .transfer)
             return error.localizedDescription
         }
@@ -493,9 +506,16 @@ final class CopyVerifyExecutor {
         return url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
     }
 
+    private func checkCancellation() throws {
+        if cancellationRequested { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+
     /// Cancel the current operation
     func cancel() {
+        cancellationRequested = true
         handoffTask?.cancel()
+        reportTask?.cancel()
         platformManager.fileOperations.cancelOperation()
         timingService.cancelOperation()
     }

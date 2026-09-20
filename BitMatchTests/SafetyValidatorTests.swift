@@ -65,11 +65,8 @@ final class SafetyValidatorTests: XCTestCase {
             "/tmp/safe/../../private"
         ]
         for path in maliciousPaths {
-            let url = URL(fileURLWithPath: path)
-            let resolved = url.standardized
-            // After resolution, check if it lands in a system directory
             XCTAssertTrue(
-                DropValidation.isSystemDirectory(resolved) || resolved.pathComponents.contains("..") == false,
+                DropValidation.isSystemDirectory(URL(fileURLWithPath: path)),
                 "Path traversal should be caught: \(path)"
             )
         }

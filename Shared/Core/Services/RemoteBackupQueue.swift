@@ -76,6 +76,7 @@ actor RemoteBackupQueue {
     private var items: [UUID: RemoteQueueItem] = [:]
     private var runningItemIDs = Set<UUID>()
     private var cancellingItemIDs = Set<UUID>()
+    private var runGenerations: [UUID: UInt64] = [:]
     private var mutationGenerations: [UUID: UInt64] = [:]
     private var pendingWrites: [UUID: Task<Void, Error>] = [:]
 
@@ -97,19 +98,30 @@ actor RemoteBackupQueue {
     /// over a snapshot that was read before they were durably saved.
     func restore() async throws {
         let persistedItems = try await persistence.queueItems()
-        for item in persistedItems where items[item.id] == nil {
+        for persistedItem in persistedItems where items[persistedItem.id] == nil {
+            var item = persistedItem
+            // `.verifying` was the promotion marker before the explicit
+            // intent field was added. Preserve that meaning for old stores.
+            if item.state == .verifying {
+                item.promotionIntent = true
+            }
             items[item.id] = item
         }
     }
 
     /// Makes an item durable before it becomes runnable in memory.
     func enqueue(_ item: RemoteQueueItem) async throws {
-        try await saveSerially(item)
-        items[item.id] = item
+        var durableItem = item
+        if durableItem.state == .verifying {
+            durableItem.promotionIntent = true
+        }
+        try await saveSerially(durableItem)
+        items[durableItem.id] = durableItem
     }
 
     func run(_ id: UUID) async {
         guard !runningItemIDs.contains(id), isRunnable(id) else { return }
+        let runGeneration = runGenerations[id] ?? 0
         runningItemIDs.insert(id)
         defer { runningItemIDs.remove(id) }
 
@@ -122,7 +134,7 @@ actor RemoteBackupQueue {
             let validationLease = try await localArtifactResolver(item)
             validationLease.release()
             let context = try await validatedContext(for: item)
-            guard isRunnable(id) else { return }
+            guard isRunnable(id, runGeneration: runGeneration) else { return }
             guard let credential = try await persistence.credential(for: context.profile.id) else {
                 throw RemoteBackupError.missingCredential
             }
@@ -132,7 +144,7 @@ actor RemoteBackupQueue {
                 // while the provider can read the local file (upload through
                 // remote verification). The lease is released on every exit.
                 let capabilities = try await provider.preflight(profile: context.profile, credential: credential)
-                guard isRunnable(id) else {
+                guard isRunnable(id, runGeneration: runGeneration) else {
                     await provider.close()
                     return
                 }
@@ -143,12 +155,13 @@ actor RemoteBackupQueue {
                 // has fresh evidence and an active security-scoped lease.
                 let lease = try await localArtifactResolver(item)
                 defer { lease.release() }
-                guard isRunnable(id) else {
+                guard isRunnable(id, runGeneration: runGeneration) else {
                     await provider.close()
                     return
                 }
                 try await run(
                     itemID: id,
+                    runGeneration: runGeneration,
                     profile: context.profile,
                     credential: credential,
                     localURL: lease.url,
@@ -161,7 +174,7 @@ actor RemoteBackupQueue {
                 throw error
             }
         } catch {
-            await handle(error: error, itemID: id)
+            await handle(error: error, itemID: id, runGeneration: runGeneration)
         }
     }
 
@@ -169,15 +182,31 @@ actor RemoteBackupQueue {
     /// operation may finish at the provider, but it cannot overwrite this state.
     func cancel(_ id: UUID) async throws {
         guard let item = items[id], !item.state.isTerminal else { return }
+        let nextRunGeneration = (runGenerations[id] ?? 0) &+ 1
         cancellingItemIDs.insert(id)
-        _ = try await transition(itemID: id, allowingCancellation: true) { item in
-            item.state = .cancelled
-            item.nextAttemptAt = nil
-            item.errorSummary = RemoteBackupError.cancelled.errorDescription
+        do {
+            _ = try await transition(itemID: id, allowingCancellation: true) { item in
+                item.state = .cancelled
+                item.nextAttemptAt = nil
+                item.errorSummary = RemoteBackupError.cancelled.errorDescription
+                item.promotionIntent = false
+            }
+            runGenerations[id] = nextRunGeneration
+        } catch {
+            cancellingItemIDs.remove(id)
+            throw error
         }
     }
 
     func item(id: UUID) -> RemoteQueueItem? { items[id] }
+
+    /// A stable snapshot for summary refresh and scheduler diagnostics.
+    func allItems() -> [RemoteQueueItem] {
+        items.values.sorted {
+            if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+    }
 
     /// IDs the scheduler may run now: non-terminal, not paused, not already
     /// running or being cancelled, with no future backoff outstanding.
@@ -195,8 +224,11 @@ actor RemoteBackupQueue {
     /// Nil means nothing is waiting on a timer.
     func earliestDeferredAttempt() -> Date? {
         items.values.compactMap { item -> Date? in
-            guard !item.state.isTerminal, !cancellingItemIDs.contains(item.id),
-                  let at = item.nextAttemptAt, at > now() else { return nil }
+            guard !item.state.isTerminal,
+                  item.state != .paused,
+                  !runningItemIDs.contains(item.id),
+                  !cancellingItemIDs.contains(item.id),
+                  let at = item.nextAttemptAt else { return nil }
             return at
         }.min()
     }
@@ -206,13 +238,24 @@ actor RemoteBackupQueue {
     /// Terminal items are left alone.
     func pause(_ id: UUID) async throws {
         guard let item = items[id], !item.state.isTerminal else { return }
+        let nextRunGeneration = (runGenerations[id] ?? 0) &+ 1
+        let hadPromotionIntent = item.promotionIntent || item.state == .verifying
         cancellingItemIDs.insert(id)
-        defer { cancellingItemIDs.remove(id) }
-        _ = try await transition(itemID: id, allowingCancellation: true) { queuedItem in
-            guard !queuedItem.state.isTerminal else { return }
-            queuedItem.state = .paused
-            queuedItem.nextAttemptAt = nil
-            queuedItem.errorSummary = nil
+        do {
+            _ = try await transition(itemID: id, allowingCancellation: true) { queuedItem in
+                guard !queuedItem.state.isTerminal else { return }
+                queuedItem.state = .paused
+                queuedItem.nextAttemptAt = nil
+                queuedItem.errorSummary = nil
+                // Keep the promotion marker so a provider-side completion that
+                // races this pause can be finalized safely after retry.
+                queuedItem.promotionIntent = hadPromotionIntent
+            }
+            runGenerations[id] = nextRunGeneration
+            cancellingItemIDs.remove(id)
+        } catch {
+            cancellingItemIDs.remove(id)
+            throw error
         }
     }
 
@@ -222,7 +265,7 @@ actor RemoteBackupQueue {
         guard let item = items[id],
               item.state == .paused || item.state == .retrying || item.state == .failed else { return }
         _ = try await transition(itemID: id) { queuedItem in
-            queuedItem.state = .queued
+            queuedItem.state = queuedItem.promotionIntent ? .verifying : .queued
             queuedItem.nextAttemptAt = nil
             queuedItem.retryCount = 0
             queuedItem.errorSummary = nil
@@ -231,6 +274,7 @@ actor RemoteBackupQueue {
 
     private func run(
         itemID: UUID,
+        runGeneration: UInt64,
         profile: RemoteDestinationProfile,
         credential: RemoteCredential,
         localURL: URL,
@@ -240,7 +284,7 @@ actor RemoteBackupQueue {
         guard let item = items[itemID] else { return }
 
         let existingFinal = try await provider.inspect(path: item.remoteRelativePath)
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         if let existingFinal {
             guard item.state == .verifying else {
                 _ = try await transition(itemID: itemID) { queuedItem in
@@ -255,6 +299,7 @@ actor RemoteBackupQueue {
             }
             try await finalizeOwnedFinal(
                 itemID: itemID,
+                runGeneration: runGeneration,
                 profile: profile,
                 manifestEntry: manifestEntry,
                 provider: provider
@@ -263,7 +308,7 @@ actor RemoteBackupQueue {
         }
 
         let remoteTemporaryByteCount = try await provider.inspect(path: item.temporaryRemoteRelativePath)?.byteCount ?? 0
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
 
         // `.verifying` is the durable promotion-intent marker. It is written
         // before promotion, so a crash after promotion can only resume finalization.
@@ -276,6 +321,7 @@ actor RemoteBackupQueue {
             }
             try await promoteAndFinalize(
                 itemID: itemID,
+                runGeneration: runGeneration,
                 profile: profile,
                 manifestEntry: manifestEntry,
                 provider: provider
@@ -293,7 +339,7 @@ actor RemoteBackupQueue {
         if item.remoteRelativePath.components.count > 1 {
             let parent = try RemoteRelativePath(components: Array(item.remoteRelativePath.components.dropLast()))
             try await provider.ensureDirectory(parent)
-            guard isRunnable(itemID) else { return }
+            guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         }
 
         guard try await transition(itemID: itemID, { queuedItem in
@@ -308,13 +354,13 @@ actor RemoteBackupQueue {
             toTemporary: item.temporaryRemoteRelativePath,
             fromOffset: remoteTemporaryByteCount,
             progress: { [weak self] byteCount in
-                await self?.recordProgress(itemID: itemID, byteCount: byteCount)
+                await self?.recordProgress(itemID: itemID, runGeneration: runGeneration, byteCount: byteCount)
             }
         )
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
 
         let completedTemporaryByteCount = try await provider.inspect(path: item.temporaryRemoteRelativePath)?.byteCount ?? 0
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         guard completedTemporaryByteCount == manifestEntry.byteCount else {
             throw RemoteBackupError.resumeOffsetMismatch(
                 local: manifestEntry.byteCount,
@@ -327,10 +373,12 @@ actor RemoteBackupQueue {
             queuedItem.uploadedByteCount = manifestEntry.byteCount
             queuedItem.nextAttemptAt = nil
             queuedItem.errorSummary = nil
+            queuedItem.promotionIntent = true
         }) else { return }
 
         try await promoteAndFinalize(
             itemID: itemID,
+            runGeneration: runGeneration,
             profile: profile,
             manifestEntry: manifestEntry,
             provider: provider
@@ -339,18 +387,20 @@ actor RemoteBackupQueue {
 
     private func promoteAndFinalize(
         itemID: UUID,
+        runGeneration: UInt64,
         profile: RemoteDestinationProfile,
         manifestEntry: RemoteManifestEntry,
         provider: any RemoteBackupProvider
     ) async throws {
-        guard let item = items[itemID], isRunnable(itemID) else { return }
+        guard let item = items[itemID], isRunnable(itemID, runGeneration: runGeneration) else { return }
         try await provider.promoteNoReplace(
             temporary: item.temporaryRemoteRelativePath,
             final: item.remoteRelativePath
         )
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         try await finalizeOwnedFinal(
             itemID: itemID,
+            runGeneration: runGeneration,
             profile: profile,
             manifestEntry: manifestEntry,
             provider: provider
@@ -359,11 +409,12 @@ actor RemoteBackupQueue {
 
     private func finalizeOwnedFinal(
         itemID: UUID,
+        runGeneration: UInt64,
         profile: RemoteDestinationProfile,
         manifestEntry: RemoteManifestEntry,
         provider: any RemoteBackupProvider
     ) async throws {
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         guard profile.verificationMode == .sha256 else {
             _ = try await transition(itemID: itemID) { queuedItem in
                 queuedItem.state = .uploadedUnverified
@@ -371,6 +422,7 @@ actor RemoteBackupQueue {
                 queuedItem.nextAttemptAt = nil
                 queuedItem.verificationEvidence = .none
                 queuedItem.errorSummary = nil
+                queuedItem.promotionIntent = false
             }
             return
         }
@@ -379,7 +431,7 @@ actor RemoteBackupQueue {
             for: items[itemID]?.remoteRelativePath ?? manifestEntry.relativePath,
             expectedSHA256: manifestEntry.sha256
         )
-        guard isRunnable(itemID) else { return }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
         guard evidence.digest?.caseInsensitiveCompare(manifestEntry.sha256) == .orderedSame else {
             throw RemoteBackupError.verificationFailed
         }
@@ -389,6 +441,7 @@ actor RemoteBackupQueue {
             queuedItem.nextAttemptAt = nil
             queuedItem.verificationEvidence = evidence
             queuedItem.errorSummary = nil
+            queuedItem.promotionIntent = false
         }
     }
 
@@ -441,19 +494,23 @@ actor RemoteBackupQueue {
         return try parent.appending(".bitmatch-upload-\(itemID.uuidString.lowercased())")
     }
 
-    private func recordProgress(itemID: UUID, byteCount: Int64) async {
-        guard byteCount >= 0 else { return }
+    private func recordProgress(itemID: UUID, runGeneration: UInt64, byteCount: Int64) async {
+        guard byteCount >= 0, isRunnable(itemID, runGeneration: runGeneration) else { return }
         do {
             _ = try await transition(itemID: itemID) { item in
                 item.uploadedByteCount = max(item.uploadedByteCount, byteCount)
             }
         } catch {
-            await handle(error: error, itemID: itemID)
+            await handle(error: error, itemID: itemID, runGeneration: runGeneration)
         }
     }
 
-    private func handle(error: Error, itemID: UUID) async {
-        guard !cancellingItemIDs.contains(itemID), let item = items[itemID] else { return }
+    private func handle(error: Error, itemID: UUID, runGeneration: UInt64) async {
+        guard (self.runGenerations[itemID] ?? 0) == runGeneration,
+              !cancellingItemIDs.contains(itemID),
+              let item = items[itemID],
+              !item.state.isTerminal,
+              item.state != .paused else { return }
         let backupError = (error as? RemoteBackupError) ?? .providerUnavailable
 
         do {
@@ -465,6 +522,9 @@ actor RemoteBackupQueue {
                         queuedItem.retryCount = retryCount
                         queuedItem.nextAttemptAt = nil
                         queuedItem.errorSummary = "\(backupError.errorDescription ?? "The network connection failed.") Gave up after \(Self.maxRetryCount) attempts; retry manually when the destination is reachable."
+                        // Keep this marker across manual retry if promotion
+                        // may already have happened remotely.
+                        queuedItem.promotionIntent = queuedItem.promotionIntent || item.state == .verifying
                     }
                 } else {
                     let delay = retryDelay(for: retryCount)
@@ -483,6 +543,7 @@ actor RemoteBackupQueue {
                     // disagreement clears it and fails closed.
                     if item.state != .verifying || clearsPromotionIntent(backupError) {
                         queuedItem.state = backupError.failClosedState
+                        queuedItem.promotionIntent = false
                     }
                     queuedItem.nextAttemptAt = nil
                     queuedItem.errorSummary = backupError.errorDescription
@@ -503,8 +564,9 @@ actor RemoteBackupQueue {
         return min(300, cappedBase + max(0, min(jitter(), cappedBase * 0.25)))
     }
 
-    private func isRunnable(_ id: UUID) -> Bool {
+    private func isRunnable(_ id: UUID, runGeneration: UInt64? = nil) -> Bool {
         guard let item = items[id], !cancellingItemIDs.contains(id) else { return false }
+        if let runGeneration, (self.runGenerations[id] ?? 0) != runGeneration { return false }
         guard !item.state.isTerminal, item.state != .paused else { return false }
         return item.nextAttemptAt.map { $0 <= now() } ?? true
     }

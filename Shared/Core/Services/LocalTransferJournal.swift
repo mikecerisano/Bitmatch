@@ -47,10 +47,21 @@ struct LocalTransferResource: Codable {
 
     fileprivate func validate(_ resolved: URL) throws {
         let values = try resolved.resourceValues(forKeys: [.isDirectoryKey, .volumeUUIDStringKey, .fileResourceIdentifierKey])
-        guard volumeID != nil || resourceID != nil,
+        // A bookmark keeps the selected URL reachable, but it is not enough to
+        // prove that a path still names the original folder. Require both
+        // identity components before using a persisted location. Treating a
+        // missing component as a wildcard would allow a replacement folder on
+        // the same volume (or a matching file ID on another volume) through.
+        guard volumeID != nil, resourceID != nil else {
+            throw LocalTransferJournalError.unverifiableIdentity(name: url.lastPathComponent)
+        }
+        guard let volumeID,
+              let resourceID,
+              let resolvedVolumeID = values.volumeUUIDString,
+              let resolvedResourceID = values.fileResourceIdentifier,
               values.isDirectory == true,
-              volumeID == nil || values.volumeUUIDString == volumeID,
-              resourceID == nil || values.fileResourceIdentifier.map({ String(describing: $0) }) == resourceID,
+              resolvedVolumeID == volumeID,
+              String(describing: resolvedResourceID) == resourceID,
               FileManager.default.isReadableFile(atPath: resolved.path) else {
             throw LocalTransferJournalError.unavailable(url.lastPathComponent)
         }
@@ -299,14 +310,21 @@ final class LocalTransferJournal: ObservableObject {
 
     private func validateReauthorization(original: LocalTransferResource, recordCreatedAt: Date,
                                          refreshed: LocalTransferResource, refreshedURL: URL, name: String) throws {
-        guard original.volumeID != nil || original.resourceID != nil else {
+        // Reauthorization changes the access token, so a partial identity is
+        // unsafe: it cannot establish both the original volume and folder.
+        guard original.volumeID != nil, original.resourceID != nil,
+              refreshed.volumeID != nil, refreshed.resourceID != nil else {
             throw LocalTransferJournalError.unverifiableIdentity(name: name)
         }
-        let volumeOK = original.volumeID == nil || original.volumeID == refreshed.volumeID
-        let resourceOK = original.resourceID == nil || original.resourceID == refreshed.resourceID
+        let volumeOK = original.volumeID == refreshed.volumeID
+        let resourceOK = original.resourceID == refreshed.resourceID
         guard volumeOK && resourceOK else {
             throw LocalTransferJournalError.identityMismatch(name: name)
         }
+        // Keep a readable, directory-only replacement in the journal. Without
+        // this check a matching but inaccessible picker result would look
+        // connected until the next queue attempt.
+        try refreshed.validate(refreshedURL)
         // File identifiers may be reused once a folder is deleted, so a recreated
         // folder at the same path can present matching identifiers. The original
         // folder necessarily predates the transfer record; anything younger is a

@@ -86,6 +86,46 @@ struct RemoteBackupQueueTests {
         #expect(await restartedQueue.itemsForCardIngest(fixture.item.cardIngestID).map(\.id) == [fixture.item.id])
     }
 
+    @Test @MainActor func appCoordinatorDrainsDueWorkAndRefreshesBackgroundSummary() async throws {
+        let fixture = try QueueFixture()
+        let store = InMemoryPhotographerJobStore()
+        try store.save(fixture.job)
+        try store.save(fixture.manifest)
+        let activeJob = PhotographerJob(
+            id: UUID(),
+            eventDate: fixture.job.eventDate,
+            clientName: "Active Client",
+            jobName: "Active Job",
+            eventType: fixture.job.eventType,
+            photographers: [],
+            recipe: .wedding,
+            requiredLocalCopyCount: 2,
+            cardIngests: [],
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        try store.save(activeJob)
+        let viewModel = PhotographerJobViewModel(store: store, now: { Date(timeIntervalSince1970: 200) })
+        #expect(viewModel.activeJob?.id == activeJob.id)
+
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+        let coordinator = AppCoordinator(
+            photographerJobViewModel: viewModel,
+            remoteBackupQueue: queue,
+            startRemoteScheduler: false
+        )
+        try await queue.enqueue(fixture.item)
+
+        await coordinator.runDueRemoteBackups()
+
+        #expect(await provider.uploadCallCount == 1)
+        let savedBackground = try #require(store.storedJobs.first { $0.id == fixture.job.id })
+        let savedCard = try #require(savedBackground.cardIngests.first)
+        #expect(savedCard.remoteBackupSummaries[fixture.profile.id]?.state == .uploadedUnverified)
+        #expect(coordinator.photographerJobViewModel.activeJob?.id == activeJob.id)
+    }
+
     @Test func deferredBackoffWaitsForNextAttemptThenRunsAgain() async throws {
         let fixture = try QueueFixture()
         let provider = FakeRemoteBackupProvider(uploadError: .networkUnavailable)
@@ -132,6 +172,34 @@ struct RemoteBackupQueueTests {
         #expect(retried?.state == .queued)
         #expect(retried?.retryCount == 0)
         #expect(await queue.runnableIDs() == [fixture.item.id])
+    }
+
+    @Test func retryExhaustionDuringVerificationRetainsPromotionIntent() async throws {
+        let fixture = try QueueFixture(verificationMode: .sha256)
+        let provider = FakeRemoteBackupProvider(
+            verificationErrors: Array(repeating: .networkUnavailable, count: RemoteBackupQueue.maxRetryCount + 1)
+        )
+        try await fixture.makeQueue(provider: provider).enqueue(fixture.item)
+
+        var lastQueue: RemoteBackupQueue?
+        for attempt in 0 ... RemoteBackupQueue.maxRetryCount {
+            let next = fixture.makeQueue(
+                provider: provider,
+                now: Date(timeIntervalSince1970: 100 + Double(attempt) * 10_000)
+            )
+            try await next.restore()
+            await next.run(fixture.item.id)
+            lastQueue = next
+        }
+        let queue = try #require(lastQueue)
+        let exhausted = try #require(await queue.item(id: fixture.item.id))
+        #expect(exhausted.state == .failed)
+        #expect(exhausted.promotionIntent)
+
+        try await queue.retry(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verifying)
+        await queue.run(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verified)
     }
 
     @Test func pauseStopsSchedulerPickupUntilRetry() async throws {
@@ -268,6 +336,47 @@ struct RemoteBackupQueueTests {
         #expect(await provider.promoteCallCount == 0)
     }
 
+    @Test func pausingDuringPromotionRetainsIntentForSafeRetry() async throws {
+        let fixture = try QueueFixture(verificationMode: .sha256)
+        let provider = FakeRemoteBackupProvider(blockPromotion: true)
+        let queue = fixture.makeQueue(provider: provider)
+        try await queue.enqueue(fixture.item)
+
+        let running = Task { await queue.run(fixture.item.id) }
+        await provider.waitForPromotionStart()
+        try await queue.pause(fixture.item.id)
+        await provider.resumePromotion()
+        await running.value
+
+        let paused = try #require(await queue.item(id: fixture.item.id))
+        #expect(paused.state == .paused)
+        #expect(paused.promotionIntent)
+        #expect(await provider.promoteCallCount == 1)
+
+        try await queue.retry(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verifying)
+        await queue.run(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verified)
+        #expect(await provider.promoteCallCount == 1)
+    }
+
+    @Test func staleProviderErrorCannotReplacePausedState() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider(uploadError: .networkUnavailable, blockUpload: true)
+        let queue = fixture.makeQueue(provider: provider)
+        try await queue.enqueue(fixture.item)
+
+        let running = Task { await queue.run(fixture.item.id) }
+        await provider.waitForUploadStart()
+        try await queue.pause(fixture.item.id)
+        await provider.resumeUpload()
+        await running.value
+
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+        #expect(await queue.item(id: fixture.item.id)?.nextAttemptAt == nil)
+        #expect(await fixture.persistence.queueItem(id: fixture.item.id)?.state == .paused)
+    }
+
     @Test(arguments: ["manifest", "entry", "profile"])
     func invalidPersistedLinkagePausesBeforeProviderUse(_ mismatch: String) async throws {
         let fixture = try QueueFixture(mismatch: mismatch)
@@ -342,6 +451,7 @@ private struct QueueFixture {
     let profile: RemoteDestinationProfile
     let manifest: RemoteManifest
     let item: RemoteQueueItem
+    let job: PhotographerJob
     let persistence: FakeRemoteBackupQueuePersistence
 
     init(
@@ -394,6 +504,8 @@ private struct QueueFixture {
             ? try RemoteRelativePath(components: ["Jobs", "Job-001", ".bitmatch-upload-forged"])
             : temporary
         let card = Self.makeCard(id: manifestCardID)
+        let canonicalJob = Self.makeJob(id: manifestJobID, cardIngests: [card])
+        job = canonicalJob
         let jobCards = mismatch == "unownedCard" ? [Self.makeCard(id: UUID())] : [card]
         let jobs = mismatch == "deletedJob" ? [] : [Self.makeJob(id: manifestJobID, cardIngests: jobCards)]
         item = RemoteQueueItem(
@@ -514,8 +626,11 @@ private actor FakeRemoteBackupProvider: RemoteBackupProvider {
     private let uploadError: RemoteBackupError?
     private var verificationErrors: [RemoteBackupError]
     private let blockUpload: Bool
+    private let blockPromotion: Bool
     private var uploadStartedContinuation: CheckedContinuation<Void, Never>?
     private var uploadContinuation: CheckedContinuation<Void, Never>?
+    private var promotionStartedContinuation: CheckedContinuation<Void, Never>?
+    private var promotionContinuation: CheckedContinuation<Void, Never>?
     private(set) var uploadCallCount = 0
     private(set) var preflightCallCount = 0
     private(set) var uploadOffsets: [Int64] = []
@@ -527,7 +642,8 @@ private actor FakeRemoteBackupProvider: RemoteBackupProvider {
         preflightError: RemoteBackupError? = nil,
         uploadError: RemoteBackupError? = nil,
         verificationErrors: [RemoteBackupError] = [],
-        blockUpload: Bool = false
+        blockUpload: Bool = false,
+        blockPromotion: Bool = false
     ) {
         remoteObjects = objects
         self.capabilities = capabilities
@@ -535,6 +651,7 @@ private actor FakeRemoteBackupProvider: RemoteBackupProvider {
         self.uploadError = uploadError
         self.verificationErrors = verificationErrors
         self.blockUpload = blockUpload
+        self.blockPromotion = blockPromotion
     }
 
     func preflight(profile _: RemoteDestinationProfile, credential _: RemoteCredential) async throws -> RemoteProviderCapabilities {
@@ -566,6 +683,11 @@ private actor FakeRemoteBackupProvider: RemoteBackupProvider {
 
     func promoteNoReplace(temporary: RemoteRelativePath, final: RemoteRelativePath) async throws {
         promoteCallCount += 1
+        promotionStartedContinuation?.resume()
+        promotionStartedContinuation = nil
+        if blockPromotion {
+            await withCheckedContinuation { promotionContinuation = $0 }
+        }
         if remoteObjects[final] != nil { throw RemoteBackupError.conflict }
         remoteObjects[final] = remoteObjects.removeValue(forKey: temporary)
     }
@@ -587,5 +709,15 @@ private actor FakeRemoteBackupProvider: RemoteBackupProvider {
     func resumeUpload() {
         uploadContinuation?.resume()
         uploadContinuation = nil
+    }
+
+    func waitForPromotionStart() async {
+        if promoteCallCount > 0 { return }
+        await withCheckedContinuation { promotionStartedContinuation = $0 }
+    }
+
+    func resumePromotion() {
+        promotionContinuation?.resume()
+        promotionContinuation = nil
     }
 }

@@ -784,16 +784,19 @@ final class FileCopyService {
 
         while let item = enumerator.nextObject() as? URL {
             try Task.checkCancellation()
+
+            // Root volume metadata is excluded from the manifest. Check the
+            // name before reading attributes because these directories are
+            // commonly unreadable without Full Disk Access.
+            if enumerator.level == 1,
+               FileTreeEnumerator.isRootVolumeMetadataDirectory(item) {
+                enumerator.skipDescendants()
+                continue
+            }
+
             guard let values = try? item.resourceValues(forKeys: Set(keys)),
                   values.isSymbolicLink != true,
                   values.isDirectory == true else {
-                continue
-            }
-            if enumerator.level == 1,
-               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
-                // Mirrors the manifest: root-level volume metadata is neither
-                // copied nor recreated as an empty folder on the destination.
-                enumerator.skipDescendants()
                 continue
             }
 
@@ -858,16 +861,19 @@ final class FileCopyService {
 
         while let item = enumerator.nextObject() as? URL {
             try Task.checkCancellation()
-            guard let values = try? item.resourceValues(forKeys: Set(keys)),
-                  values.isSymbolicLink != true,
-                  values.isDirectory == true else { continue }
+
+            // Keep the descriptor-pinned directory tree in lockstep with the
+            // manifest before loading attributes from possibly unreadable
+            // volume metadata.
             if enumerator.level == 1,
-               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
-                // Mirrors the manifest: root-level volume metadata is neither
-                // copied nor recreated as an empty folder on the destination.
+               FileTreeEnumerator.isRootVolumeMetadataDirectory(item) {
                 enumerator.skipDescendants()
                 continue
             }
+
+            guard let values = try? item.resourceValues(forKeys: Set(keys)),
+                  values.isSymbolicLink != true,
+                  values.isDirectory == true else { continue }
             let relative: String
             do {
                 relative = try resolver.resolve(item)

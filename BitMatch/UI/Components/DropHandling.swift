@@ -129,6 +129,18 @@ struct DropValidation {
     ]
 
     static func isSystemDirectory(_ url: URL) -> Bool {
+        // URL.standardizedFileURL resolves ordinary dot segments, but a URL
+        // with a leading traversal component can still retain ".." in its
+        // non-file standardized form. Reject it before canonicalization so a
+        // dropped path cannot bypass the directory safety gate by resolving
+        // somewhere that is outside the known protected prefixes.
+        // URL.path is already decoded for file URLs; decoding it again would
+        // turn a literal "%2e%2e" filename into a false traversal.
+        let rawPath = url.path
+        if rawPath.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
+            return true
+        }
+
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         let temporaryPath = FileManager.default.temporaryDirectory
             .standardizedFileURL

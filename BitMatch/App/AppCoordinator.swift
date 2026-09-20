@@ -26,6 +26,9 @@ final class AppCoordinator: ObservableObject {
     @Published var photographerJobViewModel: PhotographerJobViewModel
     private var remoteBackupQueue: RemoteBackupQueue?
     private var remoteBackupTimer: Timer?
+    private var remoteSchedulerIsRunning = false
+    private var remoteSchedulerNeedsRun = false
+    private var remoteTimerGeneration: UInt64 = 0
     @Published private(set) var hostTrustPrompt: HostTrustPrompt?
     private var hostTrustContinuation: CheckedContinuation<Bool, Never>?
 
@@ -227,31 +230,63 @@ final class AppCoordinator: ObservableObject {
     /// Runs everything currently eligible, then arms a one-shot wake-up for
     /// the earliest deferred backoff, if any. Every entry point that changes
     /// queue state funnels through here so no worker is ever missing.
-    private func runDueRemoteBackups() async {
+    func runDueRemoteBackups() async {
         guard let queue = remoteBackupQueue else { return }
-        try? await queue.restore()
-        for id in await queue.runnableIDs() {
-            await queue.run(id)
-        }
-        armRemoteBackupTimer()
-    }
-
-    private func armRemoteBackupTimer() {
+        remoteSchedulerNeedsRun = true
+        guard !remoteSchedulerIsRunning else { return }
+        remoteSchedulerIsRunning = true
         remoteBackupTimer?.invalidate()
         remoteBackupTimer = nil
-        guard let queue = remoteBackupQueue else { return }
-        Task { [weak self] in
-            guard let self, let fireAt = await queue.earliestDeferredAttempt() else { return }
-            let interval = max(1, fireAt.timeIntervalSinceNow)
-            self.remoteBackupTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-                Task { [weak self] in await self?.runDueRemoteBackups() }
+        remoteTimerGeneration &+= 1
+        // Each pass attempts a snapshot once. An explicit queue/retry request
+        // during an upload requests another pass after the old worker unwinds.
+        repeat {
+            remoteSchedulerNeedsRun = false
+            do {
+                try await queue.restore()
+                await refreshAllRemoteBackupSummaries()
+                for id in await queue.runnableIDs() {
+                    await queue.run(id)
+                    if let item = await queue.item(id: id) {
+                        await refreshRemoteBackupSummary(for: item.cardIngestID)
+                    }
+                }
+            } catch {
+                photographerJobViewModel.setRemoteFeedback("Could not load off-site backups: \(error.localizedDescription)")
             }
+        } while remoteSchedulerNeedsRun
+        remoteSchedulerIsRunning = false
+        await armRemoteBackupTimer()
+    }
+
+    private func armRemoteBackupTimer() async {
+        remoteTimerGeneration &+= 1
+        let generation = remoteTimerGeneration
+        remoteBackupTimer?.invalidate()
+        remoteBackupTimer = nil
+        guard !remoteSchedulerIsRunning, let queue = remoteBackupQueue else { return }
+        let fireAt = await queue.earliestDeferredAttempt()
+        guard generation == remoteTimerGeneration, !remoteSchedulerIsRunning,
+              let fireAt else { return }
+        // A backoff may have expired while another upload was running.
+        let interval = max(1, fireAt.timeIntervalSinceNow)
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            Task { [weak self] in await self?.runDueRemoteBackups() }
+        }
+        remoteBackupTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func refreshAllRemoteBackupSummaries() async {
+        guard let queue = remoteBackupQueue else { return }
+        let items = await queue.allItems()
+        for (cardID, cardItems) in Dictionary(grouping: items, by: \.cardIngestID) {
+            photographerJobViewModel.refreshRemoteBackupSummary(for: cardID, items: cardItems)
         }
     }
 
     private func refreshRemoteBackupSummary(for cardIngestID: UUID) async {
         guard let queue = remoteBackupQueue else { return }
-        try? await queue.restore()
         photographerJobViewModel.refreshRemoteBackupSummary(
             for: cardIngestID,
             items: await queue.itemsForCardIngest(cardIngestID)
@@ -280,11 +315,17 @@ final class AppCoordinator: ObservableObject {
     func pauseRemoteBackup(for cardIngestID: UUID) {
         Task { [weak self] in
             guard let self, let queue = self.remoteBackupQueue else { return }
-            try? await queue.restore()
-            for item in await queue.itemsForCardIngest(cardIngestID) {
-                try? await queue.pause(item.id)
+            do {
+                try await queue.restore()
+                for item in await queue.itemsForCardIngest(cardIngestID) {
+                    try await queue.pause(item.id)
+                }
+            } catch {
+                self.photographerJobViewModel.setRemoteFeedback("Could not pause off-site backup: \(error.localizedDescription)")
+                await self.armRemoteBackupTimer()
+                return
             }
-            self.armRemoteBackupTimer()
+            await self.armRemoteBackupTimer()
             await self.refreshRemoteBackupSummary(for: cardIngestID)
         }
     }
@@ -294,9 +335,15 @@ final class AppCoordinator: ObservableObject {
     func retryRemoteBackup(for cardIngestID: UUID) {
         Task { [weak self] in
             guard let self, let queue = self.remoteBackupQueue else { return }
-            try? await queue.restore()
-            for item in await queue.itemsForCardIngest(cardIngestID) {
-                try? await queue.retry(item.id)
+            do {
+                try await queue.restore()
+                for item in await queue.itemsForCardIngest(cardIngestID) {
+                    try await queue.retry(item.id)
+                }
+            } catch {
+                self.photographerJobViewModel.setRemoteFeedback("Could not retry off-site backup: \(error.localizedDescription)")
+                await self.armRemoteBackupTimer()
+                return
             }
             await self.runDueRemoteBackups()
             await self.refreshRemoteBackupSummary(for: cardIngestID)
@@ -308,11 +355,17 @@ final class AppCoordinator: ObservableObject {
     func cancelRemoteBackup(for cardIngestID: UUID) {
         Task { [weak self] in
             guard let self, let queue = self.remoteBackupQueue else { return }
-            try? await queue.restore()
-            for item in await queue.itemsForCardIngest(cardIngestID) {
-                try? await queue.cancel(item.id)
+            do {
+                try await queue.restore()
+                for item in await queue.itemsForCardIngest(cardIngestID) {
+                    try await queue.cancel(item.id)
+                }
+            } catch {
+                self.photographerJobViewModel.setRemoteFeedback("Could not cancel off-site backup: \(error.localizedDescription)")
+                await self.armRemoteBackupTimer()
+                return
             }
-            self.armRemoteBackupTimer()
+            await self.armRemoteBackupTimer()
             await self.refreshRemoteBackupSummary(for: cardIngestID)
         }
     }
@@ -375,11 +428,14 @@ final class AppCoordinator: ObservableObject {
     /// that does not present modal alerts.
     init(
         photographerJobViewModel: PhotographerJobViewModel? = nil,
-        platformManager: PlatformManager = MacOSPlatformManager.shared
+        platformManager: PlatformManager = MacOSPlatformManager.shared,
+        remoteBackupQueue: RemoteBackupQueue? = nil,
+        startRemoteScheduler: Bool = true
     ) {
         self.sharedCoordinator = SharedAppCoordinator(platformManager: platformManager)
         if let photographerJobViewModel {
             self.photographerJobViewModel = photographerJobViewModel
+            self.remoteBackupQueue = remoteBackupQueue
         } else {
             let store = CoreDataPhotographerJobStore(persistence: BitMatchPersistenceController.shared)
             let remoteBackupCoordinator = RemoteBackupCoordinator(store: store)
@@ -403,15 +459,27 @@ final class AppCoordinator: ObservableObject {
                     try await remoteBackupCoordinator.resolveLocalArtifact(for: item)
                 }
             )
+            if startRemoteScheduler && !store.isAvailable {
+                store.whenAvailable { [weak self] in self?.startRemoteBackupScheduler() }
+            }
         }
         setupFileSelectionBindings()
         setupProgressBindings()
         setupSharedCoordinatorBindings()
         setupCameraDetection()
-        startRemoteBackupScheduler()
+        if startRemoteScheduler { startRemoteBackupScheduler() }
     }
 
     private func setupFileSelectionBindings() {
+        // Keep retained comparison evidence tied to the folders shown on Mac,
+        // including selections made after a comparison has finished.
+        fileSelectionViewModel.$leftURL
+            .sink { [weak self] in self?.sharedCoordinator.leftURL = $0 }
+            .store(in: &cancellables)
+        fileSelectionViewModel.$rightURL
+            .sink { [weak self] in self?.sharedCoordinator.rightURL = $0 }
+            .store(in: &cancellables)
+
         // Camera detection with memory when source changes. `dropFirst()`
         // skips the synchronous replay Combine delivers immediately upon
         // subscribing to `$sourceURL`; without it, every AppCoordinator

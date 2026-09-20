@@ -666,43 +666,65 @@ final class PhotographerJobViewModel: ObservableObject {
 
     private func updateRemoteSummary(for cardIngestID: UUID, items: [RemoteQueueItem]) throws {
         guard !items.isEmpty,
-              var job = activeJob,
+              items.allSatisfy({ $0.cardIngestID == cardIngestID }),
+              let jobID = items.first?.jobID,
+              items.allSatisfy({ $0.jobID == jobID }),
+              var job = try store.jobs().first(where: { $0.id == jobID }),
               let cardIndex = job.cardIngests.firstIndex(where: { $0.id == cardIngestID }) else { return }
-        let targetID = items[0].destinationProfileID
-        let totalBytes = items.reduce(Int64(0)) { $0 + $1.uploadedByteCount }
-        let expectedBytes = try items.reduce(Int64(0)) { (total, item) throws -> Int64 in
+
+        var summaries: [UUID: RemoteBackupCardSummary] = [:]
+        for (targetID, targetItems) in Dictionary(grouping: items, by: \.destinationProfileID) {
+            summaries[targetID] = try remoteBackupSummary(targetID: targetID, items: targetItems)
+        }
+        for (targetID, summary) in summaries {
+            job.cardIngests[cardIndex].remoteBackupSummaries[targetID] = summary
+        }
+        try persistBackgroundJobThrowing(job)
+    }
+
+    private func remoteBackupSummary(
+        targetID: UUID,
+        items: [RemoteQueueItem]
+    ) throws -> RemoteBackupCardSummary {
+        let orderedItems = items.sorted {
+            if $0.remoteRelativePath.description != $1.remoteRelativePath.description {
+                return $0.remoteRelativePath.description < $1.remoteRelativePath.description
+            }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        let totalBytes = orderedItems.reduce(Int64(0)) { $0 + $1.uploadedByteCount }
+        let expectedBytes = try orderedItems.reduce(Int64(0)) { (total, item) throws -> Int64 in
             total + (try remoteManifestEntryByteCount(for: item))
         }
         // A card is fully backed up only when every manifest entry has durable
         // verified evidence. Never let the first item conceal a later conflict,
         // failure, or upload-only terminal state.
         let state: RemoteBackupState
-        let allVerified = items.allSatisfy {
+        let allVerified = orderedItems.allSatisfy {
             $0.state == .verified && RemoteBackupStatusPresentation.make(state: $0.state, evidence: $0.verificationEvidence).isFullyBackedUp
         }
         if allVerified { state = .verified }
-        else if items.contains(where: { $0.state == .conflict }) { state = .conflict }
-        else if items.contains(where: { $0.state == .failed }) { state = .failed }
-        else if items.contains(where: { $0.state == .cancelled }) { state = .cancelled }
-        else if items.contains(where: { $0.state == .uploadedUnverified }) { state = .uploadedUnverified }
-        else if items.contains(where: { $0.state == .verifying }) { state = .verifying }
-        else if items.contains(where: { $0.state == .paused }) { state = .paused }
-        else if items.contains(where: { $0.state == .retrying }) { state = .retrying }
-        else if items.contains(where: { $0.state == .uploading }) { state = .uploading }
+        else if orderedItems.contains(where: { $0.state == .conflict }) { state = .conflict }
+        else if orderedItems.contains(where: { $0.state == .failed }) { state = .failed }
+        else if orderedItems.contains(where: { $0.state == .cancelled }) { state = .cancelled }
+        else if orderedItems.contains(where: { $0.state == .uploadedUnverified }) { state = .uploadedUnverified }
+        else if orderedItems.contains(where: { $0.state == .verifying }) { state = .verifying }
+        else if orderedItems.contains(where: { $0.state == .paused }) { state = .paused }
+        else if orderedItems.contains(where: { $0.state == .retrying }) { state = .retrying }
+        else if orderedItems.contains(where: { $0.state == .uploading }) { state = .uploading }
         else { state = .queued }
-        job.cardIngests[cardIndex].remoteBackupSummaries[targetID] = RemoteBackupCardSummary(
+        return RemoteBackupCardSummary(
             targetID: targetID,
             state: state,
-            totalFileCount: items.count,
-            uploadedFileCount: items.filter { $0.state == .uploadedUnverified || $0.state == .verified }.count,
+            totalFileCount: orderedItems.count,
+            uploadedFileCount: orderedItems.filter { $0.state == .uploadedUnverified || $0.state == .verified }.count,
             totalByteCount: expectedBytes,
             uploadedByteCount: totalBytes,
-            verificationEvidence: allVerified ? items[0].verificationEvidence : .none,
-            remotePath: items.first?.remoteRelativePath,
-            errorSummary: items.compactMap(\.errorSummary).first,
+            verificationEvidence: allVerified ? orderedItems[0].verificationEvidence : .none,
+            remotePath: orderedItems.first?.remoteRelativePath,
+            errorSummary: orderedItems.compactMap(\.errorSummary).first,
             updatedAt: now()
         )
-        try persistThrowing(job)
     }
 
     private func remoteManifestEntryByteCount(for item: RemoteQueueItem) throws -> Int64 {
@@ -721,6 +743,24 @@ final class PhotographerJobViewModel: ObservableObject {
         }
         activeJob = updatedJob
         selectedWorkflow = updatedJob.workflow
+    }
+
+    /// Persists a queue-owned update without changing the active job or any
+    /// current card/setup selection when the worker belongs to another job.
+    private func persistBackgroundJobThrowing(_ job: PhotographerJob) throws {
+        var updated = job
+        updated.updatedAt = now()
+        try store.save(updated)
+        if let index = jobs.firstIndex(where: { $0.id == updated.id }) {
+            jobs[index] = updated
+        } else {
+            jobs.append(updated)
+        }
+        if activeJob?.id == updated.id {
+            activeJob = updated
+        }
+        jobs.sort { $0.updatedAt > $1.updatedAt }
+        lastError = nil
     }
 
     func resetForNextCard() {

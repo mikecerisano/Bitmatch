@@ -141,20 +141,12 @@ final class ComparisonCoordinator {
 
     // MARK: - Private Helpers
 
-    private func relativePath(from base: URL, to fileURL: URL) -> String {
-        let basePath = base.path
-        let fullPath = fileURL.path
-        if fullPath.hasPrefix(basePath + "/") {
-            return String(fullPath.dropFirst(basePath.count + 1))
-        }
-        return fileURL.lastPathComponent
-    }
-
     private func buildFileMap(files: [URL], base: URL) throws -> [String: (url: URL, size: Int64)] {
         var map: [String: (url: URL, size: Int64)] = [:]
         map.reserveCapacity(files.count)
+        let resolver = RelativePathResolver(base: base)
         for fileURL in files {
-            let key = relativePath(from: base, to: fileURL)
+            let key = try resolver.resolve(fileURL)
             let size = try platformManager.fileSystem.getFileSize(for: fileURL)
             map[key] = (fileURL, size)
         }

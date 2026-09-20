@@ -196,6 +196,8 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         coordinator.startQueue()
         let started = await queueWaitUntil { await service.starts.count == 1 }
         XCTAssertTrue(started)
+        XCTAssertThrowsError(try coordinator.completionExportDocument(asCSV: false),
+                             "A running journal record is not a finished report")
         coordinator.cancelOperation()
         XCTAssertTrue(coordinator.isOperationInProgress, "Restart must stay disabled until cancellation unwinds")
         await service.release()

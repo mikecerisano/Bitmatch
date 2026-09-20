@@ -176,6 +176,47 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.history.path))
     }
 
+    func testAutomaticChecksumManifestRetainsVerifiedEvidenceAndDistinctPaths() throws {
+        let fixture = TestFixture()
+        let output = fixture.directory.appendingPathComponent("checksums.txt")
+        let rows = [
+            ResultRow(path: "/source/a/clip.mov", status: "✅ Match", size: 10, checksum: "first",
+                      destination: "Backup", destinationPath: "/backup/a/clip.mov"),
+            ResultRow(path: "/source/b/clip.mov", status: "✅ Match", size: 10, checksum: "second",
+                      destination: "Backup", destinationPath: "/backup/b/clip.mov")
+        ]
+        // No source or destination files are needed: export must preserve the
+        // recorded verification, not silently recalculate or omit missing media.
+        try ReportExporter.writeRecordedChecksumManifest(results: rows, algorithm: .sha256, to: output)
+        let text = try String(contentsOf: output, encoding: .utf8)
+        XCTAssertTrue(text.contains("first  /backup/a/clip.mov"))
+        XCTAssertTrue(text.contains("second  /backup/b/clip.mov"))
+        XCTAssertThrowsError(try ReportExporter.writeRecordedChecksumManifest(
+            results: rows, algorithm: .sha256, to: fixture.directory.appendingPathComponent("missing/report.txt")))
+    }
+
+    func testMissingChecksumCannotProduceSuccessfulManifest() throws {
+        let fixture = TestFixture()
+        let output = fixture.directory.appendingPathComponent("checksums.txt")
+        let row = ResultRow(path: "/source/clip.mov", status: "✅ Match", size: 10, checksum: nil, destination: "Backup")
+        XCTAssertThrowsError(try ReportExporter.writeRecordedChecksumManifest(results: [row], algorithm: .sha256, to: output))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testCancellationAfterVerificationDoesNotPublishCompletionOrReports() async throws {
+        let fixture = try reportFixture(blockReportsFolder: false)
+        let harness = ExecutorHarness(returnedResults: [fixture.result], emittedResults: [],
+            sourceURL: fixture.source, destinationURLs: [fixture.destination], makeReport: true)
+        harness.onAuthoritativeResults = { harness.cancel() }
+        do {
+            _ = try await harness.execute()
+            XCTFail("Cancelled finalization must throw")
+        } catch is CancellationError { }
+        XCTAssertNil(harness.terminalInfo)
+        XCTAssertEqual(harness.completedRows.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("Reports").path))
+    }
+
     private func reportFixture(blockReportsFolder: Bool) throws -> (source: URL, destination: URL, result: FileOperationResult) {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("executor-report-\(UUID())")
@@ -230,6 +271,9 @@ private final class ExecutorHarness {
 
     private(set) var completedRows: [ResultRow] = []
     private(set) var terminalInfo: OperationCompletionInfo?
+    var onAuthoritativeResults: (() -> Void)?
+
+    func cancel() { executor.cancel() }
 
     init(
         returnedResults: [FileOperationResult],
@@ -281,6 +325,7 @@ private final class ExecutorHarness {
                 onAuthoritativeResults: { [weak self] rows in
                     guard let self else { return }
                     self.completedRows = rows
+                    self.onAuthoritativeResults?()
                 }
             )
         )

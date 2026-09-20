@@ -358,14 +358,16 @@ final class SafetyValidator {
         ) else { return }
 
         while let item = enumerator.nextObject() as? URL {
-            let values = try item.resourceValues(forKeys: keys)
-            if values.isDirectory == true,
-               values.isSymbolicLink != true,
-               enumerator.level == 1,
-               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+            // Keep preflight aligned with the copy manifest before asking
+            // Foundation for metadata attributes. Root volume metadata can be
+            // unreadable without Full Disk Access and is intentionally skipped.
+            if enumerator.level == 1,
+               FileTreeEnumerator.isRootVolumeMetadataDirectory(item) {
                 enumerator.skipDescendants()
                 continue
             }
+
+            let values = try item.resourceValues(forKeys: keys)
             if values.isSymbolicLink == true {
                 continue
             }

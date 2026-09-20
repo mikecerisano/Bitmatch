@@ -312,6 +312,64 @@ struct PhotographerJobViewModelTests {
         #expect(viewModel.activeCard?.provenance.confirmedFingerprint == nil)
     }
 
+    @Test func remoteSummaryRefreshPersistsForBackgroundJobAndSeparatesDestinations() throws {
+        let store = InMemoryPhotographerJobStore()
+        let backgroundJobID = UUID()
+        let backgroundCardID = UUID()
+        let activeJobID = UUID()
+        let backgroundJob = summaryJob(id: backgroundJobID, cardID: backgroundCardID, updatedAt: now.addingTimeInterval(-10))
+        let activeJob = summaryJob(id: activeJobID, cardID: UUID(), updatedAt: now)
+        try store.save(backgroundJob)
+        try store.save(activeJob)
+
+        let targetA = UUID()
+        let targetB = UUID()
+        let package = try RemoteRelativePath(components: ["Jobs", "Background"])
+        let entryA = RemoteManifestEntry(
+            id: UUID(),
+            relativePath: try RemoteRelativePath(components: ["A.mov"]),
+            byteCount: 10,
+            sha256: String(repeating: "a", count: 64)
+        )
+        let entryB = RemoteManifestEntry(
+            id: UUID(),
+            relativePath: try RemoteRelativePath(components: ["B.mov"]),
+            byteCount: 20,
+            sha256: String(repeating: "b", count: 64)
+        )
+        let manifestA = try RemoteManifest(
+            id: UUID(), jobID: backgroundJobID, cardIngestID: backgroundCardID,
+            destinationProfileID: targetA, packageRelativePath: package,
+            entries: [entryA], createdAt: now
+        )
+        let manifestB = try RemoteManifest(
+            id: UUID(), jobID: backgroundJobID, cardIngestID: backgroundCardID,
+            destinationProfileID: targetB, packageRelativePath: package,
+            entries: [entryB], createdAt: now
+        )
+        try store.save(manifestA)
+        try store.save(manifestB)
+        let itemA = summaryItem(
+            jobID: backgroundJobID, cardID: backgroundCardID, targetID: targetA,
+            manifest: manifestA, entry: entryA, state: .uploadedUnverified, uploadedBytes: 10
+        )
+        let itemB = summaryItem(
+            jobID: backgroundJobID, cardID: backgroundCardID, targetID: targetB,
+            manifest: manifestB, entry: entryB, state: .queued, uploadedBytes: 0
+        )
+
+        let viewModel = makeViewModel(store: store)
+        viewModel.refreshRemoteBackupSummary(for: backgroundCardID, items: [itemA, itemB])
+
+        let savedBackground = try #require(store.storedJobs.first { $0.id == backgroundJobID })
+        let savedCard = try #require(savedBackground.cardIngests.first)
+        #expect(savedCard.remoteBackupSummaries[targetA]?.state == .uploadedUnverified)
+        #expect(savedCard.remoteBackupSummaries[targetB]?.state == .queued)
+        #expect(savedCard.remoteBackupSummaries[targetA]?.totalByteCount == 10)
+        #expect(savedCard.remoteBackupSummaries[targetB]?.totalByteCount == 20)
+        #expect(viewModel.activeJob?.id == activeJobID)
+    }
+
     @Test func terminalCardsCannotBeginAgainAndRequireNextCardSetup() throws {
         let viewModel = preparedViewModel(store: InMemoryPhotographerJobStore())
         _ = viewModel.beginIngest(destinationCount: 2)
@@ -816,6 +874,52 @@ struct PhotographerJobViewModelTests {
         PhotographerJobViewModel(store: store, now: { now })
     }
 
+    private func summaryJob(id: UUID, cardID: UUID, updatedAt: Date) -> PhotographerJob {
+        PhotographerJob(
+            id: id,
+            eventDate: eventDate,
+            clientName: "Client",
+            jobName: "Background Job",
+            eventType: .wedding,
+            photographers: [],
+            recipe: .wedding,
+            requiredLocalCopyCount: 2,
+            cardIngests: [CardIngest(
+                id: cardID,
+                provenance: CardProvenance(
+                    photographerID: UUID(), photographerName: "Photographer", cameraName: "Camera",
+                    cardNumber: 1, preliminaryFingerprint: nil, confirmedFingerprint: "fingerprint"
+                ),
+                sourceDisplayName: "Card 1", renderedRelativePath: "Jobs/Background",
+                localState: .locallySafe, startedAt: eventDate, locallySafeAt: eventDate,
+                fileCount: 1, totalBytes: 10, verifiedDestinationCount: 2
+            )],
+            createdAt: eventDate,
+            updatedAt: updatedAt
+        )
+    }
+
+    private func summaryItem(
+        jobID: UUID,
+        cardID: UUID,
+        targetID: UUID,
+        manifest: RemoteManifest,
+        entry: RemoteManifestEntry,
+        state: RemoteBackupState,
+        uploadedBytes: Int64
+    ) -> RemoteQueueItem {
+        let final = try! manifest.packageRelativePath.appending(path: entry.relativePath)
+        let temporary = try! RemoteRelativePath(components: Array(final.components.dropLast()) + [".temporary"])
+        return RemoteQueueItem(
+            id: UUID(), jobID: jobID, cardIngestID: cardID, destinationProfileID: targetID,
+            manifestID: manifest.id, manifestEntryID: entry.id,
+            localArtifactBookmarkReference: "bookmark", localArtifactRelativePath: entry.relativePath,
+            remoteRelativePath: final, temporaryRemoteRelativePath: temporary,
+            state: state, uploadedByteCount: uploadedBytes, retryCount: 0, nextAttemptAt: nil,
+            verificationEvidence: .none, errorSummary: nil, createdAt: now, updatedAt: now
+        )
+    }
+
     private func preparedViewModel(
         store: InMemoryPhotographerJobStore,
         sourcePaths: [String] = ["/card/A.ARW"]
@@ -883,6 +987,7 @@ private enum TestStoreError: LocalizedError {
 final class InMemoryPhotographerJobStore: PhotographerJobStore {
     private(set) var storedJobs: [PhotographerJob] = []
     private(set) var storedPresets: [PhotographerPreset] = []
+    private(set) var storedManifests: [RemoteManifest] = []
     private(set) var saveCount = 0
     var errorOnSave: Error?
 
@@ -909,6 +1014,16 @@ final class InMemoryPhotographerJobStore: PhotographerJobStore {
             storedPresets[index] = preset
         } else {
             storedPresets.append(preset)
+        }
+    }
+
+    func manifests() throws -> [RemoteManifest] { storedManifests }
+
+    func save(_ manifest: RemoteManifest) throws {
+        if let index = storedManifests.firstIndex(where: { $0.id == manifest.id }) {
+            storedManifests[index] = manifest
+        } else {
+            storedManifests.append(manifest)
         }
     }
 }

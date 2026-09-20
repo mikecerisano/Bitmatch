@@ -16,8 +16,12 @@ import UIKit
 /// media is never confused with a failed requested report.
 enum ReportExportError: LocalizedError {
     case noSaveLocation
+    case missingChecksum(String)
     var errorDescription: String? {
-        "Cannot find a valid directory to save reports"
+        switch self {
+        case .noSaveLocation: "Cannot find a valid directory to save reports"
+        case .missingChecksum(let path): "No recorded checksum for \(path)."
+        }
     }
 }
 
@@ -107,12 +111,16 @@ struct JSONReportItem: Codable {
     let target: String?
     let status: String
     let fileExtension: String
-    
+    let checksum: String?
+    let byteCount: Int64?
+
     init(from row: ResultRow) {
         self.path = row.path
         self.target = row.destinationPath ?? row.destination
         self.status = row.status.isEmpty ? "Unknown" : row.status
         self.fileExtension = URL(fileURLWithPath: row.path).pathExtension.uppercased()
+        self.checksum = row.checksum
+        self.byteCount = row.size
     }
 }
 
@@ -218,6 +226,7 @@ final class ReportExporter {
         let pdfData: Data? = nil
         #endif
         
+        try Task.checkCancellation()
         // Auto-save to reports folder
         try await autoSaveReports(mode: mode,
                              destinationURLs: destinationURLs,
@@ -460,6 +469,7 @@ final class ReportExporter {
                 try pdfData.write(to: pdfURL)
             }
             
+            try Task.checkCancellation()
             // Save CSV manifest with enhanced data
             let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv").nonConflictingSibling()
             try exportEnhancedCSV(results: results,
@@ -470,6 +480,7 @@ final class ReportExporter {
                                  photographerContext: photographerContext,
                                  prefs: prefs)
             
+            try Task.checkCancellation()
             // Save enhanced JSON report
             let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json").nonConflictingSibling()
             try exportEnhancedJSONReport(
@@ -492,12 +503,10 @@ final class ReportExporter {
             
             // If checksums were used, auto-export checksum file (no dialog)
             if generateFullReport, let algorithm = checksumAlgorithm {
-                #if os(macOS)
-                autoExportChecksums(results: results, algorithm: algorithm, baseURL: pdfURL)
-                #else
-                // Checksum export not available on iOS
-                SharedLogger.warning("Checksum export not available on iOS", category: .transfer)
-                #endif
+                let checksumURL = pdfURL.deletingPathExtension()
+                    .appendingPathExtension("\(algorithm.rawValue.lowercased()).txt")
+                    .nonConflictingSibling()
+                try writeRecordedChecksumManifest(results: results, algorithm: algorithm, to: checksumURL)
             }
             
             NSLog("Report auto-saved successfully to: \(pdfURL.path)")
@@ -631,7 +640,7 @@ final class ReportExporter {
             try PhotographerReportPayload.make(context: $0, results: results)
         }
         var csvContent = csvRow([
-            "Status", "File Path", "Target Path", "Job", "Photographer", "Camera", "Card", "Package Path", "Details", "Timestamp"
+            "Status", "File Path", "Target Path", "Job", "Photographer", "Camera", "Card", "Package Path", "Details", "Timestamp", "Bytes", "Checksum"
         ])
         
         let dateFormatter = ISO8601DateFormatter()
@@ -646,7 +655,8 @@ final class ReportExporter {
             let camera = payload?.card.provenance.cameraName ?? ""
             let card = payload.map { String(format: "Card %03d", $0.card.provenance.cardNumber) } ?? ""
             let packagePath = payload?.card.renderedRelativePath ?? ""
-            let details = isMatchStatus(result.status) ? "Verified" : result.status
+            let verified = isMatchStatus(result.status) && result.checksum?.isEmpty == false && prefs?.verificationMode != .quick
+            let details = verified ? "Verified" : result.status
             
             // Calculate estimated timestamp based on processing speed
             let secondsPerFile = filesPerSecond > 0 ? 1.0 / filesPerSecond : 0
@@ -657,7 +667,8 @@ final class ReportExporter {
             let timestamp = dateFormatter.string(from: clampedTime)
             
             csvContent += csvRow([
-                status, path, target, job, photographer, camera, card, packagePath, details, timestamp
+                status, path, target, job, photographer, camera, card, packagePath, details, timestamp,
+                String(result.size), result.checksum ?? ""
             ])
         }
         
@@ -896,18 +907,26 @@ final class ReportExporter {
         )
     }
     
-    #if os(macOS)
-    private static func autoExportChecksums(results: [ResultRow], algorithm: ChecksumAlgorithm, baseURL: URL) {
-        // Auto-export checksums without asking
-        let checksumURL = baseURL.deletingPathExtension()
-            .appendingPathExtension("\(algorithm.rawValue.lowercased()).txt")
-            .nonConflictingSibling()
-        
-        Task { @MainActor in
-            await exportChecksumsAsync(results: results, algorithm: algorithm, to: checksumURL)
+    /// Automatic reports use the checksums retained by verification. Re-reading
+    /// files later would replace the evidence and outlive the transfer's access lease.
+    static func writeRecordedChecksumManifest(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) throws {
+        var content = "# BitMatch Checksum Manifest\n# Algorithm: \(algorithm.rawValue)\n# Format: CHECKSUM  FILENAME\n\n"
+        for row in results where row.isSuccessStatus {
+            try Task.checkCancellation()
+            guard let checksum = row.checksum, !checksum.isEmpty else {
+                throw ReportExportError.missingChecksum(row.path)
+            }
+            let path = row.destinationPath ?? row.path
+            // GNU checksum escaping preserves filenames containing backslashes or newlines.
+            let escaped = path.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            content += (escaped == path ? "" : "\\") + checksum + "  " + escaped + "\n"
         }
+        try Task.checkCancellation()
+        try content.write(to: url, atomically: true, encoding: .utf8)
     }
-    
+
+    #if os(macOS)
     private static func askToExportChecksums(results: [ResultRow], algorithm: ChecksumAlgorithm, baseURL: URL) {
         let alert = NSAlert()
         alert.messageText = "Export Checksums?"

@@ -183,6 +183,12 @@ struct SharedCompareFlowTests {
             coordinator.verificationMode = .standard
             coordinator.leftURL = left
             coordinator.rightURL = right
+            coordinator.lastCompareStats = CompareStats(
+                onlyInLeftCount: 0,
+                onlyInRightCount: 0,
+                commonCount: 1,
+                mismatchedCount: 0
+            )
         }
         await coordinator.compareFolders()
 
@@ -210,14 +216,14 @@ struct SharedCompareFlowTests {
             onlyInRightPaths: ["DCIM/C.MOV"],
             mismatchedPaths: ["DCIM/A,B.MOV"]
         )
-        let comparedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
         let csv = try CompareReportDocument(
             stats: stats,
             leftName: "Card",
             rightName: "Backup",
             verificationMode: .standard,
-            comparedAt: comparedAt,
+            exportedAt: exportedAt,
             asCSV: true
         )
         #expect(String(decoding: csv.data, as: UTF8.self) == """
@@ -233,7 +239,7 @@ struct SharedCompareFlowTests {
             leftName: "Card",
             rightName: "Backup",
             verificationMode: .standard,
-            comparedAt: comparedAt,
+            exportedAt: exportedAt,
             asCSV: false
         )
         let payload = try #require(JSONSerialization.jsonObject(with: json.data) as? [String: Any])
@@ -244,6 +250,91 @@ struct SharedCompareFlowTests {
         #expect(payload["onlyInSource"] as? [String] == ["DCIM/B.MOV"])
         #expect(payload["onlyInDestination"] as? [String] == ["DCIM/C.MOV"])
         #expect(payload["mismatched"] as? [String] == ["DCIM/A,B.MOV"])
+
+        let quickCSV = try CompareReportDocument(
+            stats: stats,
+            leftName: "Card",
+            rightName: "Backup",
+            verificationMode: .quick,
+            exportedAt: exportedAt,
+            asCSV: true
+        )
+        #expect(String(decoding: quickCSV.data, as: UTF8.self).contains("\"size-differs\",\"DCIM/A,B.MOV\""))
+    }
+
+    @Test
+    func testChangingVerificationModeDiscardsInFlightCompare() async throws {
+        let left = URL(fileURLWithPath: "/stale-mode/left")
+        let right = URL(fileURLWithPath: "/stale-mode/right")
+        let checksum = BlockingChecksumService()
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run {
+            SharedAppCoordinator(platformManager: platform)
+        }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+            coordinator.lastCompareStats = CompareStats(
+                onlyInLeftCount: 0,
+                onlyInRightCount: 0,
+                commonCount: 1,
+                mismatchedCount: 0
+            )
+        }
+
+        let compareTask = Task { @MainActor in
+            await coordinator.compareFolders()
+        }
+        await checksum.waitUntilVerificationStarts()
+        await MainActor.run { coordinator.verificationMode = .quick }
+        await checksum.release()
+        await compareTask.value
+
+        let stats = await MainActor.run { coordinator.lastCompareStats }
+        #expect(stats == nil)
+    }
+
+    @Test
+    func testChangingFolderSelectionDiscardsInFlightCompare() async throws {
+        let left = URL(fileURLWithPath: "/stale-selection/left")
+        let right = URL(fileURLWithPath: "/stale-selection/right")
+        let replacement = URL(fileURLWithPath: "/stale-selection/replacement")
+        let checksum = BlockingChecksumService()
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run {
+            SharedAppCoordinator(platformManager: platform)
+        }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+            coordinator.lastCompareStats = CompareStats(
+                onlyInLeftCount: 0,
+                onlyInRightCount: 0,
+                commonCount: 1,
+                mismatchedCount: 0
+            )
+        }
+
+        let compareTask = Task { @MainActor in
+            await coordinator.compareFolders()
+        }
+        await checksum.waitUntilVerificationStarts()
+        await MainActor.run { coordinator.leftURL = replacement }
+        await checksum.release()
+        await compareTask.value
+
+        let stats = await MainActor.run { coordinator.lastCompareStats }
+        #expect(stats == nil)
     }
 }
 
@@ -424,6 +515,81 @@ private final class ScopeTrackingChecksumService: ChecksumService {
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         VerificationResult(
+            sourceChecksum: "hash",
+            destinationChecksum: "hash",
+            matches: true,
+            checksumType: type,
+            processingTime: 0,
+            fileSize: 10
+        )
+    }
+
+    func performByteComparison(
+        sourceURL: URL,
+        destinationURL: URL,
+        progressCallback: ProgressCallback?
+    ) async throws -> Bool {
+        true
+    }
+}
+
+private actor ComparisonVerificationGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func enter() async {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
+private final class BlockingChecksumService: ChecksumService {
+    private let gate = ComparisonVerificationGate()
+
+    func waitUntilVerificationStarts() async {
+        await gate.waitUntilStarted()
+    }
+
+    func release() async {
+        await gate.release()
+    }
+
+    func generateChecksum(
+        for fileURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> String {
+        "hash"
+    }
+
+    func verifyFileIntegrity(
+        sourceURL: URL,
+        destinationURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> VerificationResult {
+        await gate.enter()
+        return VerificationResult(
             sourceChecksum: "hash",
             destinationChecksum: "hash",
             matches: true,

@@ -22,12 +22,18 @@ struct CompareResultsView: View {
                 Text(stats.isClean ? "Folders match" : "Folders differ")
                     .font(.headline)
                 Spacer()
-                Text("\(stats.commonCount) matching · \(verificationMode.rawValue)")
+                Text("\(stats.commonCount) \(verificationMode == .quick ? "same size" : "matching") · \(verificationMode.rawValue)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             if stats.isClean {
-                Text("Every file in \(leftName) matches \(rightName).")
+                Group {
+                    if verificationMode == .quick {
+                        Text("Every file in \(leftName) has the same size as \(rightName). Contents were not checksum-verified.")
+                    } else {
+                        Text("Every file in \(leftName) matches \(rightName).")
+                    }
+                }
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -42,7 +48,7 @@ struct CompareResultsView: View {
                     paths: stats.onlyInRightPaths
                 )
                 pathSection(
-                    title: "Content differs",
+                    title: verificationMode == .quick ? "Size differs" : "Content differs",
                     systemImage: "exclamationmark.triangle",
                     paths: stats.mismatchedPaths
                 )
@@ -130,7 +136,7 @@ struct CompareReportDocument: FileDocument {
         leftName: String,
         rightName: String,
         verificationMode: VerificationMode,
-        comparedAt: Date = Date(),
+        exportedAt: Date = Date(),
         asCSV: Bool
     ) throws {
         if asCSV {
@@ -139,14 +145,15 @@ struct CompareReportDocument: FileDocument {
             var rows: [String] = []
             rows += stats.onlyInLeftPaths.map { ["only-in-source", $0].map(quote).joined(separator: ",") }
             rows += stats.onlyInRightPaths.map { ["only-in-destination", $0].map(quote).joined(separator: ",") }
-            rows += stats.mismatchedPaths.map { ["content-differs", $0].map(quote).joined(separator: ",") }
+            let mismatchCategory = verificationMode == .quick ? "size-differs" : "content-differs"
+            rows += stats.mismatchedPaths.map { [mismatchCategory, $0].map(quote).joined(separator: ",") }
             data = Data((header + rows.joined(separator: "\n") + "\n").utf8)
         } else {
             struct Report: Encodable {
                 let left: String
                 let right: String
                 let verificationMode: String
-                let comparedAt: Date
+                let exportedAt: Date
                 let clean: Bool
                 let commonCount: Int
                 let onlyInSourceCount: Int
@@ -163,7 +170,7 @@ struct CompareReportDocument: FileDocument {
                 left: leftName,
                 right: rightName,
                 verificationMode: verificationMode.rawValue,
-                comparedAt: comparedAt,
+                exportedAt: exportedAt,
                 clean: stats.isClean,
                 commonCount: stats.commonCount,
                 onlyInSourceCount: stats.onlyInLeftCount,

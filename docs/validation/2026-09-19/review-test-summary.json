@@ -1,0 +1,12 @@
+{
+  "reviewedBase": "08b34bae384dadb811e8643b362668b6efdf86ab",
+  "reviewedHead": "44d1a77640fa0cb2f2e6d1fb6ce04c14c1045d9b",
+  "command": "bash test.sh mac-test",
+  "result": "Passed",
+  "passedTests": 518,
+  "passedExecutionsIncludingParameters": 537,
+  "failedTests": 0,
+  "skippedTests": 2,
+  "xcresult": "Test-BitMatch-2026.09.19_23-49-55--0400.xcresult",
+  "host": "Apple Silicon; macOS 27.0; Xcode 27.0 (27A266a)"
+}

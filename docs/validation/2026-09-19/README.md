@@ -78,6 +78,8 @@ retry exhaustion, pause, and terminal-state protection.
   below stays "Not tested".
 - Receiving-tool acceptance for ASC inventories (Hedge/OffShoot, ShotPut
   Pro, Silverstack) and production camera media.
-- Version bump, signing, notarization, and publishing. The gates above
-  pass, but shipping is a separate decision with credentials outside this
-  session.
+- Version bump, signing, notarization, and publishing. The build checks above
+  pass; the recorded Mac test run still had the failure described above.
+
+A later [review and fix pass](review.md) records the corrected test run and
+additional integration fixes.

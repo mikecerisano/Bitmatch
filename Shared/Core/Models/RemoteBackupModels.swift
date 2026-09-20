@@ -292,8 +292,89 @@ struct RemoteQueueItem: Identifiable, Codable, Equatable, Sendable {
     var nextAttemptAt: Date?
     var verificationEvidence: RemoteVerificationEvidence
     var errorSummary: String?
+    /// Set once the item enters the promotion/verification phase. It remains
+    /// durable while work is paused or retry-exhausted because a provider may
+    /// have completed no-replace promotion before the client observed an
+    /// interruption.
+    var promotionIntent: Bool = false
     let createdAt: Date
     var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, jobID, cardIngestID, destinationProfileID, manifestID,
+             manifestEntryID, localArtifactBookmarkReference,
+             localArtifactRelativePath, remoteRelativePath,
+             temporaryRemoteRelativePath, state, uploadedByteCount, retryCount,
+             nextAttemptAt, verificationEvidence, errorSummary, promotionIntent,
+             createdAt, updatedAt
+    }
+
+    init(
+        id: UUID,
+        jobID: UUID,
+        cardIngestID: UUID,
+        destinationProfileID: UUID,
+        manifestID: UUID,
+        manifestEntryID: UUID,
+        localArtifactBookmarkReference: String,
+        localArtifactRelativePath: RemoteRelativePath,
+        remoteRelativePath: RemoteRelativePath,
+        temporaryRemoteRelativePath: RemoteRelativePath,
+        state: RemoteBackupState,
+        uploadedByteCount: Int64,
+        retryCount: Int,
+        nextAttemptAt: Date?,
+        verificationEvidence: RemoteVerificationEvidence,
+        errorSummary: String?,
+        promotionIntent: Bool = false,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.jobID = jobID
+        self.cardIngestID = cardIngestID
+        self.destinationProfileID = destinationProfileID
+        self.manifestID = manifestID
+        self.manifestEntryID = manifestEntryID
+        self.localArtifactBookmarkReference = localArtifactBookmarkReference
+        self.localArtifactRelativePath = localArtifactRelativePath
+        self.remoteRelativePath = remoteRelativePath
+        self.temporaryRemoteRelativePath = temporaryRemoteRelativePath
+        self.state = state
+        self.uploadedByteCount = uploadedByteCount
+        self.retryCount = retryCount
+        self.nextAttemptAt = nextAttemptAt
+        self.verificationEvidence = verificationEvidence
+        self.errorSummary = errorSummary
+        self.promotionIntent = promotionIntent
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try values.decode(UUID.self, forKey: .id),
+            jobID: try values.decode(UUID.self, forKey: .jobID),
+            cardIngestID: try values.decode(UUID.self, forKey: .cardIngestID),
+            destinationProfileID: try values.decode(UUID.self, forKey: .destinationProfileID),
+            manifestID: try values.decode(UUID.self, forKey: .manifestID),
+            manifestEntryID: try values.decode(UUID.self, forKey: .manifestEntryID),
+            localArtifactBookmarkReference: try values.decode(String.self, forKey: .localArtifactBookmarkReference),
+            localArtifactRelativePath: try values.decode(RemoteRelativePath.self, forKey: .localArtifactRelativePath),
+            remoteRelativePath: try values.decode(RemoteRelativePath.self, forKey: .remoteRelativePath),
+            temporaryRemoteRelativePath: try values.decode(RemoteRelativePath.self, forKey: .temporaryRemoteRelativePath),
+            state: try values.decode(RemoteBackupState.self, forKey: .state),
+            uploadedByteCount: try values.decode(Int64.self, forKey: .uploadedByteCount),
+            retryCount: try values.decode(Int.self, forKey: .retryCount),
+            nextAttemptAt: try values.decodeIfPresent(Date.self, forKey: .nextAttemptAt),
+            verificationEvidence: try values.decode(RemoteVerificationEvidence.self, forKey: .verificationEvidence),
+            errorSummary: try values.decodeIfPresent(String.self, forKey: .errorSummary),
+            promotionIntent: try values.decodeIfPresent(Bool.self, forKey: .promotionIntent) ?? false,
+            createdAt: try values.decode(Date.self, forKey: .createdAt),
+            updatedAt: try values.decode(Date.self, forKey: .updatedAt)
+        )
+    }
 }
 
 struct RemoteBackupCardSummary: Codable, Equatable, Sendable {
