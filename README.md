@@ -10,9 +10,28 @@ Now with photographer jobs, reusable folder recipes, and optional SFTP backups o
 
 [**Download for Mac**](https://github.com/mikecerisano/Bitmatch/releases) · [Release notes](CHANGELOG.md) · [Report a problem](https://github.com/mikecerisano/Bitmatch/issues)
 
-![BitMatch macOS app](screenshot.png)
+![BitMatch on Mac: choose a source, choose backups, and start a verified copy](docs/validation/2026-09-20/screenshots/mac-setup.png)
 
-*The current development build, using test files. The download may look a little different.*
+*The development build with sample data. These are layout previews, not real transfer results. The current Mac download is still v0.1.4; iPad and iPhone are build-from-source for now.*
+
+<details>
+<summary>More screenshots — Mac, iPad, and iPhone</summary>
+
+**Mac: check each backup before clearing the card.**
+
+<img src="docs/validation/2026-09-20/screenshots/mac-completion.png" alt="Mac completion screen with separate verified results for two backups" width="680">
+
+**iPad: see what differs between two folders.**
+
+<img src="docs/validation/2026-09-20/screenshots/ipad-comparison-differences.png" alt="iPad folder comparison with verification settings and grouped differences" width="680">
+
+**iPhone: the same per-backup results, on a smaller screen.**
+
+<img src="docs/validation/2026-09-20/screenshots/iphone-completion.png" alt="iPhone completion screen with per-backup results, report export, and New transfer" width="320">
+
+[More screenshots and what we checked](docs/validation/2026-09-20/recovery-and-layout.md).
+
+</details>
 
 ## Download
 
