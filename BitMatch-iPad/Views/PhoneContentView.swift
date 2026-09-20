@@ -53,6 +53,7 @@ struct PhoneContentView: View {
                         Image(systemName: "gear")
                             .foregroundColor(.white.opacity(0.9))
                     }
+                    .accessibilityLabel("Settings")
                 }
             }
             .sheet(isPresented: $showingTransfers) {

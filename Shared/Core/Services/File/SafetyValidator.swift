@@ -359,6 +359,13 @@ final class SafetyValidator {
 
         while let item = enumerator.nextObject() as? URL {
             let values = try item.resourceValues(forKeys: keys)
+            if values.isDirectory == true,
+               values.isSymbolicLink != true,
+               enumerator.level == 1,
+               FileTreeEnumerator.skippedVolumeMetadataDirectories.contains(item.lastPathComponent) {
+                enumerator.skipDescendants()
+                continue
+            }
             if values.isSymbolicLink == true {
                 continue
             }

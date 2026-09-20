@@ -17,6 +17,8 @@ These rows describe available tests, not claims that they passed. A published au
 
 [2026-09-08 development validation](validation/2026-09-08/README.md) covers the shared queue, recovery, ASC MHL reference checks, and Mac/iPhone/iPad interface checks. These are source and simulator results; v0.1.4 remains the downloadable release.
 
+[2026-09-19 release-readiness validation](validation/2026-09-19/README.md) covers the audit integrity fixes and priorities 1–6 in source: retained comparison paths with export, journal-backed completion exports, identity-checked reconnection, report-failure completion with queue stop, and Mac off-site queue restore with bounded retries. Full Mac suite, both app targets, and both Release configurations pass except the known pre-existing `testRejectsPathTraversal` failure. Physical-device results remain unrecorded.
+
 ## Physical results
 
 | Report | Date | App revision / OS | Source and destinations / filesystems | Connection | Scenario | Outcome |

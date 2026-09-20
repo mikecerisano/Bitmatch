@@ -129,6 +129,9 @@ struct RemoteBackupStatusPresentation: Equatable, Sendable {
     let symbol: String
     let isFullyBackedUp: Bool
     let isWarning: Bool
+    /// The underlying item state, so views can offer valid next actions
+    /// (retry for parked/failed work, cancel for runnable work).
+    let state: RemoteBackupState
 
     static func make(summary: RemoteBackupCardSummary) -> Self {
         make(state: summary.state, evidence: summary.verificationEvidence)
@@ -140,27 +143,27 @@ struct RemoteBackupStatusPresentation: Equatable, Sendable {
     ) -> Self {
         switch state {
         case .queued:
-            return Self(title: "Remote Queued", symbol: "clock", isFullyBackedUp: false, isWarning: false)
+            return Self(title: "Remote Queued", symbol: "clock", isFullyBackedUp: false, isWarning: false, state: state)
         case .uploading:
-            return Self(title: "Remote Uploading", symbol: "arrow.up.circle", isFullyBackedUp: false, isWarning: false)
+            return Self(title: "Remote Uploading", symbol: "arrow.up.circle", isFullyBackedUp: false, isWarning: false, state: state)
         case .retrying:
-            return Self(title: "Remote Retrying", symbol: "arrow.clockwise", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Remote Retrying", symbol: "arrow.clockwise", isFullyBackedUp: false, isWarning: true, state: state)
         case .paused:
-            return Self(title: "Remote Paused", symbol: "pause.circle", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Remote Paused", symbol: "pause.circle", isFullyBackedUp: false, isWarning: true, state: state)
         case .uploadedUnverified:
-            return Self(title: "Uploaded · Unverified", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Uploaded · Unverified", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true, state: state)
         case .verifying:
-            return Self(title: "Remote Verifying", symbol: "checkmark.shield", isFullyBackedUp: false, isWarning: false)
+            return Self(title: "Remote Verifying", symbol: "checkmark.shield", isFullyBackedUp: false, isWarning: false, state: state)
         case .verified where evidence.digest != nil:
-            return Self(title: "Fully Backed Up", symbol: "checkmark.icloud.fill", isFullyBackedUp: true, isWarning: false)
+            return Self(title: "Fully Backed Up", symbol: "checkmark.icloud.fill", isFullyBackedUp: true, isWarning: false, state: state)
         case .verified:
-            return Self(title: "Verification Evidence Missing", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Verification Evidence Missing", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true, state: state)
         case .failed:
-            return Self(title: "Remote Failed", symbol: "exclamationmark.triangle.fill", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Remote Failed", symbol: "exclamationmark.triangle.fill", isFullyBackedUp: false, isWarning: true, state: state)
         case .cancelled:
-            return Self(title: "Remote Cancelled", symbol: "xmark.circle.fill", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Remote Cancelled", symbol: "xmark.circle.fill", isFullyBackedUp: false, isWarning: true, state: state)
         case .conflict:
-            return Self(title: "Remote Conflict", symbol: "arrow.triangle.branch", isFullyBackedUp: false, isWarning: true)
+            return Self(title: "Remote Conflict", symbol: "arrow.triangle.branch", isFullyBackedUp: false, isWarning: true, state: state)
         }
     }
 }

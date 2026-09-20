@@ -8,8 +8,9 @@ protocol ProjectRemoteCoordinator {
     @discardableResult
     func selectRemoteProfile(_ profileID: UUID?, for jobID: UUID) throws -> PhotographerJob
     func queueRemoteBackup(for cardIngestID: UUID, in jobID: UUID, results: [ResultRow]) throws -> [RemoteQueueItem]
-    func pauseRemoteBackup(for cardIngestID: UUID, in jobID: UUID) throws -> [RemoteQueueItem]
-    func retryRemoteBackup(for cardIngestID: UUID, in jobID: UUID) throws -> [RemoteQueueItem]
+    /// Pause, retry, and cancel run through the Mac upload queue actor, which
+    /// persists every transition and schedules the worker. There is no
+    /// store-direct pause/retry path by design.
 }
 
 enum ProjectRemoteCoordinatorError: LocalizedError, Equatable {
@@ -65,14 +66,6 @@ final class UnavailableRemoteProjectCoordinator: ProjectRemoteCoordinator {
     }
 
     func queueRemoteBackup(for _: UUID, in _: UUID, results _: [ResultRow]) throws -> [RemoteQueueItem] {
-        throw ProjectRemoteCoordinatorError.remoteUploadsRequireMac
-    }
-
-    func pauseRemoteBackup(for _: UUID, in _: UUID) throws -> [RemoteQueueItem] {
-        throw ProjectRemoteCoordinatorError.remoteUploadsRequireMac
-    }
-
-    func retryRemoteBackup(for _: UUID, in _: UUID) throws -> [RemoteQueueItem] {
         throw ProjectRemoteCoordinatorError.remoteUploadsRequireMac
     }
 }

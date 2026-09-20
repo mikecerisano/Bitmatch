@@ -73,6 +73,113 @@ struct RemoteBackupQueueTests {
         #expect(stored?.nextAttemptAt != nil)
     }
 
+    @Test func restoredPersistedWorkIsRunnableOnStartup() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider()
+        let firstQueue = fixture.makeQueue(provider: provider)
+        try await firstQueue.enqueue(fixture.item)
+
+        let restartedQueue = fixture.makeQueue(provider: provider)
+        try await restartedQueue.restore()
+
+        #expect(await restartedQueue.runnableIDs() == [fixture.item.id])
+        #expect(await restartedQueue.itemsForCardIngest(fixture.item.cardIngestID).map(\.id) == [fixture.item.id])
+    }
+
+    @Test func deferredBackoffWaitsForNextAttemptThenRunsAgain() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider(uploadError: .networkUnavailable)
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+
+        #expect(await queue.runnableIDs().isEmpty)
+        let deferred = try #require(await queue.earliestDeferredAttempt())
+
+        let laterQueue = fixture.makeQueue(provider: provider, now: deferred.addingTimeInterval(1))
+        try await laterQueue.restore()
+        #expect(await laterQueue.runnableIDs() == [fixture.item.id])
+        await laterQueue.run(fixture.item.id)
+        #expect(await provider.uploadCallCount == 2)
+        #expect(await laterQueue.item(id: fixture.item.id)?.retryCount == 2)
+    }
+
+    @Test func transientFailuresExhaustToFailedWithManualRetryPath() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider(uploadError: .networkUnavailable)
+        try await fixture.makeQueue(provider: provider).enqueue(fixture.item)
+
+        var lastQueue: RemoteBackupQueue?
+        for attempt in 0 ..< 9 {
+            let next = fixture.makeQueue(provider: provider, now: Date(timeIntervalSince1970: 100 + Double(attempt) * 10_000))
+            try await next.restore()
+            await next.run(fixture.item.id)
+            lastQueue = next
+        }
+        let queue = try #require(lastQueue)
+
+        #expect(await provider.uploadCallCount == 9)
+        let exhausted = await queue.item(id: fixture.item.id)
+        #expect(exhausted?.state == .failed)
+        #expect(exhausted?.retryCount == RemoteBackupQueue.maxRetryCount + 1)
+        #expect(exhausted?.nextAttemptAt == nil)
+        #expect(exhausted?.errorSummary?.contains("Gave up after \(RemoteBackupQueue.maxRetryCount) attempts") == true)
+        #expect(await queue.runnableIDs().isEmpty)
+
+        try await queue.retry(fixture.item.id)
+        let retried = await queue.item(id: fixture.item.id)
+        #expect(retried?.state == .queued)
+        #expect(retried?.retryCount == 0)
+        #expect(await queue.runnableIDs() == [fixture.item.id])
+    }
+
+    @Test func pauseStopsSchedulerPickupUntilRetry() async throws {
+        let fixture = try QueueFixture()
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        try await queue.pause(fixture.item.id)
+
+        #expect(await queue.item(id: fixture.item.id)?.state == .paused)
+        #expect(await queue.runnableIDs().isEmpty)
+        await queue.run(fixture.item.id)
+        #expect(await provider.uploadCallCount == 0)
+        let stored = await fixture.persistence.queueItem(id: fixture.item.id)
+        #expect(stored?.state == .paused)
+
+        try await queue.retry(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .queued)
+        await queue.run(fixture.item.id)
+        #expect(await provider.uploadCallCount == 1)
+    }
+
+    @Test func cancelLeavesVerifiedWorkAlone() async throws {
+        let fixture = try QueueFixture(verificationMode: .sha256)
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verified)
+
+        try await queue.cancel(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verified)
+    }
+
+    @Test func retryLeavesVerifiedWorkAlone() async throws {
+        let fixture = try QueueFixture(verificationMode: .sha256)
+        let provider = FakeRemoteBackupProvider()
+        let queue = fixture.makeQueue(provider: provider)
+
+        try await queue.enqueue(fixture.item)
+        await queue.run(fixture.item.id)
+        try await queue.retry(fixture.item.id)
+        #expect(await queue.item(id: fixture.item.id)?.state == .verified)
+        #expect(await queue.runnableIDs().isEmpty)
+    }
+
     @Test(arguments: [
         RemoteBackupError.authenticationFailed,
         .hostKeyMismatch,

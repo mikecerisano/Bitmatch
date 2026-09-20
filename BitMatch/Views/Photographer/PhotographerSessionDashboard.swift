@@ -4,6 +4,8 @@ struct PhotographerSessionDashboard: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
     let job: PhotographerJob
     let queueRemoteBackup: (UUID) -> Void
+    let retryRemoteBackup: (UUID) -> Void
+    let cancelRemoteBackup: (UUID) -> Void
     @AccessibilityFocusState private var accessibilityFocusedCardID: UUID?
     @FocusState private var keyboardFocusedCardID: UUID?
 
@@ -97,6 +99,16 @@ struct PhotographerSessionDashboard: View {
                             .font(DesignSystem.Typography.caption)
                             .foregroundColor(remote.isWarning ? DesignSystem.Colors.warning : (remote.isFullyBackedUp ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary))
                     }
+                }
+                let remoteStates = Set(row.remoteBackupPresentations.values.map(\.state))
+                if remoteStates.contains(where: { [.paused, .retrying, .failed].contains($0) }) {
+                    Button("Retry off-site backup") { retryRemoteBackup(row.id) }
+                        .font(DesignSystem.Typography.caption)
+                }
+                if remoteStates.contains(where: { [.queued, .uploading, .retrying, .verifying].contains($0) }) {
+                    Button("Cancel off-site backup") { cancelRemoteBackup(row.id) }
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundColor(DesignSystem.Colors.error)
                 }
             }
         }

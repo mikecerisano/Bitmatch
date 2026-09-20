@@ -129,6 +129,7 @@ struct HeaderSectionView: View {
                     .foregroundColor(.white.opacity(0.7))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -222,6 +223,16 @@ struct CompareFoldersView: View {
                     // Comparison controls
                     if coordinator.leftURL != nil && coordinator.rightURL != nil {
                         ComparisonControlsView(coordinator: coordinator)
+                    }
+
+                    // Retained differences with export
+                    if let stats = coordinator.lastCompareStats {
+                        CompareResultsView(
+                            stats: stats,
+                            leftName: coordinator.leftURL?.lastPathComponent ?? "Source",
+                            rightName: coordinator.rightURL?.lastPathComponent ?? "Destination",
+                            verificationMode: coordinator.verificationMode
+                        )
                     }
                 }
             }

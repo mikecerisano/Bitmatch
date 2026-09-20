@@ -146,7 +146,9 @@ struct CopyAndVerifyView: View {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
                     job: job,
-                    queueRemoteBackup: coordinator.queueRemoteBackup
+                    queueRemoteBackup: coordinator.queueRemoteBackup,
+                    retryRemoteBackup: coordinator.retryRemoteBackup,
+                    cancelRemoteBackup: coordinator.cancelRemoteBackup
                 )
                 .padding(.horizontal, DesignSystem.Spacing.lg)
                 .padding(.bottom, DesignSystem.Spacing.sm)

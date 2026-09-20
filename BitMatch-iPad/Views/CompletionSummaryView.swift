@@ -1,5 +1,6 @@
 // CompletionSummaryView.swift - Operation completion summary component for iPad
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CompletionSummaryView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
@@ -299,11 +300,22 @@ struct ErrorDetailsView: View {
 
 struct CompletionActionButtonsView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    @State private var exportDocument: TransferHistoryDocument?
+    @State private var showExport = false
+    @State private var exportType = UTType.json
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(spacing: 12) {
-            Button {
-                Task { await coordinator.generateReport() }
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Menu {
+                Button("JSON report") { export(asCSV: false) }
+                Button("CSV results") { export(asCSV: true) }
             } label: {
                 Label("Export report", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -319,6 +331,25 @@ struct CompletionActionButtonsView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
+        }
+        .fileExporter(
+            isPresented: $showExport,
+            document: exportDocument,
+            contentType: exportType,
+            defaultFilename: "BitMatch-transfer"
+        ) { result in
+            if case .failure(let error) = result { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func export(asCSV: Bool) {
+        do {
+            exportDocument = try coordinator.completionExportDocument(asCSV: asCSV)
+            exportType = asCSV ? .commaSeparatedText : .json
+            errorMessage = nil
+            showExport = true
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

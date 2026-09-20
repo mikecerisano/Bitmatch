@@ -33,7 +33,9 @@ struct TransferPlanView: View {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
                     job: job,
-                    queueRemoteBackup: coordinator.queueRemoteBackup
+                    queueRemoteBackup: coordinator.queueRemoteBackup,
+                    retryRemoteBackup: coordinator.retryRemoteBackup,
+                    cancelRemoteBackup: coordinator.cancelRemoteBackup
                 )
             }
         }

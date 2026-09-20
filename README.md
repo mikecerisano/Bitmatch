@@ -68,7 +68,7 @@ Open **Transfers** to queue another card or check what happened earlier. Each qu
 
 On iPhone and iPad, keep BitMatch open while it works. iOS can interrupt a transfer; the saved attempt will be marked interrupted when you reopen the app. Project cards stay with their project and need review there before another ingest.
 
-ASC MHL is on by default for verified copies. It adds another full read of each backup to create a compatible inventory. Existing ASC histories are left alone, with an issue shown instead of pretending they were extended. You can turn it off under **Advanced** when you don't need the handoff record. If a retry encounters an existing history, **Transfers → Details → Retry without ASC MHL** rechecks the copies without replacing that history.
+ASC MHL is on by default for verified copies. It adds another full read of each backup to create a compatible inventory. Existing ASC histories are left alone, with an issue shown instead of pretending they were extended. You can turn it off under **Advanced** when you don't need the handoff record. If a retry encounters an existing history, **Transfers → Details → Retry without ASC MHL** rechecks the copies without replacing that history. The one workflow BitMatch supports — verify locally, hand over an initial inventory, receiver validates — is written down in [SUPPORTED_WORKFLOW.md](docs/validation/ascmhl/SUPPORTED_WORKFLOW.md); there is no chain-of-custody claim.
 
 These features are in the development source. The current download is still v0.1.4.
 

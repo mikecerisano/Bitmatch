@@ -242,24 +242,6 @@ final class RemoteBackupCoordinator: ProjectRemoteCoordinator {
         }
     }
 
-    func pauseRemoteBackup(for cardIngestID: UUID, in jobID: UUID) throws -> [RemoteQueueItem] {
-        try updateQueueItems(for: cardIngestID, in: jobID) { item in
-            guard !item.state.isTerminal else { return }
-            item.state = .paused
-            item.nextAttemptAt = nil
-            item.errorSummary = nil
-        }
-    }
-
-    func retryRemoteBackup(for cardIngestID: UUID, in jobID: UUID) throws -> [RemoteQueueItem] {
-        try updateQueueItems(for: cardIngestID, in: jobID) { item in
-            guard item.state == .paused || item.state == .retrying else { return }
-            item.state = .queued
-            item.nextAttemptAt = nil
-            item.errorSummary = nil
-        }
-    }
-
     /// Called by `RemoteBackupQueue` immediately before it hands a URL to a
     /// provider. It resolves the persisted package bookmark and proves that
     /// the requested file is still contained, equal-sized, and SHA-256-equal.
@@ -301,31 +283,6 @@ final class RemoteBackupCoordinator: ProjectRemoteCoordinator {
         return RemoteBackupArtifactLease(url: file) { [stopSecurityScope] in
             stopSecurityScope(root)
         }
-    }
-
-    private func updateQueueItems(
-        for cardIngestID: UUID,
-        in jobID: UUID,
-        change: (inout RemoteQueueItem) -> Void
-    ) throws -> [RemoteQueueItem] {
-        guard try store.jobs().contains(where: { job in
-            job.id == jobID && job.cardIngests.contains(where: { $0.id == cardIngestID })
-        }) else {
-            throw RemoteBackupError.manifestUnavailable
-        }
-        let matching = try store.queueItems().filter {
-            $0.jobID == jobID && $0.cardIngestID == cardIngestID
-        }
-        var updated: [RemoteQueueItem] = []
-        for var item in matching {
-            let original = item
-            change(&item)
-            guard item != original else { continue }
-            item.updatedAt = now()
-            try store.save(item)
-            updated.append(item)
-        }
-        return updated
     }
 
     private struct VerifiedArtifact {

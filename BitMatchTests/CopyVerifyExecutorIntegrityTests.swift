@@ -93,6 +93,33 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertEqual(harness.terminalInfo?.message, "No files were verified")
     }
 
+    func testFailedRequestedReportDowngradesCompletionButKeepsVerifiedRows() async throws {
+        let fixture = try reportFixture(blockReportsFolder: true)
+        let harness = ExecutorHarness(returnedResults: [fixture.result], emittedResults: [],
+            sourceURL: fixture.source, destinationURLs: [fixture.destination], makeReport: true)
+        _ = try await harness.execute()
+        XCTAssertEqual(harness.completedRows.count, 1)
+        XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
+        XCTAssertEqual(harness.terminalInfo?.success, false)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("Operation completed successfully") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("report export failed") == true)
+    }
+
+    func testSuccessfulRequestedReportKeepsSuccessfulCompletion() async throws {
+        let fixture = try reportFixture(blockReportsFolder: false)
+        let harness = ExecutorHarness(returnedResults: [fixture.result], emittedResults: [],
+            sourceURL: fixture.source, destinationURLs: [fixture.destination], makeReport: true)
+        _ = try await harness.execute()
+        XCTAssertEqual(harness.completedRows.count, 1)
+        XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
+        XCTAssertEqual(harness.terminalInfo?.success, true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("report export failed") == false)
+        let saved = try FileManager.default.contentsOfDirectory(
+            at: fixture.destination.appendingPathComponent("Reports"), includingPropertiesForKeys: nil)
+        XCTAssertTrue(saved.contains { $0.pathExtension == "csv" })
+        XCTAssertTrue(saved.contains { $0.pathExtension == "json" })
+    }
+
     func testVerifiedDestinationPublishesASCMHLBeforeSuccessfulCompletion() async throws {
         let fixture = try ascFixture()
         let harness = ExecutorHarness(returnedResults: [fixture.result], emittedResults: [],
@@ -149,6 +176,29 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.history.path))
     }
 
+    private func reportFixture(blockReportsFolder: Bool) throws -> (source: URL, destination: URL, result: FileOperationResult) {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("executor-report-\(UUID())")
+        addTeardownBlock { try? fm.removeItem(at: root) }
+        let source = root.appendingPathComponent("card")
+        let destination = root.appendingPathComponent("backup")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        let bytes = Data("verified bytes for report outcome".utf8)
+        try bytes.write(to: source.appendingPathComponent("clip.mov"))
+        if blockReportsFolder {
+            // A file where the Reports folder belongs makes the requested export fail.
+            try bytes.write(to: destination.appendingPathComponent("Reports"))
+        }
+        let result = FileOperationResult(sourceURL: source.appendingPathComponent("clip.mov"),
+            destinationURL: destination.appendingPathComponent("clip.mov"),
+            success: true, error: nil, fileSize: Int64(bytes.count),
+            verificationResult: VerificationResult(sourceChecksum: "report", destinationChecksum: "report",
+                matches: true, checksumType: .sha256, processingTime: 0, fileSize: Int64(bytes.count)),
+            processingTime: 0)
+        return (source, destination, result)
+    }
+
     private func ascFixture() throws -> (source: URL, destination: URL, history: URL, result: FileOperationResult) {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("executor-asc-\(UUID())")
@@ -188,7 +238,8 @@ private final class ExecutorHarness {
         sourceURL: URL = URL(fileURLWithPath: "/source"),
         destinationURLs: [URL] = [URL(fileURLWithPath: "/destination")],
         verificationMode: VerificationMode = .standard,
-        generateASCMHL: Bool = false
+        generateASCMHL: Bool = false,
+        makeReport: Bool = false
     ) {
         let fileOperations = ExecutorFileOperationsService(
             returnedResults: returnedResults,
@@ -208,7 +259,7 @@ private final class ExecutorHarness {
             destinationURLs: destinationURLs,
             verificationMode: verificationMode,
             cameraLabelSettings: CameraLabelSettings(),
-            reportSettings: ReportPrefs(makeReport: false),
+            reportSettings: ReportPrefs(makeReport: makeReport),
             estimatedFiles: returnedResults.count,
             estimatedBytes: returnedResults.reduce(0) { $0 + $1.fileSize },
             currentMode: .copyAndVerify,

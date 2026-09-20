@@ -9,6 +9,18 @@ import AppKit
 import UIKit
 #endif
 
+// MARK: - Export Outcome
+
+/// Thrown when the requested automatic report cannot be saved. Carried into the
+/// completion message, the journal record, and the queue decision so verified
+/// media is never confused with a failed requested report.
+enum ReportExportError: LocalizedError {
+    case noSaveLocation
+    var errorDescription: String? {
+        "Cannot find a valid directory to save reports"
+    }
+}
+
 // MARK: - Enhanced JSON Report Structures
 struct EnhancedJSONReport: Codable {
     // Version 3.0 adds the optional photographyJob object. When it is nil,
@@ -151,7 +163,7 @@ final class ReportExporter {
                       workers: Int,
                       totalBytesProcessed: Int64,
                       generateFullReport: Bool = true,
-                      photographerContext: PhotographerReportContext? = nil) async {
+                      photographerContext: PhotographerReportContext? = nil) async throws {
         
         let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
@@ -207,7 +219,7 @@ final class ReportExporter {
         #endif
         
         // Auto-save to reports folder
-        await autoSaveReports(mode: mode,
+        try await autoSaveReports(mode: mode,
                              destinationURLs: destinationURLs,
                        pdfData: pdfData,
                        results: results,
@@ -409,7 +421,7 @@ final class ReportExporter {
                                         filesPerSecond: Double,
                                         prefs: ReportPrefs,
                                         generateFullReport: Bool,
-                                        photographerContext: PhotographerReportContext?) async {
+                                        photographerContext: PhotographerReportContext?) async throws {
         
         // Generate default filename
         let formatter = ISO8601DateFormatter()
@@ -427,10 +439,7 @@ final class ReportExporter {
             guard let fallbackDir = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
                     ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                 SharedLogger.error("No valid directory found for saving reports", category: .transfer)
-                await MainActor.run {
-                    showErrorAlert(message: "Cannot find a valid directory to save reports")
-                }
-                return
+                throw ReportExportError.noSaveLocation
             }
             saveDirectory = fallbackDir.appendingPathComponent("Reports", isDirectory: true)
         }
@@ -440,10 +449,7 @@ final class ReportExporter {
             try FileManager.default.createDirectory(at: saveDirectory, withIntermediateDirectories: true)
         } catch {
             SharedLogger.error("Failed to create reports directory: \(error.localizedDescription)", category: .transfer)
-            await MainActor.run {
-                showErrorAlert(message: "Failed to create reports directory: \(error.localizedDescription)")
-            }
-            return
+            throw error
         }
         
         let pdfURL = saveDirectory.appendingPathComponent(fileName).nonConflictingSibling()
@@ -495,14 +501,12 @@ final class ReportExporter {
             }
             
             NSLog("Report auto-saved successfully to: \(pdfURL.path)")
-            
+
             // No need for success dialog since this is auto-save
-            
+
         } catch {
             NSLog("Report export error: \(error.localizedDescription)")
-            DispatchQueue.main.async {
-                showErrorAlert(message: "Failed to save report: \(error.localizedDescription)")
-            }
+            throw error
         }
     }
     

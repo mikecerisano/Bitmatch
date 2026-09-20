@@ -12,11 +12,12 @@ struct TransferLibraryView: View {
     @State private var errorMessage: String?
     @State private var exportDocument: TransferHistoryDocument?
     @State private var showExport = false
+    @State private var reauthorizeRecord: LocalTransferRecord?
     @State private var exportType = UTType.json
 
     private var visibleRecords: [LocalTransferRecord] {
         journal.records.filter { record in
-            let inSection = showHistory || [.queued, .running, .interrupted, .issues].contains(record.state)
+            let inSection = showHistory || record.state.showsInQueue
             let haystack = [record.title, record.summary, record.reportSettings.projectName]
                 + record.destinations.map { $0.url.lastPathComponent }
             return inSection && (search.isEmpty || haystack.joined(separator: " ").localizedCaseInsensitiveContains(search))
@@ -70,6 +71,9 @@ struct TransferLibraryView: View {
             #endif
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showAddTransfer) { AddQueuedTransferView(coordinator: coordinator) }
+            .sheet(item: $reauthorizeRecord) { record in
+                ReauthorizeLocationsView(coordinator: coordinator, journal: journal, recordID: record.id)
+            }
             .fileExporter(isPresented: $showExport, document: exportDocument, contentType: exportType,
                           defaultFilename: "BitMatch-transfer") { result in
                 if case .failure(let error) = result { errorMessage = error.localizedDescription }
@@ -102,6 +106,7 @@ struct TransferLibraryView: View {
                     }
                 } else if record.canRetry {
                     Button("Retry") { coordinator.retryTransfer(record.id) }
+                    Button("Reconnect…") { reauthorizeRecord = record }
                 }
                 Spacer()
                 if !record.results.isEmpty {
@@ -149,6 +154,135 @@ struct TransferLibraryView: View {
             exportType = asCSV ? .commaSeparatedText : .json
             showExport = true
         } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+/// Reconnects expired transfer locations to their identical original folders.
+/// A different drive or folder is rejected, never substituted; earlier attempts
+/// and their evidence stay untouched.
+private struct ReauthorizeLocationsView: View {
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @ObservedObject var journal: LocalTransferJournal
+    let recordID: UUID
+    @Environment(\.dismiss) private var dismiss
+    @State private var stale: [Int]?
+    @State private var pickingIndex: Int?
+    @State private var showingPicker = false
+    @State private var scopedURLs: [URL] = []
+    @State private var message: String?
+    @State private var messageIsError = false
+
+    private var record: LocalTransferRecord? {
+        journal.records.first { $0.id == recordID }
+    }
+
+    private var locations: [(index: Int, title: String, path: String)] {
+        guard let record else { return [] }
+        let urls = [record.source.url] + record.destinations.map(\.url)
+        return urls.indices.map { i in
+            (index: i, title: i == 0 ? "Source" : "Backup \(i)", path: urls[i].path)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Pick the original folders to restore access. Anything else is rejected: choose the original drive and folder, or start a new transfer. Earlier attempts and their evidence are kept.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                if let record {
+                    Section("Locations") {
+                        ForEach(locations, id: \.index) { location in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(location.title).font(.headline)
+                                    Text(URL(fileURLWithPath: location.path).lastPathComponent)
+                                    Text(location.path)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                                Spacer()
+                                if stale == nil {
+                                    ProgressView().controlSize(.small)
+                                } else if stale?.contains(location.index) == true {
+                                    Button("Choose") {
+                                        pickingIndex = location.index
+                                        showingPicker = true
+                                    }
+                                } else {
+                                    Label("Connected", systemImage: "checkmark.circle.fill")
+                                        .font(.callout)
+                                        .foregroundStyle(.green)
+                                        .labelStyle(.iconOnly)
+                                }
+                            }
+                        }
+                    }
+                    if stale?.isEmpty == true {
+                        Section {
+                            Text("Every location resolves. Dismiss and choose Retry on the transfer.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Section {
+                        Text("This transfer is no longer in history.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let message {
+                    Section {
+                        Label(message, systemImage: messageIsError ? "exclamationmark.triangle" : "checkmark.circle")
+                            .foregroundStyle(messageIsError ? .orange : .green)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Section {
+                    Button("Check again") { refresh() }
+                        .disabled(record == nil)
+                }
+            }
+            .navigationTitle("Reconnect folders")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .fileImporter(isPresented: $showingPicker, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
+                guard let index = pickingIndex else { return }
+                pickingIndex = nil
+                select(result, resourceIndex: index)
+            }
+            .onAppear { refresh() }
+            .onDisappear { scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
+        }
+        #if os(macOS)
+        .frame(minWidth: 480, idealWidth: 560, minHeight: 440)
+        #endif
+    }
+
+    private func refresh() {
+        stale = coordinator.reauthorizationStatus(id: recordID)
+    }
+
+    private func select(_ result: Result<[URL], Error>, resourceIndex: Int) {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            if url.startAccessingSecurityScopedResource() { scopedURLs.append(url) }
+            try coordinator.reauthorizeTransfer(recordID, resourceIndex: resourceIndex, url: url)
+            message = "Reconnected. Dismiss and choose Retry on the transfer to continue."
+            messageIsError = false
+            refresh()
+        } catch {
+            message = error.localizedDescription
+            messageIsError = true
+        }
     }
 }
 
@@ -260,10 +394,11 @@ struct TransferHistoryDocument: FileDocument {
     init(record: LocalTransferRecord, asCSV: Bool) throws {
         if asCSV {
             func quote(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-            let header = "source,destination,status,bytes,checksum,verification,transfer_state,transfer_summary\n"
+            let header = "source,destination,status,bytes,checksum,verification,transfer_state,transfer_summary,project,asc_mhl\n"
             let rows = record.results.map { row in
                 [row.path, row.destinationPath ?? row.destination ?? "", row.status, String(row.size), row.checksum ?? "",
-                 record.verificationMode.rawValue, record.state.rawValue, record.summary].map(quote).joined(separator: ",")
+                 record.verificationMode.rawValue, record.state.rawValue, record.summary,
+                 record.reportSettings.projectName, record.generateASCMHL ? "requested" : "not requested"].map(quote).joined(separator: ",")
             }
             data = Data((header + rows.joined(separator: "\n") + "\n").utf8)
         } else {
@@ -276,6 +411,9 @@ struct TransferHistoryDocument: FileDocument {
                 let summary: String
                 let createdAt: Date
                 let verificationMode: VerificationMode
+                let projectName: String
+                let clientName: String
+                let ascMHLRequested: Bool
                 let results: [ResultRow]
             }
             let encoder = JSONEncoder()
@@ -283,7 +421,9 @@ struct TransferHistoryDocument: FileDocument {
             encoder.dateEncodingStrategy = .iso8601
             data = try encoder.encode(Report(id: record.id, source: record.source.url.path,
                 destinations: record.destinations.map { $0.url.path }, state: record.state, summary: record.summary,
-                createdAt: record.createdAt, verificationMode: record.verificationMode, results: record.results))
+                createdAt: record.createdAt, verificationMode: record.verificationMode,
+                projectName: record.reportSettings.projectName, clientName: record.reportSettings.clientName,
+                ascMHLRequested: record.generateASCMHL, results: record.results))
         }
     }
 }

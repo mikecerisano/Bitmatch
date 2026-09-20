@@ -50,6 +50,71 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         XCTAssertTrue(onDisk.allSatisfy { $0.state == .completed && $0.results.count == 1 })
     }
 
+    func testCompletionExportUsesRetainedRecordWithProvenance() async throws {
+        let f = try QueueFixture()
+        defer { f.cleanup() }
+        let journal = LocalTransferJournal(fileURL: f.journalURL)
+        var reports = ReportPrefs()
+        reports.projectName = "Venice Shoot"
+        reports.makeReport = false
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: true)
+        let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
+        let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
+        coordinator.startQueue()
+        let finished = await queueWaitUntil(timeoutNanoseconds: 15_000_000_000) { @MainActor in
+            !coordinator.queueIsRunning && !coordinator.isOperationInProgress
+        }
+        XCTAssertTrue(finished, coordinator.queueMessage ?? "Queue did not finish")
+        XCTAssertEqual(journal.records.first { $0.id == id }?.state, .completed)
+
+        let json = try coordinator.completionExportDocument(asCSV: false)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: json.data) as? [String: Any])
+        XCTAssertEqual(payload["projectName"] as? String, "Venice Shoot")
+        XCTAssertEqual(payload["ascMHLRequested"] as? Bool, true)
+        XCTAssertEqual((payload["results"] as? [[String: Any]])?.count, 1)
+
+        let csv = try coordinator.completionExportDocument(asCSV: true)
+        XCTAssertTrue(String(decoding: csv.data, as: UTF8.self).contains("\"Venice Shoot\",\"requested\""))
+    }
+
+    func testFailedRequestedReportKeepsIssuesHistoryAndStopsQueue() async throws {
+        let f = try QueueFixture()
+        defer { f.cleanup() }
+        // A file where the Reports folder belongs makes the requested export fail
+        // while the media copy itself verifies.
+        try Data("block".utf8).write(to: f.destination.appendingPathComponent("Reports"))
+        let journal = LocalTransferJournal(fileURL: f.journalURL)
+        var reports = ReportPrefs()
+        reports.makeReport = true
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: false)
+        let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
+        let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
+        coordinator.startQueue()
+        let finished = await queueWaitUntil(timeoutNanoseconds: 15_000_000_000) { @MainActor in
+            !coordinator.queueIsRunning && !coordinator.isOperationInProgress
+        }
+        XCTAssertTrue(finished, coordinator.queueMessage ?? "Queue did not finish")
+        let record = try XCTUnwrap(journal.records.first { $0.id == id })
+        XCTAssertEqual(record.state, .issues)
+        XCTAssertTrue(record.results.first?.isSuccessStatus == true)
+        XCTAssertTrue(record.summary.contains("Operation completed successfully"))
+        XCTAssertTrue(record.summary.contains("report export failed"))
+        XCTAssertFalse(coordinator.queueIsRunning)
+    }
+
+    func testCompletionExportWithoutFinishedTransferExplainsNextStep() throws {
+        let f = try QueueFixture()
+        defer { f.cleanup() }
+        let journal = LocalTransferJournal(fileURL: f.journalURL)
+        let service = QueueRecordingOperations()
+        let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: service), transferJournal: journal)
+        XCTAssertThrowsError(try coordinator.completionExportDocument(asCSV: false)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("No finished transfer"))
+        }
+    }
+
     func testStartingQueueDuringComparisonExplainsHowToContinue() async throws {
         let f = try QueueFixture()
         defer { f.cleanup() }

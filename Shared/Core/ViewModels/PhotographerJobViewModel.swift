@@ -582,28 +582,6 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
-    func pauseRemoteBackup(for cardIngestID: UUID) {
-        guard let jobID = activeJob?.id else { return }
-        do {
-            let items = try remoteBackupCoordinator.pauseRemoteBackup(for: cardIngestID, in: jobID)
-            try updateRemoteSummary(for: cardIngestID, items: items)
-            lastError = nil
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
-    func retryRemoteBackup(for cardIngestID: UUID) {
-        guard let jobID = activeJob?.id else { return }
-        do {
-            let items = try remoteBackupCoordinator.retryRemoteBackup(for: cardIngestID, in: jobID)
-            try updateRemoteSummary(for: cardIngestID, items: items)
-            lastError = nil
-        } catch {
-            lastError = error.localizedDescription
-        }
-    }
-
     /// Queue workers persist the authoritative remote state. Rebuild the card
     /// summary from those durable items after a run without touching local
     /// safety evidence.

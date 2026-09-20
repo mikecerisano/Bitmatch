@@ -406,14 +406,14 @@ private struct MobileProjectSetupCard: View {
         HStack {
             if viewModel.isPreparing {
                 ProgressView().controlSize(.small)
-                Text("Preparing (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())…").font(.system(size: 12)).foregroundColor(.white.opacity(0.68))
+                Text("Preparing \(viewModel.selectedWorkflow.sourceUnitLabel.lowercased())…").font(.system(size: 12)).foregroundColor(.white.opacity(0.68))
                 Button("Cancel") { viewModel.cancelPreparingDraftCard() }.buttonStyle(.bordered).controlSize(.small)
             }
             Spacer()
             if let state = viewModel.activeCard?.localState, state != .notStarted && state != .copying && state != .verifying {
-                Button("Set up next (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") { viewModel.resetForNextCard(); isExpanded = true }.buttonStyle(.bordered)
+                Button("Set up next \(viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") { viewModel.resetForNextCard(); isExpanded = true }.buttonStyle(.bordered)
             } else {
-                Button("Set up (viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") {
+                Button("Set up \(viewModel.selectedWorkflow.sourceUnitLabel.lowercased())") {
                     guard let sourceURL = coordinator.sourceURL else { return }
                     viewModel.startPreparingDraftCard(sourceURL: sourceURL, setupSignature: setupSignature)
                 }
@@ -431,7 +431,7 @@ private struct MobileProjectSetupCard: View {
     private func layerTitle(_ kind: FolderLayerKind) -> String {
         switch kind {
         case .photographer: viewModel.selectedWorkflow.contributorLabel
-        case .cardNumber: "(viewModel.selectedWorkflow.sourceUnitLabel) number"
+        case .cardNumber: "\(viewModel.selectedWorkflow.sourceUnitLabel) number"
         case .dateAndJob: "Date and job"
         case .originals: "Originals"
         case .camera: "Camera"
@@ -855,7 +855,7 @@ struct EnhancedDestinationCard: View {
                     .foregroundColor(.white)
                     .lineLimit(1)
                 
-                Text("External Drive")
+                Text("Backup folder")
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.6))
                 

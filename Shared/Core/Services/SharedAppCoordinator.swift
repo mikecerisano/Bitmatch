@@ -66,15 +66,23 @@ class SharedAppCoordinator: ObservableObject {
     private(set) lazy var comparisonCoordinator: ComparisonCoordinator = {
         ComparisonCoordinator(platformManager: platformManager)
     }()
-    private(set) lazy var reportCoordinator: ReportCoordinator = {
-        ReportCoordinator(platformManager: platformManager)
-    }()
+
+    enum CompletionExportError: LocalizedError {
+        case noFinishedTransfer
+        var errorDescription: String? {
+            "No finished transfer to export. Run a transfer first; completed transfers stay available under History."
+        }
+    }
     
     // MARK: - File Selection State
     @Published var sourceURL: URL?
     @Published var destinationURLs: [URL] = []
-    @Published var leftURL: URL? // For folder comparison
-    @Published var rightURL: URL? // For folder comparison
+    @Published var leftURL: URL? { // For folder comparison
+        didSet { if oldValue != leftURL { lastCompareStats = nil } }
+    }
+    @Published var rightURL: URL? { // For folder comparison
+        didSet { if oldValue != rightURL { lastCompareStats = nil } }
+    }
     
     // MARK: - Camera Detection State
     @Published var detectedCamera: CameraCard?
@@ -256,6 +264,19 @@ class SharedAppCoordinator: ObservableObject {
         } catch { queueMessage = error.localizedDescription }
     }
 
+    /// Indexes into `[source] + destinations` whose access expired. Empty means
+    /// every location still resolves; unknown records report no stale locations.
+    func reauthorizationStatus(id: UUID) -> [Int] {
+        (try? transferJournal.staleResourceIndexes(id: id)) ?? []
+    }
+
+    /// Reconnects one expired location to the identical original folder.
+    /// Throws when the pick is anything else, so another drive is never
+    /// silently substituted. Earlier attempts and their evidence are kept.
+    func reauthorizeTransfer(_ id: UUID, resourceIndex: Int, url: URL) throws {
+        try transferJournal.reauthorize(id: id, resourceIndex: resourceIndex, newURL: url)
+    }
+
     private func processNextQueuedTransfer() async {
         guard queueIsRunning, !isProcessingQueue, !isOperationInProgress, activeStartID == nil else { return }
         #if os(iOS)
@@ -326,12 +347,12 @@ class SharedAppCoordinator: ObservableObject {
         activeStartID = startID
         startCancellationRequested = false
         isOperationInProgress = true
+        activeJournalRecordID = nil
         defer {
             if activeStartID == startID {
                 activeStartID = nil
                 startCancellationRequested = false
                 isOperationInProgress = false
-                activeJournalRecordID = nil
                 if queueIsRunning && !isProcessingQueue {
                     Task { await self.processNextQueuedTransfer() }
                 }
@@ -650,6 +671,9 @@ class SharedAppCoordinator: ObservableObject {
                     self?.progress = prog
                 }
             )
+            if Task.isCancelled || comparisonCoordinator.isCancellationRequested {
+                throw CancellationError()
+            }
             self.lastCompareStats = stats
             isOperationInProgress = false
             let message: String
@@ -676,32 +700,18 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
-    // MARK: - Report Generation (delegated to ReportCoordinator)
+    // MARK: - Completion Export (same record as history)
 
-    func generateReport() async {
-        guard currentOperation != nil else {
-            await platformManager.presentAlert(
-                title: "No Operation Data",
-                message: "Please complete a file operation before generating a report."
-            )
-            return
+    /// Builds the completion export from the finished transfer's journal record:
+    /// authoritative per-file results, verification mode, project provenance, and
+    /// the ASC MHL request flag. Callers present real save/share UI and surface
+    /// thrown errors instead of opening a temporary summary elsewhere.
+    func completionExportDocument(asCSV: Bool) throws -> TransferHistoryDocument {
+        guard let id = activeJournalRecordID,
+              let record = transferJournal.records.first(where: { $0.id == id }) else {
+            throw CompletionExportError.noFinishedTransfer
         }
-
-        do {
-            try await reportCoordinator.generateReport(
-                sourceURL: sourceURL,
-                sourceFolderInfo: sourceFolderInfo,
-                destinationURLs: destinationURLs,
-                destinationFolderInfos: destinationFolderInfos,
-                detectedCamera: detectedCamera,
-                timingService: timingService,
-                verificationMode: verificationMode,
-                cameraLabelSettings: cameraLabelSettings,
-                operationState: operationState
-            )
-        } catch {
-            await platformManager.presentError(error)
-        }
+        return try TransferHistoryDocument(record: record, asCSV: asCSV)
     }
     
     // MARK: - Mode Management
@@ -716,6 +726,7 @@ class SharedAppCoordinator: ObservableObject {
         progress = nil
         operationState = .notStarted
         currentOperation = nil
+        activeJournalRecordID = nil
     }
 
     func togglePause() async {
@@ -1052,6 +1063,30 @@ struct CompareStats: Equatable {
     let onlyInRightCount: Int
     let commonCount: Int
     let mismatchedCount: Int
+    /// Relative paths behind the counts, sorted for stable display and export.
+    /// Retained so a reported difference (e.g. one destination-only item from a
+    /// camera-card offload) names the file instead of ending at a count.
+    let onlyInLeftPaths: [String]
+    let onlyInRightPaths: [String]
+    let mismatchedPaths: [String]
+
+    init(
+        onlyInLeftCount: Int,
+        onlyInRightCount: Int,
+        commonCount: Int,
+        mismatchedCount: Int,
+        onlyInLeftPaths: [String] = [],
+        onlyInRightPaths: [String] = [],
+        mismatchedPaths: [String] = []
+    ) {
+        self.onlyInLeftCount = onlyInLeftCount
+        self.onlyInRightCount = onlyInRightCount
+        self.commonCount = commonCount
+        self.mismatchedCount = mismatchedCount
+        self.onlyInLeftPaths = onlyInLeftPaths
+        self.onlyInRightPaths = onlyInRightPaths
+        self.mismatchedPaths = mismatchedPaths
+    }
 
     /// True only when both folders contain the same files with matching content.
     var isClean: Bool {

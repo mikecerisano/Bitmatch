@@ -94,8 +94,9 @@
 - **Speed**: Medium
 - **Use Case**: High-security environments
 - **Time**: ~4 minutes per 1000 files  
-- **Output**: Dual checksums, MHL file generation
-- **Compliance**: Netflix MHL standard
+- **Output**: Dual checksums (SHA-256 and MD5)
+
+Note: ASC MHL handoff records are a separate opt-out step for verified copies, not part of any verification mode; see the [supported handoff workflow](docs/validation/ascmhl/SUPPORTED_WORKFLOW.md).
 
 Note: MD5 support exists for interoperability with some legacy pipelines. For integrity verification, SHA‑256 is the recommended default.
 
@@ -104,8 +105,7 @@ Note: MD5 support exists for interoperability with some legacy pipelines. For in
 - **Speed**: Slowest but most comprehensive
 - **Use Case**: Mission-critical data verification
 - **Time**: ~6 minutes per 1000 files
-- **Output**: Complete verification chain, detailed MHL records
-- **Compliance**: Full Netflix MHL standard compliance
+- **Output**: Byte-compared verification with checksums
 
 ## Camera Detection System
 
@@ -286,7 +286,7 @@ Note: MD5 support exists for interoperability with some legacy pipelines. For in
 - **Failure Visibility**: Per-file failures and verification mismatches make the operation complete with issues instead of false success
 
 ### Industry Compliance
-- **Netflix MHL**: Full Media Hash List standard compliance
+- **ASC MHL 2.0**: Initial destination inventories for verified copies; inherited histories are preserved and reported as unsupported, never extended. No chain-of-custody claim. See the [supported handoff workflow](docs/validation/ascmhl/SUPPORTED_WORKFLOW.md).
 - **Professional Standards**: Workflow compatibility with industry tools
 - **Metadata Preservation**: Complete preservation of camera metadata
-- **Audit Trail**: Complete documentation of all operations
+- **Audit Trail**: Per-transfer reports with authoritative file results

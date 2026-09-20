@@ -73,6 +73,70 @@ struct LocalTransferJournalTests {
         #expect(throws: (any Error).self) { try journal.prepareToRun(id: retryID) }
     }
 
+    @Test func staleLocationsAreDetectedWhenFoldersDisappear() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let journal = LocalTransferJournal(fileURL: f.journal)
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs())
+        #expect(try journal.staleResourceIndexes(id: id) == [])
+        try FileManager.default.removeItem(at: f.destination)
+        #expect(try journal.staleResourceIndexes(id: id) == [1])
+    }
+
+    @Test func reauthorizeRejectsADifferentFolder() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let journal = LocalTransferJournal(fileURL: f.journal)
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs())
+        try FileManager.default.removeItem(at: f.destination)
+        #expect(throws: LocalTransferJournalError.self) {
+            try journal.reauthorize(id: id, resourceIndex: 1, newURL: f.source)
+        }
+        #expect(throws: LocalTransferJournalError.self) {
+            try journal.reauthorize(id: id, resourceIndex: 5, newURL: f.source)
+        }
+        #expect(journal.records.first?.destinations.first?.url == f.destination)
+    }
+
+    @Test func reauthorizeRejectsARecreatedImpostorAtTheSamePath() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let journal = LocalTransferJournal(fileURL: f.journal)
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs())
+        try FileManager.default.removeItem(at: f.destination)
+        try FileManager.default.createDirectory(at: f.destination, withIntermediateDirectories: true)
+        // A fresh URL instance, as a folder picker would hand over.
+        let repick = URL(fileURLWithPath: f.destination.path)
+        do {
+            try journal.reauthorize(id: id, resourceIndex: 1, newURL: repick)
+            Issue.record("A recreated folder at the same path must be rejected as a replacement")
+        } catch let error as LocalTransferJournalError {
+            #expect(error.localizedDescription.contains("not the original folder"))
+        }
+        #expect(try journal.staleResourceIndexes(id: id) == [1])
+    }
+
+    @Test func reauthorizeAcceptsTheOriginalFolderAndKeepsEvidence() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let journal = LocalTransferJournal(fileURL: f.journal)
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs())
+        try journal.markRunning(id: id)
+        let row = ResultRow(path: "clip.mov", status: "❌ Failed", size: 1, checksum: nil, destination: "Backup")
+        try journal.finish(id: id, results: [row], summary: "Interrupted", hadIssues: true)
+        try journal.reauthorize(id: id, resourceIndex: 0, newURL: f.source)
+        let record = try #require(journal.records.first)
+        #expect(record.state == .issues)
+        #expect(record.results.count == 1)
+        #expect(record.results.first?.id == row.id)
+        #expect(record.source.url == f.source)
+        #expect(try journal.staleResourceIndexes(id: id) == [])
+    }
+
     @Test func retryCanSkipASCMHLWithoutChangingPreviousAttemptOrDefault() throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
@@ -197,5 +261,44 @@ struct LocalTransferJournalTests {
         #expect(payload["source"] as? String == f.source.path)
         #expect(payload["bookmark"] == nil)
         #expect(!String(decoding: json.data, as: UTF8.self).contains(record.source.bookmark.base64EncodedString()))
+    }
+
+    @Test func exportedHistoryCarriesProjectProvenanceAndASCMHLRequest() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let journal = LocalTransferJournal(fileURL: f.journal)
+        var reportSettings = ReportPrefs()
+        reportSettings.projectName = "Venice Shoot"
+        reportSettings.clientName = "Studio"
+        let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+                                     cameraSettings: CameraLabelSettings(), reportSettings: reportSettings, generateASCMHL: true)
+        try journal.markRunning(id: id)
+        try journal.finish(id: id, results: [ResultRow(path: "clip.mov", status: "✅ Verified", size: 1, checksum: "abc", destination: "Backup")],
+                           summary: "Done", hadIssues: false)
+        let record = try #require(journal.records.first)
+
+        let json = try TransferHistoryDocument(record: record, asCSV: false)
+        let payload = try #require(JSONSerialization.jsonObject(with: json.data) as? [String: Any])
+        #expect(payload["projectName"] as? String == "Venice Shoot")
+        #expect(payload["clientName"] as? String == "Studio")
+        #expect(payload["ascMHLRequested"] as? Bool == true)
+        #expect((payload["results"] as? [[String: Any]])?.count == 1)
+
+        let csv = try TransferHistoryDocument(record: record, asCSV: true)
+        let csvText = String(decoding: csv.data, as: UTF8.self)
+        #expect(csvText.contains("transfer_summary,project,asc_mhl"))
+        #expect(csvText.contains("\"Done\",\"Venice Shoot\",\"requested\""))
+    }
+
+    @Test func cancelledTransfersStayVisibleInQueueForRetry() {
+        // Cancelled transfers are retryable, so the Queue tab must keep showing
+        // them; otherwise Retry is only discoverable under History.
+        #expect(LocalTransferState.cancelled.canRetry)
+        #expect(LocalTransferState.cancelled.showsInQueue)
+        #expect(LocalTransferState.queued.showsInQueue)
+        #expect(LocalTransferState.running.showsInQueue)
+        #expect(LocalTransferState.interrupted.showsInQueue)
+        #expect(LocalTransferState.issues.showsInQueue)
+        #expect(!LocalTransferState.completed.showsInQueue)
     }
 }

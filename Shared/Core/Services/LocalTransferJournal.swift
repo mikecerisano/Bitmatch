@@ -6,6 +6,10 @@ enum LocalTransferState: String, Codable {
     case queued, running, interrupted, completed, issues, cancelled
 
     var canRetry: Bool { self == .queued || self == .interrupted || self == .issues || self == .cancelled }
+
+    /// States shown under the Queue tab. Cancelled transfers stay here because
+    /// they are retryable; surfacing Retry in the queue keeps recovery discoverable.
+    var showsInQueue: Bool { self == .queued || self == .running || self == .interrupted || self == .issues || self == .cancelled }
 }
 
 /// The original selection, including its identity. Never substitute a new disk at the same path.
@@ -56,8 +60,10 @@ struct LocalTransferResource: Codable {
 struct LocalTransferRecord: Identifiable, Codable {
     let id: UUID
     let createdAt: Date
-    let source: LocalTransferResource
-    let destinations: [LocalTransferResource]
+    /// Refreshable access tokens for the same immutable selection. Reauthorization
+    /// replaces these only after the original volume and folder identity match.
+    var source: LocalTransferResource
+    var destinations: [LocalTransferResource]
     let verificationMode: VerificationMode
     let cameraSettings: CameraLabelSettings
     let reportSettings: ReportPrefs
@@ -133,6 +139,7 @@ final class LocalTransferAccess {
 
 enum LocalTransferJournalError: LocalizedError {
     case unavailable(String), invalidState, missingDestinations, unreadableJournal(String), busy
+    case identityMismatch(name: String), unverifiableIdentity(name: String)
 
     var errorDescription: String? {
         switch self {
@@ -141,6 +148,10 @@ enum LocalTransferJournalError: LocalizedError {
         case .invalidState: return "This transfer cannot be started in its current state."
         case .missingDestinations: return "Choose at least one backup."
         case .unreadableJournal(let message): return "Transfer history could not be loaded: \(message)"
+        case .identityMismatch(let name):
+            return "\(name) is not the original folder. Pick the original drive and folder, or start a new transfer instead."
+        case .unverifiableIdentity(let name):
+            return "The original identity of \(name) was never recorded, so it cannot be confirmed. Start a new transfer instead."
         }
     }
 }
@@ -236,6 +247,73 @@ final class LocalTransferJournal: ObservableObject {
         } catch {
             scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
             throw error
+        }
+    }
+
+    /// Indexes into `[source] + destinations` whose stored access no longer
+    /// resolves to the original folder (stale bookmark, unplugged drive).
+    func staleResourceIndexes(id: UUID) throws -> [Int] {
+        guard let record = records.first(where: { $0.id == id }) else {
+            throw LocalTransferJournalError.invalidState
+        }
+        var stale: [Int] = []
+        for (index, resource) in ([record.source] + record.destinations).enumerated() {
+            do {
+                let resolved = try resource.resolve()
+                let scoped = resolved.startAccessingSecurityScopedResource()
+                defer { if scoped { resolved.stopAccessingSecurityScopedResource() } }
+                try resource.validate(resolved)
+            } catch {
+                stale.append(index)
+            }
+        }
+        return stale
+    }
+
+    /// Refreshes one stored location after access expired. The replacement must
+    /// be the original volume and folder: anything else is rejected rather than
+    /// silently substituted. Earlier attempts and their evidence are untouched.
+    func reauthorize(id: UUID, resourceIndex: Int, newURL: URL) throws {
+        guard var record = records.first(where: { $0.id == id }),
+              record.state == .queued || record.canRetry else {
+            throw LocalTransferJournalError.invalidState
+        }
+        let resources = [record.source] + record.destinations
+        guard resources.indices.contains(resourceIndex) else {
+            throw LocalTransferJournalError.invalidState
+        }
+        // URL objects cache resource values: drop the cache so the identity reads
+        // below observe the folder as it is now, not a deleted predecessor.
+        var uncachedURL = newURL
+        uncachedURL.removeAllCachedResourceValues()
+        let refreshed = try LocalTransferResource(url: uncachedURL)
+        try validateReauthorization(original: resources[resourceIndex], recordCreatedAt: record.createdAt,
+                                    refreshed: refreshed, refreshedURL: uncachedURL, name: newURL.lastPathComponent)
+        if resourceIndex == 0 {
+            record.source = refreshed
+        } else {
+            record.destinations[resourceIndex - 1] = refreshed
+        }
+        try commit(records.map { $0.id == id ? record : $0 })
+    }
+
+    private func validateReauthorization(original: LocalTransferResource, recordCreatedAt: Date,
+                                         refreshed: LocalTransferResource, refreshedURL: URL, name: String) throws {
+        guard original.volumeID != nil || original.resourceID != nil else {
+            throw LocalTransferJournalError.unverifiableIdentity(name: name)
+        }
+        let volumeOK = original.volumeID == nil || original.volumeID == refreshed.volumeID
+        let resourceOK = original.resourceID == nil || original.resourceID == refreshed.resourceID
+        guard volumeOK && resourceOK else {
+            throw LocalTransferJournalError.identityMismatch(name: name)
+        }
+        // File identifiers may be reused once a folder is deleted, so a recreated
+        // folder at the same path can present matching identifiers. The original
+        // folder necessarily predates the transfer record; anything younger is a
+        // replacement, not the original.
+        if let birthtime = try? refreshedURL.resourceValues(forKeys: [.creationDateKey]).creationDate,
+           birthtime > recordCreatedAt {
+            throw LocalTransferJournalError.identityMismatch(name: name)
         }
     }
 

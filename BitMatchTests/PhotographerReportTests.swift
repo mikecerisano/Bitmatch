@@ -15,7 +15,7 @@ struct PhotographerReportTests {
         prefs.makeReport = false
         prefs.verificationMode = .quick
         prefs.notes = "ASC MHL: Backup A, \"existing history\" preserved.\nReview before handoff."
-        await ReportExporter.export(mode: .copyAndVerify, jobID: UUID(), started: eventDate,
+        try await ReportExporter.export(mode: .copyAndVerify, jobID: UUID(), started: eventDate,
             finished: locallySafeAt, sourceURL: nil, destinationURLs: [root], results: results(),
             fileCount: 2, matchCount: 1, prefs: prefs, workers: 1, totalBytesProcessed: 101,
             generateFullReport: false)

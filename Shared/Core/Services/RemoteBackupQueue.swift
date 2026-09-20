@@ -168,7 +168,7 @@ actor RemoteBackupQueue {
     /// Cancellation is persisted before this method returns. A running remote
     /// operation may finish at the provider, but it cannot overwrite this state.
     func cancel(_ id: UUID) async throws {
-        guard items[id] != nil else { return }
+        guard let item = items[id], !item.state.isTerminal else { return }
         cancellingItemIDs.insert(id)
         _ = try await transition(itemID: id, allowingCancellation: true) { item in
             item.state = .cancelled
@@ -178,6 +178,56 @@ actor RemoteBackupQueue {
     }
 
     func item(id: UUID) -> RemoteQueueItem? { items[id] }
+
+    /// IDs the scheduler may run now: non-terminal, not paused, not already
+    /// running or being cancelled, with no future backoff outstanding.
+    func runnableIDs() -> [UUID] {
+        items.values.filter { isRunnable($0.id) }.map(\.id)
+    }
+
+    /// All in-memory items for one card, for summary refresh after queue edits.
+    /// Callers restore first; the queue never invents items.
+    func itemsForCardIngest(_ cardIngestID: UUID) -> [RemoteQueueItem] {
+        items.values.filter { $0.cardIngestID == cardIngestID }
+    }
+
+    /// Earliest future backoff among deferred work, for arming the next wake-up.
+    /// Nil means nothing is waiting on a timer.
+    func earliestDeferredAttempt() -> Date? {
+        items.values.compactMap { item -> Date? in
+            guard !item.state.isTerminal, !cancellingItemIDs.contains(item.id),
+                  let at = item.nextAttemptAt, at > now() else { return nil }
+            return at
+        }.min()
+    }
+
+    /// Parks an item: in-flight work aborts at the next checkpoint and the
+    /// persisted state stops the scheduler from picking it back up.
+    /// Terminal items are left alone.
+    func pause(_ id: UUID) async throws {
+        guard let item = items[id], !item.state.isTerminal else { return }
+        cancellingItemIDs.insert(id)
+        defer { cancellingItemIDs.remove(id) }
+        _ = try await transition(itemID: id, allowingCancellation: true) { queuedItem in
+            guard !queuedItem.state.isTerminal else { return }
+            queuedItem.state = .paused
+            queuedItem.nextAttemptAt = nil
+            queuedItem.errorSummary = nil
+        }
+    }
+
+    /// Returns a parked, backing-off, or retry-exhausted item to the runnable
+    /// queue. Anything else (including verified work) is left alone.
+    func retry(_ id: UUID) async throws {
+        guard let item = items[id],
+              item.state == .paused || item.state == .retrying || item.state == .failed else { return }
+        _ = try await transition(itemID: id) { queuedItem in
+            queuedItem.state = .queued
+            queuedItem.nextAttemptAt = nil
+            queuedItem.retryCount = 0
+            queuedItem.errorSummary = nil
+        }
+    }
 
     private func run(
         itemID: UUID,
@@ -409,12 +459,21 @@ actor RemoteBackupQueue {
         do {
             if backupError.isTransientNetworkFault {
                 let retryCount = item.retryCount + 1
-                let delay = retryDelay(for: retryCount)
-                _ = try await transition(itemID: itemID) { queuedItem in
-                    queuedItem.state = item.state == .verifying ? .verifying : .retrying
-                    queuedItem.retryCount = retryCount
-                    queuedItem.nextAttemptAt = now().addingTimeInterval(delay)
-                    queuedItem.errorSummary = backupError.errorDescription
+                if retryCount > Self.maxRetryCount {
+                    _ = try await transition(itemID: itemID) { queuedItem in
+                        queuedItem.state = .failed
+                        queuedItem.retryCount = retryCount
+                        queuedItem.nextAttemptAt = nil
+                        queuedItem.errorSummary = "\(backupError.errorDescription ?? "The network connection failed.") Gave up after \(Self.maxRetryCount) attempts; retry manually when the destination is reachable."
+                    }
+                } else {
+                    let delay = retryDelay(for: retryCount)
+                    _ = try await transition(itemID: itemID) { queuedItem in
+                        queuedItem.state = item.state == .verifying ? .verifying : .retrying
+                        queuedItem.retryCount = retryCount
+                        queuedItem.nextAttemptAt = now().addingTimeInterval(delay)
+                        queuedItem.errorSummary = backupError.errorDescription
+                    }
                 }
             } else {
                 _ = try await transition(itemID: itemID) { queuedItem in
@@ -434,6 +493,11 @@ actor RemoteBackupQueue {
         }
     }
 
+    /// Transient network faults back off and retry this many times before the
+    /// item fails closed with its last error. A manual retry grants a fresh
+    /// budget. With the capped backoff this spans several minutes of trying.
+    static let maxRetryCount = 8
+
     private func retryDelay(for retryCount: Int) -> TimeInterval {
         let cappedBase = min(300, pow(2, Double(max(0, retryCount - 1))))
         return min(300, cappedBase + max(0, min(jitter(), cappedBase * 0.25)))
@@ -441,7 +505,7 @@ actor RemoteBackupQueue {
 
     private func isRunnable(_ id: UUID) -> Bool {
         guard let item = items[id], !cancellingItemIDs.contains(id) else { return false }
-        guard !item.state.isTerminal else { return false }
+        guard !item.state.isTerminal, item.state != .paused else { return false }
         return item.nextAttemptAt.map { $0 <= now() } ?? true
     }
 

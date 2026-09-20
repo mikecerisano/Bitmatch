@@ -25,6 +25,7 @@ final class AppCoordinator: ObservableObject {
     @Published var cameraDetectionService = CameraCardDetectionService()
     @Published var photographerJobViewModel: PhotographerJobViewModel
     private var remoteBackupQueue: RemoteBackupQueue?
+    private var remoteBackupTimer: Timer?
     @Published private(set) var hostTrustPrompt: HostTrustPrompt?
     private var hostTrustContinuation: CheckedContinuation<Bool, Never>?
 
@@ -201,31 +202,60 @@ final class AppCoordinator: ObservableObject {
 
     func queueRemoteBackup(for cardIngestID: UUID) {
         do {
-            let items = try photographerJobViewModel.queueRemoteBackup(
+            _ = try photographerJobViewModel.queueRemoteBackup(
                 for: cardIngestID,
                 results: sharedCoordinator.results
             )
-            if let remoteBackupQueue {
-                Task {
-                    try? await remoteBackupQueue.restore()
-                    var completedItems: [RemoteQueueItem] = []
-                    for item in items {
-                        await remoteBackupQueue.run(item.id)
-                        if let completed = await remoteBackupQueue.item(id: item.id) {
-                            completedItems.append(completed)
-                        }
-                    }
-                    photographerJobViewModel.refreshRemoteBackupSummary(
-                        for: cardIngestID,
-                        items: completedItems
-                    )
-                }
+            Task { [weak self] in
+                await self?.runDueRemoteBackups()
+                await self?.refreshRemoteBackupSummary(for: cardIngestID)
             }
         } catch {
             // The view model records this as remote-only feedback. In
             // particular, never invoke operationFailed() here: final local
             // evidence is authoritative and independent of remote queueing.
         }
+    }
+
+    /// Restores persisted off-site work on launch so previously queued items
+    /// resume without asking. Called once at startup; the timer below keeps
+    /// backing-off items moving afterwards.
+    func startRemoteBackupScheduler() {
+        Task { [weak self] in await self?.runDueRemoteBackups() }
+    }
+
+    /// Runs everything currently eligible, then arms a one-shot wake-up for
+    /// the earliest deferred backoff, if any. Every entry point that changes
+    /// queue state funnels through here so no worker is ever missing.
+    private func runDueRemoteBackups() async {
+        guard let queue = remoteBackupQueue else { return }
+        try? await queue.restore()
+        for id in await queue.runnableIDs() {
+            await queue.run(id)
+        }
+        armRemoteBackupTimer()
+    }
+
+    private func armRemoteBackupTimer() {
+        remoteBackupTimer?.invalidate()
+        remoteBackupTimer = nil
+        guard let queue = remoteBackupQueue else { return }
+        Task { [weak self] in
+            guard let self, let fireAt = await queue.earliestDeferredAttempt() else { return }
+            let interval = max(1, fireAt.timeIntervalSinceNow)
+            self.remoteBackupTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+                Task { [weak self] in await self?.runDueRemoteBackups() }
+            }
+        }
+    }
+
+    private func refreshRemoteBackupSummary(for cardIngestID: UUID) async {
+        guard let queue = remoteBackupQueue else { return }
+        try? await queue.restore()
+        photographerJobViewModel.refreshRemoteBackupSummary(
+            for: cardIngestID,
+            items: await queue.itemsForCardIngest(cardIngestID)
+        )
     }
 
     func confirmHostTrust(_ accepted: Bool) {
@@ -245,12 +275,46 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
+    /// Parks a card's off-site items through the queue actor so in-flight work
+    /// stops and the scheduler cannot pick them back up.
     func pauseRemoteBackup(for cardIngestID: UUID) {
-        photographerJobViewModel.pauseRemoteBackup(for: cardIngestID)
+        Task { [weak self] in
+            guard let self, let queue = self.remoteBackupQueue else { return }
+            try? await queue.restore()
+            for item in await queue.itemsForCardIngest(cardIngestID) {
+                try? await queue.pause(item.id)
+            }
+            self.armRemoteBackupTimer()
+            await self.refreshRemoteBackupSummary(for: cardIngestID)
+        }
     }
 
+    /// Returns parked, backing-off, or retry-exhausted items to the runnable
+    /// queue and runs what is due now.
     func retryRemoteBackup(for cardIngestID: UUID) {
-        photographerJobViewModel.retryRemoteBackup(for: cardIngestID)
+        Task { [weak self] in
+            guard let self, let queue = self.remoteBackupQueue else { return }
+            try? await queue.restore()
+            for item in await queue.itemsForCardIngest(cardIngestID) {
+                try? await queue.retry(item.id)
+            }
+            await self.runDueRemoteBackups()
+            await self.refreshRemoteBackupSummary(for: cardIngestID)
+        }
+    }
+
+    /// Cancels a card's off-site items. Verified uploads are left alone;
+    /// cancellation is persisted before returning.
+    func cancelRemoteBackup(for cardIngestID: UUID) {
+        Task { [weak self] in
+            guard let self, let queue = self.remoteBackupQueue else { return }
+            try? await queue.restore()
+            for item in await queue.itemsForCardIngest(cardIngestID) {
+                try? await queue.cancel(item.id)
+            }
+            self.armRemoteBackupTimer()
+            await self.refreshRemoteBackupSummary(for: cardIngestID)
+        }
     }
 
     func togglePause() {
@@ -344,6 +408,7 @@ final class AppCoordinator: ObservableObject {
         setupProgressBindings()
         setupSharedCoordinatorBindings()
         setupCameraDetection()
+        startRemoteBackupScheduler()
     }
 
     private func setupFileSelectionBindings() {
@@ -446,6 +511,13 @@ final class AppCoordinator: ObservableObject {
                 guard let self, self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer else { return }
                 self.photographerJobViewModel.updateProgressStage(progress.currentStage)
             }
+            .store(in: &cancellables)
+
+        // Refresh compare results when a comparison publishes retained differences.
+        sharedCoordinator.$lastCompareStats
+            .map { _ in () }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
         // Map operation state for progress timer management

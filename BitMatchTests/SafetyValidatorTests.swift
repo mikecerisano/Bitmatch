@@ -268,6 +268,64 @@ final class SafetyValidatorTests: XCTestCase {
         }
     }
 
+    // MARK: - Preflight/Manifest Alignment
+
+    /// Preflight must validate the same file set the copy manifest uses. Root-level
+    /// volume metadata is skipped by both, so unreadable or oddly named metadata
+    /// can no longer abort a transfer the copy would have completed.
+    func testSourceTreeValidationSkipsRootVolumeMetadataLikeCopyManifest() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+
+        let source = root.appendingPathComponent("Card")
+        try fm.createDirectory(at: source.appendingPathComponent("DCIM"), withIntermediateDirectories: true)
+        try Data("clip".utf8).write(to: source.appendingPathComponent("DCIM/clip.mov"))
+
+        // Root metadata with a case-only collision the copy manifest never sees.
+        // (On a case-insensitive volume the pair merges and the no-throw half is
+        // trivial; the manifest-exclusion half below holds everywhere.)
+        let metadata = source.appendingPathComponent(".Spotlight-V100")
+        try fm.createDirectory(at: metadata, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: metadata.appendingPathComponent("A.MOV"))
+        try Data("x".utf8).write(to: metadata.appendingPathComponent("a.mov"))
+
+        XCTAssertNoThrow(try SafetyValidator.validateSourceTreeForCopy(source: source))
+        let manifest = try FileTreeEnumerator.enumerateRegularFiles(base: source)
+        XCTAssertEqual(manifest.map(\.relativePath), ["DCIM/clip.mov"])
+    }
+
+    /// The metadata skip is root-only: a same-named folder deeper in the tree is
+    /// real data, kept in the manifest, and still validated by preflight.
+    func testSourceTreeValidationStillChecksNestedMetadataNames() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+
+        let source = root.appendingPathComponent("Card")
+        let nested = source.appendingPathComponent("Nested/.Spotlight-V100")
+        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: nested.appendingPathComponent("B.MOV"))
+        try Data("x".utf8).write(to: nested.appendingPathComponent("b.mov"))
+        let stored = try fm.contentsOfDirectory(atPath: nested.path)
+
+        // Nested metadata is real data on both paths, regardless of filesystem.
+        let manifest = try FileTreeEnumerator.enumerateRegularFiles(base: source)
+        XCTAssertEqual(Set(manifest.map(\.relativePath)), Set(stored.map { "Nested/.Spotlight-V100/\($0)" }))
+
+        // A case-only collision needs a filesystem that keeps both names; the
+        // default macOS volume merges them into one file.
+        guard stored.count == 2 else {
+            throw XCTSkip("Requires a case-sensitive filesystem to hold a case-only collision")
+        }
+        XCTAssertThrowsError(try SafetyValidator.validateSourceTreeForCopy(source: source)) { error in
+            guard case FileOperationError.unsafeOperation(let message) = error else {
+                return XCTFail("Expected unsafeOperation, got \(error)")
+            }
+            XCTAssertTrue(message.contains("collide on case-insensitive filesystems"))
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

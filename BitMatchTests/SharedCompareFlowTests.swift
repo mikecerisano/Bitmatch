@@ -135,6 +135,201 @@ struct SharedCompareFlowTests {
         #expect(fileSystem.activeScopeCount(for: left) == 0)
         #expect(fileSystem.activeScopeCount(for: right) == 0)
     }
+
+    @Test
+    func testCancellationDuringFinalChecksumStaysCancelled() async throws {
+        let left = URL(fileURLWithPath: "/cancel/left")
+        let right = URL(fileURLWithPath: "/cancel/right")
+        let fileSystem = CancellingCompareFileSystem(left: left, right: right)
+        let checksum = CancellingChecksumService()
+        let platform = ScopeTrackingPlatformManager(fileSystem: fileSystem, checksum: checksum)
+        let coordinator = await MainActor.run { ComparisonCoordinator(platformManager: platform) }
+        checksum.onVerify = { await coordinator.requestCancellation() }
+
+        do {
+            _ = try await coordinator.compareFolders(
+                left: left,
+                right: right,
+                verificationMode: .standard,
+                onProgress: { _ in }
+            )
+            Issue.record("Cancelling during the final checksum must throw instead of returning stats")
+        } catch is CancellationError {
+            // Expected: cancellation remains cancelled.
+        }
+        #expect(fileSystem.activeScopeCount(for: left) == 0)
+        #expect(fileSystem.activeScopeCount(for: right) == 0)
+    }
+
+    @Test
+    func testCompareRetainsDifferingPaths() async throws {
+        #if os(macOS)
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("bitmatch_cmp_paths_\(UUID().uuidString)")
+        let left = root.appendingPathComponent("left")
+        let right = root.appendingPathComponent("right")
+        try fm.createDirectory(at: left, withIntermediateDirectories: true)
+        try fm.createDirectory(at: right, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        try Data("A".utf8).write(to: left.appendingPathComponent("A.txt"))
+        try Data("B".utf8).write(to: left.appendingPathComponent("B.txt"))
+        try Data("X".utf8).write(to: right.appendingPathComponent("A.txt"))
+        try Data("C".utf8).write(to: right.appendingPathComponent("C.txt"))
+
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: MacOSPlatformManager.shared) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+        await coordinator.compareFolders()
+
+        let stats = await MainActor.run { coordinator.lastCompareStats }
+        let retained = try #require(stats)
+        #expect(retained.onlyInLeftPaths == ["B.txt"])
+        #expect(retained.onlyInRightPaths == ["C.txt"])
+        #expect(retained.mismatchedPaths == ["A.txt"])
+        #expect(retained.onlyInLeftCount == retained.onlyInLeftPaths.count)
+        #expect(retained.onlyInRightCount == retained.onlyInRightPaths.count)
+        #expect(retained.mismatchedCount == retained.mismatchedPaths.count)
+        #else
+        #expect(true)
+        #endif
+    }
+
+    @Test
+    func testCompareReportExportNamesEveryPath() throws {
+        let stats = CompareStats(
+            onlyInLeftCount: 1,
+            onlyInRightCount: 1,
+            commonCount: 2,
+            mismatchedCount: 1,
+            onlyInLeftPaths: ["DCIM/B.MOV"],
+            onlyInRightPaths: ["DCIM/C.MOV"],
+            mismatchedPaths: ["DCIM/A,B.MOV"]
+        )
+        let comparedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let csv = try CompareReportDocument(
+            stats: stats,
+            leftName: "Card",
+            rightName: "Backup",
+            verificationMode: .standard,
+            comparedAt: comparedAt,
+            asCSV: true
+        )
+        #expect(String(decoding: csv.data, as: UTF8.self) == """
+            category,path
+            "only-in-source","DCIM/B.MOV"
+            "only-in-destination","DCIM/C.MOV"
+            "content-differs","DCIM/A,B.MOV"
+
+            """)
+
+        let json = try CompareReportDocument(
+            stats: stats,
+            leftName: "Card",
+            rightName: "Backup",
+            verificationMode: .standard,
+            comparedAt: comparedAt,
+            asCSV: false
+        )
+        let payload = try #require(JSONSerialization.jsonObject(with: json.data) as? [String: Any])
+        #expect(payload["left"] as? String == "Card")
+        #expect(payload["right"] as? String == "Backup")
+        #expect(payload["verificationMode"] as? String == VerificationMode.standard.rawValue)
+        #expect(payload["clean"] as? Bool == false)
+        #expect(payload["onlyInSource"] as? [String] == ["DCIM/B.MOV"])
+        #expect(payload["onlyInDestination"] as? [String] == ["DCIM/C.MOV"])
+        #expect(payload["mismatched"] as? [String] == ["DCIM/A,B.MOV"])
+    }
+}
+
+private final class CancellingCompareFileSystem: FileSystemService {
+    private let left: URL
+    private let right: URL
+    private let lock = NSLock()
+    private var activeScopes: [String: Int] = [:]
+
+    init(left: URL, right: URL) {
+        self.left = left
+        self.right = right
+    }
+
+    func selectSourceFolder() async -> URL? { nil }
+    func selectDestinationFolders() async -> [URL] { [] }
+    func selectLeftFolder() async -> URL? { left }
+    func selectRightFolder() async -> URL? { right }
+    func validateFileAccess(url: URL) async -> Bool { true }
+
+    func startAccessing(url: URL) -> Bool {
+        lock.lock()
+        activeScopes[url.path, default: 0] += 1
+        lock.unlock()
+        return true
+    }
+
+    func stopAccessing(url: URL) {
+        lock.lock()
+        activeScopes[url.path, default: 0] = max(0, activeScopes[url.path, default: 0] - 1)
+        lock.unlock()
+    }
+
+    func getFileList(from folderURL: URL) async throws -> [URL] {
+        [folderURL.appendingPathComponent("clip.mov")]
+    }
+
+    nonisolated func getFileSize(for url: URL) throws -> Int64 { 10 }
+    nonisolated func createDirectory(at url: URL) throws {}
+    nonisolated func freeSpace(at url: URL) -> Int64 { 1_000_000_000 }
+
+    nonisolated func activeScopeCount(for url: URL) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeScopes[url.path, default: 0]
+    }
+}
+
+private final class CancellingChecksumService: ChecksumService {
+    var onVerify: (() async -> Void)?
+
+    func generateChecksum(
+        for fileURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> String {
+        "hash"
+    }
+
+    func verifyFileIntegrity(
+        sourceURL: URL,
+        destinationURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> VerificationResult {
+        await onVerify?()
+        return VerificationResult(
+            sourceChecksum: "hash",
+            destinationChecksum: "hash",
+            matches: true,
+            checksumType: type,
+            processingTime: 0,
+            fileSize: 10
+        )
+    }
+
+    func performByteComparison(
+        sourceURL: URL,
+        destinationURL: URL,
+        progressCallback: ProgressCallback?
+    ) async throws -> Bool {
+        await onVerify?()
+        return true
+    }
 }
 
 private enum ScopeTrackingError: Error {
@@ -292,13 +487,14 @@ private final class ScopeTrackingCameraDetectionService: CameraDetectionService 
 
 private final class ScopeTrackingPlatformManager: PlatformManager {
     nonisolated let fileSystem: FileSystemService
-    nonisolated let checksum: ChecksumService = ScopeTrackingChecksumService()
+    nonisolated let checksum: ChecksumService
     nonisolated let fileOperations: FileOperationsService = ScopeTrackingFileOperationsService()
     nonisolated let cameraDetection: CameraDetectionService = ScopeTrackingCameraDetectionService()
     nonisolated let supportsDragAndDrop = false
 
-    init(fileSystem: FileSystemService) {
+    init(fileSystem: FileSystemService, checksum: ChecksumService = ScopeTrackingChecksumService()) {
         self.fileSystem = fileSystem
+        self.checksum = checksum
     }
 
     func presentAlert(title: String, message: String) async {}

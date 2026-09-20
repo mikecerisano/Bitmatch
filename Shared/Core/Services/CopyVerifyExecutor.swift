@@ -269,7 +269,21 @@ final class CopyVerifyExecutor {
             }
         )
         let handoffIssues = try await createASCMHLHistories(operation: operation, config: config, callbacks: callbacks)
-        let succeeded = fileResultsSucceeded && photographerLifecycle.permitsSuccessfulCompletion && handoffIssues.isEmpty && config.verificationMode != .quick
+        // A failed requested report is a structured outcome, not a silent side effect:
+        // verified media stays described as verified, but completion is issues.
+        let reportIssue: String?
+        if config.reportSettings.makeReport && !allResults.isEmpty {
+            reportIssue = await generateReport(
+                operation: operation,
+                results: allResults,
+                config: config,
+                photographerContext: photographerLifecycle.context,
+                handoffSummary: handoffIssues.isEmpty ? nil : handoffIssues.joined(separator: "; ")
+            )
+        } else {
+            reportIssue = nil
+        }
+        let succeeded = fileResultsSucceeded && photographerLifecycle.permitsSuccessfulCompletion && handoffIssues.isEmpty && config.verificationMode != .quick && reportIssue == nil
         var completionMessage: String
         if !photographerLifecycle.didPersist {
             completionMessage = "\(fileResultsMessage); photographer lifecycle finalization failed"
@@ -286,21 +300,13 @@ final class CopyVerifyExecutor {
         if config.verificationMode == .quick {
             completionMessage += "; contents have not been checksum verified."
         }
+        if let reportIssue {
+            completionMessage += "; report export failed: \(reportIssue)"
+        }
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
         stateService.completeOperation()
-
-        // Generate report if enabled
-        if config.reportSettings.makeReport && !allResults.isEmpty {
-            await generateReport(
-                operation: operation,
-                results: allResults,
-                config: config,
-                photographerContext: photographerLifecycle.context,
-                handoffSummary: handoffIssues.isEmpty ? nil : handoffIssues.joined(separator: "; ")
-            )
-        }
 
         callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
@@ -401,13 +407,16 @@ final class CopyVerifyExecutor {
 
     // MARK: - Report Generation
 
+    /// Runs the requested automatic report export. Returns nil on success or a
+    /// human-readable failure carried into the completion message, the journal
+    /// record, and the queue decision — never a silent alert.
     private func generateReport(
         operation: FileOperation,
         results: [ResultRow],
         config: CopyVerifyConfig,
         photographerContext: PhotographerReportContext?,
         handoffSummary: String? = nil
-    ) async {
+    ) async -> String? {
         let matchCount = results.filter { $0.isSuccessStatus }.count
         let totalBytesProcessed = config.estimatedBytes
         let fileCount = results.count
@@ -423,24 +432,30 @@ final class CopyVerifyExecutor {
         let reportOperation = operation
         let reportContext = photographerContext
 
-        await Task.detached(priority: .utility) {
-            await ReportExporter.export(
-                mode: reportMode,
-                jobID: reportOperation.id,
-                started: reportOperation.startTime,
-                finished: reportOperation.endTime ?? Date(),
-                sourceURL: reportOperation.sourceURL,
-                destinationURLs: reportOperation.destinationURLs,
-                results: reportResults,
-                fileCount: fileCount,
-                matchCount: matchCount,
-                prefs: reportSettings,
-                workers: workers,
-                totalBytesProcessed: totalBytesProcessed,
-                generateFullReport: reportSettings.makeReport,
-                photographerContext: reportContext
-            )
-        }.value
+        do {
+            try await Task.detached(priority: .utility) {
+                try await ReportExporter.export(
+                    mode: reportMode,
+                    jobID: reportOperation.id,
+                    started: reportOperation.startTime,
+                    finished: reportOperation.endTime ?? Date(),
+                    sourceURL: reportOperation.sourceURL,
+                    destinationURLs: reportOperation.destinationURLs,
+                    results: reportResults,
+                    fileCount: fileCount,
+                    matchCount: matchCount,
+                    prefs: reportSettings,
+                    workers: workers,
+                    totalBytesProcessed: totalBytesProcessed,
+                    generateFullReport: reportSettings.makeReport,
+                    photographerContext: reportContext
+                )
+            }.value
+            return nil
+        } catch {
+            SharedLogger.error("Auto-report failed for job \(operation.id): \(error.localizedDescription)", category: .transfer)
+            return error.localizedDescription
+        }
     }
 
     static func photographerLifecycleAfterAuthoritativeCompletion(

@@ -109,10 +109,10 @@ struct CompareFoldersView: View {
                     VStack(spacing: 16) {
                         // Collapsible Verification Mode section
                         verificationModeSection
-                        
+
                         Divider()
                             .overlay(Color.white.opacity(0.1))
-                        
+
                         // Action button
                         actionSection
                     }
@@ -120,6 +120,18 @@ struct CompareFoldersView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                // Retained differences with export
+                if let stats = coordinator.sharedCoordinator.lastCompareStats {
+                    CompareResultsView(
+                        stats: stats,
+                        leftName: coordinator.fileSelectionViewModel.leftURL?.lastPathComponent ?? "Source",
+                        rightName: coordinator.fileSelectionViewModel.rightURL?.lastPathComponent ?? "Destination",
+                        verificationMode: coordinator.verificationMode
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                }
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: coordinator.isOperationInProgress)

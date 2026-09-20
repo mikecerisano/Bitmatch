@@ -15,6 +15,16 @@ final class ComparisonCoordinator {
         cancellationRequested = true
     }
 
+    /// Observable for callers that publish results after the comparison returns,
+    /// so a cancellation landing in the final checksum work cannot surface as
+    /// a normal completion.
+    var isCancellationRequested: Bool { cancellationRequested }
+
+    private func throwIfCancelled() throws {
+        if cancellationRequested { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+
     /// Compare two folders and return stats
     func compareFolders(
         left: URL,
@@ -40,6 +50,7 @@ final class ComparisonCoordinator {
 
         let sourceMap = try buildFileMap(files: sourceFiles, base: left)
         let destMap = try buildFileMap(files: destFiles, base: right)
+        try throwIfCancelled()
 
         let sourceSet = Set(sourceMap.keys)
         let destSet = Set(destMap.keys)
@@ -96,6 +107,7 @@ final class ComparisonCoordinator {
                 }
                 if !allMatch { mismatched.insert(key) }
             }
+            try throwIfCancelled()
 
             processedCommon += 1
             let overall = totalCommon == 0 ? 1.0 : Double(processedCommon) / Double(totalCommon)
@@ -111,6 +123,7 @@ final class ComparisonCoordinator {
         }
 
         let matched = common.subtracting(mismatched)
+        try throwIfCancelled()
 
         SharedLogger.info("Comparison complete", category: .transfer)
         SharedLogger.debug("Only in source: \(onlyInSource.count), Only in dest: \(onlyInDest.count), Common: \(matched.count), Mismatched: \(mismatched.count)", category: .transfer)
@@ -119,7 +132,10 @@ final class ComparisonCoordinator {
             onlyInLeftCount: onlyInSource.count,
             onlyInRightCount: onlyInDest.count,
             commonCount: matched.count,
-            mismatchedCount: mismatched.count
+            mismatchedCount: mismatched.count,
+            onlyInLeftPaths: onlyInSource.sorted(),
+            onlyInRightPaths: onlyInDest.sorted(),
+            mismatchedPaths: mismatched.sorted()
         )
     }
 
