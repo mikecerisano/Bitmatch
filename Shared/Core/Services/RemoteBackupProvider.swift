@@ -45,6 +45,7 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
     case capabilityUnavailable(RemoteProviderRequirement)
     case missingProfile
     case missingCredential
+    case invalidDestination
     case conflict
     case networkUnavailable
     case authenticationFailed
@@ -86,6 +87,8 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
             return "The selected remote backup destination no longer exists."
         case .missingCredential:
             return "No credential is available for the selected remote backup destination."
+        case .invalidDestination:
+            return "The remote backup destination host, username, or port is invalid."
         case .conflict:
             return "A final object already exists at the remote destination."
         case .networkUnavailable:

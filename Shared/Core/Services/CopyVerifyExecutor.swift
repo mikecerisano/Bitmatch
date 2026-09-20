@@ -311,7 +311,7 @@ final class CopyVerifyExecutor {
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
-        stateService.completeOperation()
+        stateService.completeOperation(success: succeeded, message: completionMessage)
 
         callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
@@ -402,7 +402,7 @@ final class CopyVerifyExecutor {
             errorService.reportError(error, context: context)
             timingService.completeOperation(success: false, message: error.localizedDescription)
             errorService.completeErrorTracking()
-            stateService.cancelOperation()
+            stateService.failOperation()
             callbacks.onStateChange(.failed)
             await platformManager.presentError(error)
         }

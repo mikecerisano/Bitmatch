@@ -87,9 +87,21 @@ final class SafetyValidator {
             throw FileOperationError.destinationNotWritable(destination.path)
         }
 
-        // Check for symlink loops
+        // Check for symlink loops on both ends. A symlinked destination
+        // would redirect writes if it ever bypassed the descriptor-pinned
+        // open, so it is rejected here too.
         guard !detectSymlinkLoop(at: source) else {
             throw FileOperationError.symlinkLoop(source.path)
+        }
+        guard !detectSymlinkLoop(at: destination) else {
+            throw FileOperationError.symlinkLoop(destination.path)
+        }
+
+        // Ancestor walk: no component of the destination path itself may be
+        // a symlink (outside the fixed /private system aliases), even when
+        // it forms no loop.
+        if let offender = firstSymlinkComponent(in: destination) {
+            throw FileOperationError.unsafeOperation("Destination contains a symbolic link: \(offender)")
         }
 
         // Network drive warning
@@ -130,25 +142,53 @@ final class SafetyValidator {
         }
     }
 
+    // MARK: - Symlink Component Detection
+
+    /// Fixed macOS system aliases beneath /private. Mirrors the pinned
+    /// destination traversal: only these top-level components may resolve
+    /// through a symlink; every other symlink component is rejected.
+    private static let systemAliasFirstComponents: Set<String> = ["var", "tmp", "etc"]
+
+    /// Ancestor-by-ancestor readlink walk. Returns the first path whose own
+    /// component is a symlink, or nil when every prefix is a real directory.
+    /// Unlike the loop check below this also catches a plain symlinked
+    /// ancestor (which the descriptor-pinned open would reject later).
+    static func firstSymlinkComponent(in url: URL) -> String? {
+        let components = url.standardizedFileURL.pathComponents
+        var prefix = URL(fileURLWithPath: "/", isDirectory: true)
+        for (index, component) in components.dropFirst().enumerated() {
+            let candidate = prefix.appendingPathComponent(component)
+            let isSystemAlias = index == 0 && systemAliasFirstComponents.contains(component)
+            if !isSystemAlias,
+               (try? FileManager.default.destinationOfSymbolicLink(atPath: candidate.path)) != nil {
+                return candidate.path
+            }
+            prefix = candidate
+        }
+        return nil
+    }
+
     // MARK: - Symlink Loop Detection
 
-    private static func detectSymlinkLoop(at url: URL, visited: Set<URL> = []) -> Bool {
-        guard visited.count < 100 else { return true } // Prevent infinite recursion
-
-        var newVisited = visited
-        newVisited.insert(url)
-
-        do {
-            let resourceValues = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
-            if resourceValues.isSymbolicLink == true {
-                let resolved = try URL(resolvingAliasFileAt: url)
-                return newVisited.contains(resolved) || detectSymlinkLoop(at: resolved, visited: newVisited)
+    private static func detectSymlinkLoop(at url: URL, visited: Set<String> = []) -> Bool {
+        // readlink-based walk: destinationOfSymbolicLink resolves real
+        // symlinks. resolvingAliasFileAt targets Finder aliases and is the
+        // wrong API here. A repeat or an over-deep chain fails closed.
+        var current = url.standardized.path
+        var seen = visited
+        for _ in 0..<100 {
+            guard seen.insert(current).inserted else { return true }
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else {
+                return false
             }
-        } catch {
-            return false
+            if destination.hasPrefix("/") {
+                current = URL(fileURLWithPath: destination).standardized.path
+            } else {
+                current = URL(fileURLWithPath: current).deletingLastPathComponent()
+                    .appendingPathComponent(destination).standardized.path
+            }
         }
-
-        return false
+        return true
     }
 
     // MARK: - Path Safety

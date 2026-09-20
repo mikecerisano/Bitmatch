@@ -122,8 +122,10 @@ class IOSDriverScanner: NSObject {
         let maxFilesToScan = 50000 // iOS performance limit
         
         while let fileURL = enumerator.nextObject() as? URL {
+            // Cooperative cancellation: a superseded volume selection stops here.
+            if Task.isCancelled { break }
             filesScanned += 1
-            
+
             // iOS performance protection - limit scanning
             if filesScanned > maxFilesToScan {
                 SharedLogger.warning("Reached scanning limit of \(maxFilesToScan) files")

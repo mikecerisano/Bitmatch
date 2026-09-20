@@ -251,6 +251,13 @@ struct RemoteBackupDestinationManager: View {
             validationMessage = "Enter a port from 1 to 65,535."
             return
         }
+        do {
+            _ = try SFTPRemoteBackupProvider.validatedHost(host)
+            _ = try SFTPRemoteBackupProvider.validatedUsername(username)
+        } catch {
+            validationMessage = "Host and username may only contain letters, digits, dots, dashes, and underscores, and must not start with a dash."
+            return
+        }
         guard let relativeRoot = try? RemoteRelativePath(components: root.split(separator: "/").map(String.init)) else {
             validationMessage = "Enter a safe relative folder path."
             return

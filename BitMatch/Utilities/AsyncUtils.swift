@@ -1,48 +1,6 @@
 // Utilities/AsyncUtils.swift - Centralized async utilities and patterns
 import Foundation
 
-// MARK: - Main Actor Utilities
-
-struct AsyncMainActor {
-    /// Execute a closure on the main actor after a small delay to avoid SwiftUI update conflicts
-    @MainActor
-    static func delayedExecution(
-        nanoseconds delay: UInt64 = 1_000_000, // 1ms default
-        operation: @escaping @MainActor () -> Void
-    ) {
-        Task {
-            try? await Task.sleep(nanoseconds: delay)
-            operation()
-        }
-    }
-    
-    /// Execute a closure on the main actor with a longer delay for UI timing
-    @MainActor
-    static func delayedExecutionLong(
-        seconds delay: Double,
-        operation: @escaping @MainActor () -> Void
-    ) {
-        Task {
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            operation()
-        }
-    }
-}
-
-// MARK: - State Update Helpers
-
-/// Helper for managing state updates with proper timing
-struct StateUpdateHelper {
-    /// Execute a state update after a small delay to avoid SwiftUI conflicts
-    @MainActor
-    static func delayedUpdate(_ update: @escaping () -> Void) {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000) // 1ms delay
-            update()
-        }
-    }
-}
-
 // MARK: - Background Task Utilities
 
 struct BackgroundTask {

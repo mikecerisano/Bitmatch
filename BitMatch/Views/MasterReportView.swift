@@ -9,6 +9,10 @@ struct MasterReportView: View {
     @State private var selectedTransfers = Set<UUID>()
     @State private var productionNotes = ""
     @State private var isGeneratingReport = false
+    // Owned scan task + generation: starting a new scan cancels the
+    // previous enumeration, and stale results never overwrite fresh ones.
+    @State private var scanTask: Task<Void, Never>?
+    @State private var activeScanID: UUID?
     
     var body: some View {
         VStack(spacing: 20) {
@@ -49,15 +53,20 @@ struct MasterReportView: View {
     }
     
     private func scanDrive(at url: URL) {
+        scanTask?.cancel()
+        let scanID = UUID()
+        activeScanID = scanID
         scanningDrive = true
-        
-        Task {
+
+        scanTask = Task {
             let transfers = await DriveScanner.scanForBitMatchReports(at: url)
-            
+
             await MainActor.run {
+                // A newer scan (or a cleared view) supersedes this one.
+                guard self.activeScanID == scanID else { return }
                 self.foundTransfers = transfers
                 self.scanningDrive = false
-                
+
                 // Auto-select all by default
                 self.selectedTransfers = Set(transfers.map { $0.id })
             }

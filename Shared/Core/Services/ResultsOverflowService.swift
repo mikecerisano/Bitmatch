@@ -49,9 +49,14 @@ actor ResultsOverflowService {
         }
     }
 
-    /// Update an existing result in memory (returns false if not found in memory)
+    /// Update an existing result in memory (returns false if not found in memory
+    /// or if the update would regress a verify/failure row to a provisional
+    /// copy row — the same supersede rule as upsert).
     func updateResult(matching path: String, destination: String, with updated: ResultRow) -> Bool {
         if let idx = inMemoryResults.firstIndex(where: { $0.path == path && $0.destination == destination }) {
+            guard Self.canReplace(existing: inMemoryResults[idx], with: updated) else {
+                return false
+            }
             inMemoryResults[idx] = updated
             return true
         }

@@ -16,37 +16,22 @@ enum SharedLogger {
           Logger(subsystem: subsystem, category: category.rawValue)
       }
 
+      // All platforms log through os.Logger: interpolated values stay
+      // private/redacted by default, and nothing spams stdout in Release.
+      // Use a DEBUG print only when actively diagnosing on-device.
       static func info(_ message: String, category: Category = .general) {
-          #if os(iOS)
-          print("ℹ️[\(category.rawValue)] \(message)")
-          #else
           logger(for: category).info("\(message)")
-          #endif
       }
 
       static func debug(_ message: String, category: Category = .general) {
-          #if os(iOS)
-          #if DEBUG
-          print("🔍[\(category.rawValue)] \(message)")
-          #endif
-          #else
           logger(for: category).debug("\(message)")
-          #endif
       }
 
       static func warning(_ message: String, category: Category = .general) {
-          #if os(iOS)
-          print("⚠️[\(category.rawValue)] \(message)")
-          #else
           logger(for: category).notice("\(message)")
-          #endif
       }
 
       static func error(_ message: String, category: Category = .error) {
-          #if os(iOS)
-          print("🚨[\(category.rawValue)] \(message)")
-          #else
           logger(for: category).error("\(message)")
-          #endif
       }
 }

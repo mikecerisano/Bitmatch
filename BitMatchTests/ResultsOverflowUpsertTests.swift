@@ -20,6 +20,36 @@ final class ResultsOverflowUpsertTests: XCTestCase {
         )
     }
 
+    func testUpdateResultCannotReplaceVerifyFailureWithCopyRow() async {
+        let service = ResultsOverflowService(operationId: UUID())
+        await service.addResult(row("/src/a.mov", status: "⚠️ Checksum Mismatch"))
+
+        let replaced = await service.updateResult(
+            matching: "/src/a.mov",
+            destination: "Backup",
+            with: row("/src/a.mov", status: "✅ Copied")
+        )
+
+        XCTAssertFalse(replaced)
+        let results = await service.getAllResults()
+        XCTAssertEqual(results.first?.status, "⚠️ Checksum Mismatch")
+    }
+
+    func testUpdateResultReplacesCopyRowWithVerifyRow() async {
+        let service = ResultsOverflowService(operationId: UUID())
+        await service.addResult(row("/src/a.mov", status: "✅ Copied"))
+
+        let replaced = await service.updateResult(
+            matching: "/src/a.mov",
+            destination: "Backup",
+            with: row("/src/a.mov", status: "✅ Verified")
+        )
+
+        XCTAssertTrue(replaced)
+        let results = await service.getAllResults()
+        XCTAssertEqual(results.first?.status, "✅ Verified")
+    }
+
     func testCopyRowCannotReplaceVerifyFailureRow() async {
         let service = ResultsOverflowService(operationId: UUID())
         await service.upsert(row("/src/a.mov", status: "⚠️ Checksum Mismatch"))

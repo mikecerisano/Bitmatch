@@ -20,68 +20,114 @@ final class FolderInfoService: ObservableObject {
     private var rightURL: URL?
     private var destinationURLs: [URL] = []
 
+    // One owned background task per role, plus a generation counter.
+    // Cancelling on supersede stops the enumeration itself; the generation
+    // guard stops stale fast/full results from ever publishing.
+    private var sourceWork: Task<Void, Never>?
+    private var leftWork: Task<Void, Never>?
+    private var rightWork: Task<Void, Never>?
+    private var sourceGeneration = 0
+    private var leftGeneration = 0
+    private var rightGeneration = 0
+
     // MARK: - Public API
 
     /// Update source folder info when source URL changes
     /// Perf 8: returns fast count+size immediately, then updates with full details asynchronously
     func updateSource(_ url: URL?) async {
+        sourceWork?.cancel()
+        sourceGeneration &+= 1
+        let generation = sourceGeneration
+        if sourceURL != url, let previous = sourceURL {
+            folderInfoLoadingState[previous] = false
+        }
         sourceURL = url
-        if let url = url {
-            folderInfoLoadingState[url] = true
-            // Fast pass: count + size only
-            let fastInfo = await getFastFolderInfo(for: url)
-            sourceFolderInfo = fastInfo
-            // Lazy pass: full details (types, dates, largest file) - update asynchronously
-            Task { [weak self] in
-                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
-                await MainActor.run {
-                    guard let self, self.sourceURL == url else { return }
-                    self.sourceFolderInfo = fullInfo
-                    self.folderInfoLoadingState[url] = false
-                }
-            }
-        } else {
+        guard let url else {
             sourceFolderInfo = nil
+            return
+        }
+        folderInfoLoadingState[url] = true
+        // Owned task: fast pass, then full details. Cancellation stops the
+        // enumeration; the generation guard stops stale publishes.
+        sourceWork = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            if Task.isCancelled { return }
+            let fastInfo = self.scanFastFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.sourceGeneration, self.sourceURL == url else { return }
+                self.sourceFolderInfo = fastInfo
+            }
+            if Task.isCancelled { return }
+            let fullInfo = self.scanEnhancedFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.sourceGeneration, self.sourceURL == url else { return }
+                self.sourceFolderInfo = fullInfo
+                self.folderInfoLoadingState[url] = false
+            }
         }
     }
 
     /// Update left folder info (for comparison mode)
     func updateLeft(_ url: URL?) async {
+        leftWork?.cancel()
+        leftGeneration &+= 1
+        let generation = leftGeneration
+        if leftURL != url, let previous = leftURL {
+            folderInfoLoadingState[previous] = false
+        }
         leftURL = url
-        if let url = url {
-            folderInfoLoadingState[url] = true
-            let fastInfo = await getFastFolderInfo(for: url)
-            leftFolderInfo = fastInfo
-            Task { [weak self] in
-                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
-                await MainActor.run {
-                    guard let self, self.leftURL == url else { return }
-                    self.leftFolderInfo = fullInfo
-                    self.folderInfoLoadingState[url] = false
-                }
-            }
-        } else {
+        guard let url else {
             leftFolderInfo = nil
+            return
+        }
+        folderInfoLoadingState[url] = true
+        leftWork = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            if Task.isCancelled { return }
+            let fastInfo = self.scanFastFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.leftGeneration, self.leftURL == url else { return }
+                self.leftFolderInfo = fastInfo
+            }
+            if Task.isCancelled { return }
+            let fullInfo = self.scanEnhancedFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.leftGeneration, self.leftURL == url else { return }
+                self.leftFolderInfo = fullInfo
+                self.folderInfoLoadingState[url] = false
+            }
         }
     }
 
     /// Update right folder info (for comparison mode)
     func updateRight(_ url: URL?) async {
+        rightWork?.cancel()
+        rightGeneration &+= 1
+        let generation = rightGeneration
+        if rightURL != url, let previous = rightURL {
+            folderInfoLoadingState[previous] = false
+        }
         rightURL = url
-        if let url = url {
-            folderInfoLoadingState[url] = true
-            let fastInfo = await getFastFolderInfo(for: url)
-            rightFolderInfo = fastInfo
-            Task { [weak self] in
-                let fullInfo = await self?.getEnhancedFolderInfo(for: url)
-                await MainActor.run {
-                    guard let self, self.rightURL == url else { return }
-                    self.rightFolderInfo = fullInfo
-                    self.folderInfoLoadingState[url] = false
-                }
-            }
-        } else {
+        guard let url else {
             rightFolderInfo = nil
+            return
+        }
+        folderInfoLoadingState[url] = true
+        rightWork = Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            if Task.isCancelled { return }
+            let fastInfo = self.scanFastFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.rightGeneration, self.rightURL == url else { return }
+                self.rightFolderInfo = fastInfo
+            }
+            if Task.isCancelled { return }
+            let fullInfo = self.scanEnhancedFolderInfo(for: url)
+            await MainActor.run {
+                guard generation == self.rightGeneration, self.rightURL == url else { return }
+                self.rightFolderInfo = fullInfo
+                self.folderInfoLoadingState[url] = false
+            }
         }
     }
 
@@ -103,12 +149,16 @@ final class FolderInfoService: ObservableObject {
             var index = 0
 
             while index < newURLs.count {
+                // Structured group: parent cancellation propagates, so a
+                // superseded selection stops the remaining chunks.
+                guard !Task.isCancelled else { return }
                 let end = min(index + chunkSize, newURLs.count)
                 let slice = Array(newURLs[index..<end])
 
                 await withTaskGroup(of: (URL, EnhancedFolderInfo?).self) { group in
                     for url in slice {
                         group.addTask {
+                            guard !Task.isCancelled else { return (url, nil) }
                             // Lightweight info to avoid scanning large destination volumes
                             let info = await self.getLightweightFolderInfo(for: url)
                             return (url, info)
@@ -120,6 +170,10 @@ final class FolderInfoService: ObservableObject {
                 }
                 index = end
             }
+
+            // A newer selection may have arrived while scanning; never let
+            // stale results (or the cleanup below) clobber it.
+            guard destinationURLs == urls else { return }
 
             for (url, info) in results {
                 destinationFolderInfos[url] = info
@@ -152,6 +206,15 @@ final class FolderInfoService: ObservableObject {
 
     /// Clear all cached folder info
     func clearAll() {
+        sourceWork?.cancel()
+        leftWork?.cancel()
+        rightWork?.cancel()
+        sourceWork = nil
+        leftWork = nil
+        rightWork = nil
+        sourceGeneration &+= 1
+        leftGeneration &+= 1
+        rightGeneration &+= 1
         sourceFolderInfo = nil
         leftFolderInfo = nil
         rightFolderInfo = nil
@@ -165,9 +228,10 @@ final class FolderInfoService: ObservableObject {
 
     // MARK: - Private Scanning Methods
 
-    /// Perf 8: Fast pass - count + size only, returns quickly
-    nonisolated private func getFastFolderInfo(for url: URL) async -> EnhancedFolderInfo? {
-        return await Task.detached(priority: .userInitiated) {
+    /// Perf 8: Fast pass - count + size only, returns quickly.
+    /// Synchronous: callers run it on an owned background task so
+    /// cancellation actually stops the enumeration.
+    nonisolated private func scanFastFolderInfo(for url: URL) -> EnhancedFolderInfo? {
             var fileCount = 0
             var totalSize: Int64 = 0
 
@@ -179,6 +243,7 @@ final class FolderInfoService: ObservableObject {
             ) else { return nil }
 
             while let file = enumerator.nextObject() {
+                if Task.isCancelled { return nil }
                 guard let fileURL = file as? URL else { continue }
                 guard let rv = try? fileURL.resourceValues(forKeys: Set(fastKeys)) else { continue }
                 if rv.isSymbolicLink == true { continue }
@@ -200,12 +265,12 @@ final class FolderInfoService: ObservableObject {
                 oldestFileDate: nil,
                 newestFileDate: nil
             )
-        }.value
     }
 
-    /// Full scan for source folders - includes file type breakdown
-    nonisolated private func getEnhancedFolderInfo(for url: URL) async -> EnhancedFolderInfo? {
-        return await Task.detached(priority: .userInitiated) {
+    /// Full scan for source folders - includes file type breakdown.
+    /// Synchronous: callers run it on an owned background task so
+    /// cancellation actually stops the enumeration.
+    nonisolated private func scanEnhancedFolderInfo(for url: URL) -> EnhancedFolderInfo? {
             var fileCount = 0
             var totalSize: Int64 = 0
             var fileTypeBreakdown: [String: Int] = [:]
@@ -230,6 +295,7 @@ final class FolderInfoService: ObservableObject {
             }
 
             while let file = enumerator.nextObject() {
+                if Task.isCancelled { return nil }
                 autoreleasepool {
                     guard let fileURL = file as? URL else { return }
                     guard let rv = try? fileURL.resourceValues(forKeys: Set(fileEnumKeys)) else { return }
@@ -286,7 +352,6 @@ final class FolderInfoService: ObservableObject {
                 oldestFileDate: oldestFile,
                 newestFileDate: newestFile
             )
-        }.value
     }
 
     /// Lightweight scan for destination folders - just basic metadata

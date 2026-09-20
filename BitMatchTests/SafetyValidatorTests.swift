@@ -72,6 +72,63 @@ final class SafetyValidatorTests: XCTestCase {
         }
     }
 
+    // MARK: - Symlink Loop Detection
+
+    func testComparisonRejectsSymlinkCycle() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let real = tmp.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let a = tmp.appendingPathComponent("a")
+        let b = tmp.appendingPathComponent("b")
+        try FileManager.default.createSymbolicLink(at: a, withDestinationURL: b)
+        try FileManager.default.createSymbolicLink(at: b, withDestinationURL: a)
+
+        do {
+            try await SafetyValidator.performComparisonChecks(left: a, right: real)
+            XCTFail("expected a symlinkLoop error for a symlink cycle")
+        } catch {
+            XCTAssertTrue(error is FileOperationError, "unexpected error: \(error)")
+        }
+    }
+
+    func testFirstSymlinkComponentFindsAncestorLink() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let real = tmp.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = tmp.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        XCTAssertEqual(SafetyValidator.firstSymlinkComponent(in: link), link.path)
+        XCTAssertEqual(
+            SafetyValidator.firstSymlinkComponent(in: link.appendingPathComponent("nested.txt")),
+            link.path
+        )
+        XCTAssertNil(SafetyValidator.firstSymlinkComponent(in: real))
+        // Fixed /private aliases (/tmp, /var, /etc) are tolerated.
+        XCTAssertNil(SafetyValidator.firstSymlinkComponent(in: tmp))
+        XCTAssertNil(
+            SafetyValidator.firstSymlinkComponent(in: URL(fileURLWithPath: "/tmp/bitmatch-nonexistent-\(UUID().uuidString)"))
+        )
+    }
+
+    func testComparisonAllowsAcyclicSymlinks() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let real = tmp.appendingPathComponent("real")
+        let other = tmp.appendingPathComponent("other")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let link = tmp.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        try await SafetyValidator.performComparisonChecks(left: link, right: other)
+    }
+
     // MARK: - Directory Validation
 
     func testDirectoriesOnlyRejectsFiles() throws {

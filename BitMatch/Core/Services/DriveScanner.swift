@@ -28,6 +28,8 @@ final class DriveScanner {
         
         // Search for BitMatchReport.json files
         while let fileURL = enumerator.nextObject() as? URL {
+            // Cooperative cancellation: report scans can walk large volumes.
+            if Task.isCancelled { break }
             filesChecked += 1
             
             let filename = fileURL.lastPathComponent

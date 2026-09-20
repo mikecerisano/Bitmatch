@@ -527,6 +527,8 @@ struct MasterReportView: View {
     @State private var isScanning = false
     @State private var discoveredTransfers: [TransferCard] = []
     @State private var selectedTransfers = Set<UUID>()
+    @State private var volumeScanTask: Task<Void, Never>?
+    @State private var activeVolumeScanID: UUID?
     @State private var availableVolumes: [ReportVolumeInfo] = []
     @State private var showingVolumeSelector = false
     @State private var reportConfiguration = SharedReportGenerationService.ReportConfiguration.default()
@@ -605,17 +607,24 @@ struct MasterReportView: View {
     }
     
     private func scanVolume(_ volume: ReportVolumeInfo) {
-        Task {
+        volumeScanTask?.cancel()
+        let scanID = UUID()
+        activeVolumeScanID = scanID
+        volumeScanTask = Task {
             isScanning = true
             showingVolumeSelector = false
-            
+
             // Use real IOSDriverScanner to discover transfers
             let volumeURL = URL(fileURLWithPath: volume.path)
-            discoveredTransfers = await IOSDriverScanner.scanForBitMatchReports(at: volumeURL)
-            
+            let transfers = await IOSDriverScanner.scanForBitMatchReports(at: volumeURL)
+
+            // A newer volume scan supersedes this one.
+            guard activeVolumeScanID == scanID else { return }
+            discoveredTransfers = transfers
+
             // Select all discovered transfers by default
-            selectedTransfers = Set(discoveredTransfers.map { $0.id })
-            
+            selectedTransfers = Set(transfers.map { $0.id })
+
             isScanning = false
         }
     }

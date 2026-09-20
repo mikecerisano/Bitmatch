@@ -51,9 +51,17 @@ struct BitMatchApp: App {
     @ObservedObject private var devModeManager = DevModeManager.shared
     #endif
     private let notifDelegate = NotificationDelegate()
-    private let launchesInterfaceLab = InterfaceLabLaunchConfiguration.isRequested(
-        arguments: ProcessInfo.processInfo.arguments
-    )
+    // InterfaceLab is a development tool: the launch path is DEBUG-only so a
+    // stray --interface-lab argument can never swap the Release UI.
+    private let launchesInterfaceLab: Bool = {
+#if DEBUG
+        InterfaceLabLaunchConfiguration.isRequested(
+            arguments: ProcessInfo.processInfo.arguments
+        )
+#else
+        false
+#endif
+    }()
 
     init() {
         UNUserNotificationCenter.current().delegate = notifDelegate
@@ -62,8 +70,12 @@ struct BitMatchApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+#if DEBUG
                 if launchesInterfaceLab { InterfaceLabView() }
                 else { ContentView().preferredColorScheme(.dark) }
+#else
+                ContentView().preferredColorScheme(.dark)
+#endif
             }
             .onAppear { setupWindow() }
         }

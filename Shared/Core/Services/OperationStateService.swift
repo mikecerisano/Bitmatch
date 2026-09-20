@@ -137,19 +137,39 @@ class OperationStateService: ObservableObject {
         return true
     }
     
-    func completeOperation() {
+    func completeOperation(success: Bool, message: String) {
         guard let operationId = currentOperationId else { return }
-        
+
         // Clean up any saved state
         if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
             savedOperations.remove(at: savedIndex)
             saveToDisk()
         }
-        
+
+        // Terminal transitions are authoritative: the coordinator's completed
+        // callback must agree with the state service, not just clear the ID.
+        applyTransition(.completed(OperationCompletionInfo(success: success, message: message)))
         currentOperationId = nil
         SharedLogger.info("StateService: completed and cleaned up", category: .transfer)
     }
-    
+
+    /// Error-path terminal state. Distinct from cancellation so a failed
+    /// operation is never reported as cancelled (or vice versa).
+    func failOperation() {
+        guard let operationId = currentOperationId else { return }
+
+        applyTransition(.failed)
+
+        // Clean up saved state
+        if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
+            savedOperations.remove(at: savedIndex)
+            saveToDisk()
+        }
+
+        currentOperationId = nil
+        SharedLogger.warning("StateService: failed and cleaned up", category: .transfer)
+    }
+
     func cancelOperation() {
         guard let operationId = currentOperationId else { return }
         

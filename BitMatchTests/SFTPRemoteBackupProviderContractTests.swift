@@ -181,7 +181,81 @@ struct SFTPRemoteBackupProviderContractTests {
         #expect(!RemoteBackupError.authenticationFailed.isTransientNetworkFault)
         #expect(RemoteBackupError.authenticationFailed.failClosedState == .paused)
         #expect(RemoteBackupError.unsafePath.failClosedState == .paused)
+        #expect(RemoteBackupError.invalidDestination.failClosedState == .paused)
         #expect(RemoteBackupError.permissionDenied.failClosedState == .paused)
+    }
+
+    @Test func sshConnectionPartsRejectOptionInjection() throws {
+        #if os(macOS)
+        #expect(try SFTPRemoteBackupProvider.validatedHost("backup.example") == "backup.example")
+        #expect(try SFTPRemoteBackupProvider.validatedHost("  archive-01.lan  ") == "archive-01.lan")
+        #expect(try SFTPRemoteBackupProvider.validatedHost("2001:db8::1") == "2001:db8::1")
+        for evil in ["-oProxyCommand=touch /tmp/pwned", "--help", "", "host name", "a/b", "a@b", "a;b", "a\nb", "a\u{7}b"] {
+            #expect(throws: RemoteBackupError.invalidDestination) {
+                try SFTPRemoteBackupProvider.validatedHost(evil)
+            }
+        }
+        #expect(try SFTPRemoteBackupProvider.validatedUsername("archive") == "archive")
+        for evil in ["-lroot", "root evil", "a@b", "a/b", "a:b", ""] {
+            #expect(throws: RemoteBackupError.invalidDestination) {
+                try SFTPRemoteBackupProvider.validatedUsername(evil)
+            }
+        }
+        #expect(try SFTPRemoteBackupProvider.validatedPortNumber(2222) == 2222)
+        for badPort in [0, -1, 70_000] {
+            #expect(throws: RemoteBackupError.invalidDestination) {
+                try SFTPRemoteBackupProvider.validatedPortNumber(badPort)
+            }
+        }
+        #endif
+    }
+
+    @Test func optionLikeHostNeverReachesSSH() async throws {
+        #if os(macOS)
+        let recorder = OpenSSHCommandRecorder()
+        let knownHosts = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("known_hosts")
+        try FileManager.default.createDirectory(at: knownHosts.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("backup.example ssh-ed25519 AAAA\n".utf8).write(to: knownHosts)
+        defer { try? FileManager.default.removeItem(at: knownHosts.deletingLastPathComponent()) }
+
+        var profile = try fixtureProfile()
+        profile.host = "-oProxyCommand=touch /tmp/pwned"
+        let provider = SFTPRemoteBackupProvider(
+            profile: profile, credential: .sshAgent,
+            knownHostsURL: knownHosts,
+            run: { command in await recorder.run(command) }
+        )
+
+        await #expect(throws: RemoteBackupError.invalidDestination) {
+            try await provider.ensureDirectory(try RemoteRelativePath(components: ["Jobs"]))
+        }
+        #expect(await recorder.commands().isEmpty)
+        #endif
+    }
+
+    @Test func sshInsertsOptionBoundaryBeforeHost() async throws {
+        #if os(macOS)
+        let recorder = OpenSSHCommandRecorder()
+        let knownHosts = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("known_hosts")
+        try FileManager.default.createDirectory(at: knownHosts.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("backup.example ssh-ed25519 AAAA\n".utf8).write(to: knownHosts)
+        defer { try? FileManager.default.removeItem(at: knownHosts.deletingLastPathComponent()) }
+
+        let provider = SFTPRemoteBackupProvider(
+            profile: try fixtureProfile(), credential: .sshAgent,
+            knownHostsURL: knownHosts,
+            run: { command in await recorder.run(command) }
+        )
+        try await provider.ensureDirectory(try RemoteRelativePath(components: ["Jobs"]))
+
+        let commands = await recorder.commands()
+        #expect(commands.count == 1)
+        let arguments = commands[0].arguments
+        let dashTDashIndex = arguments.firstIndex(of: "-T")
+        let hostIndex = arguments.firstIndex(of: "backup.example")
+        #expect(dashTDashIndex != nil && hostIndex != nil)
+        #expect(arguments[(dashTDashIndex! + 1)...(hostIndex! - 1)].contains("--"))
+        #endif
     }
 }
 

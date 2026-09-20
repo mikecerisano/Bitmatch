@@ -74,7 +74,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
             throw RemoteBackupError.authenticationFailed
         }
         try await establishExplicitTrustIfNeeded()
-        let result = try await run(ssh(command: "if command -v ln >/dev/null 2>&1 && command -v rm >/dev/null 2>&1; then exit 0; else printf __BITMATCH_NO_LN_RM__ >&2; exit 42; fi"))
+        let result = try await run(try ssh(command: "if command -v ln >/dev/null 2>&1 && command -v rm >/dev/null 2>&1; then exit 0; else printf __BITMATCH_NO_LN_RM__ >&2; exit 42; fi"))
         guard result.status == 0 else {
             let stderr = String(decoding: result.stderr, as: UTF8.self).lowercased()
             if result.status == 42, stderr.contains("__bitmatch_no_ln_rm__") {
@@ -87,7 +87,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
 
     func inspect(path: RemoteRelativePath) async throws -> RemoteObject? {
         let remotePath = try remote(path)
-        let result = try await run(ssh(command: "if test -e \(shellQuote(remotePath)); then wc -c < \(shellQuote(remotePath)); fi"))
+        let result = try await run(try ssh(command: "if test -e \(shellQuote(remotePath)); then wc -c < \(shellQuote(remotePath)); fi"))
         guard result.status == 0 else { throw classify(result) }
         let output = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { return nil }
@@ -96,7 +96,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
     }
 
     func ensureDirectory(_ path: RemoteRelativePath) async throws {
-        let result = try await run(ssh(command: "mkdir -p \(shellQuote(try remote(path)))"))
+        let result = try await run(try ssh(command: "mkdir -p \(shellQuote(try remote(path)))"))
         guard result.status == 0 else { throw classify(result) }
     }
 
@@ -107,7 +107,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         else {
             throw RemoteBackupError.unsafePath
         }
-        let result = try await run(ssh(command: "rm -f \(shellQuote(try remote(path)))"))
+        let result = try await run(try ssh(command: "rm -f \(shellQuote(try remote(path)))"))
         guard result.status == 0 else { throw classify(result) }
     }
 
@@ -118,7 +118,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
             throw RemoteBackupError.resumeOffsetMismatch(local: fromOffset, remote: remoteObject?.byteCount ?? 0)
         }
         let batch = "put -a \(try sftpQuote(local.path)) \(try sftpQuote(try remote(path)))\n"
-        let result = try await run(sftp(batch: batch))
+        let result = try await run(try sftp(batch: batch))
         guard result.status == 0 else { throw classify(result) }
         let complete = try await inspect(path: path)?.byteCount ?? 0
         await progress(complete)
@@ -128,14 +128,14 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         let temporaryPath = try remote(temporary)
         let finalPath = try remote(final)
         let command = "ln \(shellQuote(temporaryPath)) \(shellQuote(finalPath)) && rm \(shellQuote(temporaryPath))"
-        let result = try await run(ssh(command: command))
+        let result = try await run(try ssh(command: command))
         guard result.status == 0 else { throw classifyPromotion(result) }
     }
 
     func verificationEvidence(for path: RemoteRelativePath, expectedSHA256: String) async throws -> RemoteVerificationEvidence {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let result = try await run(sftp(batch: "get \(try sftpQuote(try remote(path))) \(try sftpQuote(temporary.path))\n"))
+        let result = try await run(try sftp(batch: "get \(try sftpQuote(try remote(path))) \(try sftpQuote(temporary.path))\n"))
         guard result.status == 0 else { throw classify(result) }
         let actual = try await SharedChecksumService.shared.generateChecksum(for: temporary, type: .sha256, useCache: false)
         guard actual.caseInsensitiveCompare(expectedSHA256) == .orderedSame else { throw RemoteBackupError.verificationFailed }
@@ -154,7 +154,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         guard let confirmUnknownHost else { throw RemoteBackupError.hostKeyMismatch }
         let scanned = try await run(OpenSSHCommand(
             executable: "/usr/bin/ssh-keyscan",
-            arguments: ["-p", "\(profile.port)", profile.host],
+            arguments: ["-p", "\(try Self.validatedPortNumber(profile.port))", try Self.validatedHost(profile.host)],
             standardInput: nil
         ))
         guard scanned.status == 0, !scanned.stdout.isEmpty else { throw RemoteBackupError.hostKeyMismatch }
@@ -175,20 +175,61 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         try scanned.stdout.write(to: knownHostsURL, options: .atomic)
     }
 
-    private func ssh(command: String) -> OpenSSHCommand {
-        OpenSSHCommand(executable: "/usr/bin/ssh", arguments: commonArguments(portFlag: "-p") + ["-T", profile.host, command], standardInput: nil)
+    /// Hostnames, usernames, and ports reach OpenSSH argv directly. An
+    /// argument array prevents shell interpolation but not option injection,
+    /// so anything that could parse as an option is rejected here, before
+    /// any command is built. Stored profiles predate this check, hence
+    /// validation at use time rather than only in the destination editor.
+    nonisolated static func validatedHost(_ host: String) throws -> String {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 255, !trimmed.hasPrefix("-") else {
+            throw RemoteBackupError.invalidDestination
+        }
+        // DNS names, IPv4, IPv6 (with optional %zone), and ssh_config aliases.
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_:%")
+        guard trimmed.unicodeScalars.allSatisfy(allowed.contains) else {
+            throw RemoteBackupError.invalidDestination
+        }
+        return trimmed
     }
 
-    private func sftp(batch: String) -> OpenSSHCommand {
-        OpenSSHCommand(executable: "/usr/bin/sftp", arguments: sftpArguments() + ["-b", "-", "\(profile.username)@\(profile.host)"], standardInput: Data(batch.utf8))
+    nonisolated static func validatedUsername(_ username: String) throws -> String {
+        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 64, !trimmed.hasPrefix("-") else {
+            throw RemoteBackupError.invalidDestination
+        }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_")
+        guard trimmed.unicodeScalars.allSatisfy(allowed.contains) else {
+            throw RemoteBackupError.invalidDestination
+        }
+        return trimmed
     }
 
-    private func commonArguments(portFlag: String) -> [String] {
-        Self.fixedArguments(knownHostsURL: knownHostsURL, port: profile.port, username: profile.username, portFlag: portFlag)
+    nonisolated static func validatedPortNumber(_ port: Int) throws -> Int {
+        guard (1...65_535).contains(port) else {
+            throw RemoteBackupError.invalidDestination
+        }
+        return port
     }
 
-    private func sftpArguments() -> [String] {
-        Self.fixedArguments(knownHostsURL: knownHostsURL, port: profile.port, username: nil, portFlag: "-P")
+    private func ssh(command: String) throws -> OpenSSHCommand {
+        // "--" is a verified option boundary on the system ssh (see ssh(1));
+        // validation above is the primary guard, "--" the backstop.
+        OpenSSHCommand(executable: "/usr/bin/ssh", arguments: try commonArguments(portFlag: "-p") + ["-T", "--", Self.validatedHost(profile.host), command], standardInput: nil)
+    }
+
+    private func sftp(batch: String) throws -> OpenSSHCommand {
+        // The user@host destination can never start with "-" after validation.
+        let destination = "\(try Self.validatedUsername(profile.username))@\(try Self.validatedHost(profile.host))"
+        return OpenSSHCommand(executable: "/usr/bin/sftp", arguments: try sftpArguments() + ["-b", "-", destination], standardInput: Data(batch.utf8))
+    }
+
+    private func commonArguments(portFlag: String) throws -> [String] {
+        Self.fixedArguments(knownHostsURL: knownHostsURL, port: try Self.validatedPortNumber(profile.port), username: try Self.validatedUsername(profile.username), portFlag: portFlag)
+    }
+
+    private func sftpArguments() throws -> [String] {
+        Self.fixedArguments(knownHostsURL: knownHostsURL, port: try Self.validatedPortNumber(profile.port), username: nil, portFlag: "-P")
     }
 
     /// Profile roots are deliberately relative to the authenticated SFTP

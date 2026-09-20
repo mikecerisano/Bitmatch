@@ -436,11 +436,13 @@ struct SharedFileOperationsEdgeCaseTests {
             let mutator = SourceMutationTrigger(sourceFile: sourceFile)
             let errors = AsyncErrorCollector()
 
+            let pinnedRoot = try PinnedDestinationDirectory.open(destination: dest, rootComponents: [])
             try await FileCopyService.copyAllSafely(
                 from: source,
-                toRoot: dest,
+                toPinnedRoot: pinnedRoot,
                 verificationMode: .quick,
                 workers: 1,
+                checksumService: SharedChecksumService.shared,
                 pauseCheck: {
                     try await mutator.tick()
                 },

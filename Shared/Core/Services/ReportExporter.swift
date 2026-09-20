@@ -1034,9 +1034,14 @@ extension ReportExporter {
                     continue
                 }
                 
+                // Exports must hash the current bytes, not a cached digest keyed
+                // on size/mtime metadata that may be unchanged while content
+                // differs. Core copy/compare verification already bypasses
+                // the cache; this path did not.
                 let checksum = try await SharedChecksumService.shared.generateChecksum(
                     for: fileURL,
-                    type: algorithm
+                    type: algorithm,
+                    useCache: false
                 )
                 checksums.append((fileURL, checksum))
             }
