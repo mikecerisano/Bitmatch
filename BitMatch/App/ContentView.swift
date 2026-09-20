@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 
 struct ContentView: View {
-    @StateObject private var coordinator = AppCoordinator()
+    @StateObject private var coordinator: AppCoordinator
     @ObservedObject private var errorHandler = GlobalErrorHandler.shared
 #if DEBUG
     @ObservedObject private var devModeManager = DevModeManager.shared
@@ -25,6 +25,10 @@ struct ContentView: View {
     @State private var showDropRejection = false
     @State private var dropRejectionMessage = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(coordinator: AppCoordinator? = nil) {
+        _coordinator = StateObject(wrappedValue: coordinator ?? AppCoordinator())
+    }
     
     // Calculate ideal window height based on content and current mode
     private var idealWindowHeight: CGFloat {
@@ -177,6 +181,7 @@ struct ContentView: View {
             // While in progress, keep showing the active mode's view.
             // Copy & Verify view renders its compact progress UI when in progress.
             modeSpecificView
+                .padding(.top, 16)
         default:
             completionView
         }

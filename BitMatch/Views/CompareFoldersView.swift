@@ -249,10 +249,10 @@ struct CompareFoldersView: View {
     @ViewBuilder
     private var actionSection: some View {
         HStack {
-            // Report toggle
-            Toggle("Create PDF & CSV Report", isOn: $coordinator.settingsViewModel.prefs.makeReport)
-                .toggleStyle(.switch)
-                .tint(.green)
+            Text("Export any differences from the results.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             
             Spacer()
             
@@ -261,7 +261,7 @@ struct CompareFoldersView: View {
                 coordinator.switchMode(to: .compareFolders)
                 coordinator.startOperation()
             } label: {
-                Label("Verify", systemImage: "checkmark.shield.fill")
+                Label("Compare folders", systemImage: "checkmark.shield.fill")
             }
             .buttonStyle(PrimaryActionButtonStyle(isEnabled: coordinator.canStartOperation))
             .disabled(!coordinator.canStartOperation)

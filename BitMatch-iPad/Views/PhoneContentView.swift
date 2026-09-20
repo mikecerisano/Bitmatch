@@ -42,6 +42,8 @@ struct PhoneContentView: View {
                     .padding(.bottom, 20)
                 }
             }
+            .navigationTitle("BitMatch")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingTransfers = true } label: {

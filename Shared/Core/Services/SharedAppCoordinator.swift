@@ -115,17 +115,21 @@ class SharedAppCoordinator: ObservableObject {
 
     // MARK: - Initialization
     
-    init(platformManager: PlatformManager, transferJournal: LocalTransferJournal? = nil) {
+    init(
+        platformManager: PlatformManager,
+        transferJournal: LocalTransferJournal? = nil,
+        projectStore: (any PhotographerJobStore)? = nil
+    ) {
         self.platformManager = platformManager
         let environment = ProcessInfo.processInfo.environment
         let isTesting = environment["XCTestConfigurationFilePath"] != nil || environment["XCTestBundlePath"] != nil
         let testJournalURL = isTesting ? FileManager.default.temporaryDirectory
             .appendingPathComponent("BitMatchTestJournal-\(UUID().uuidString).json") : nil
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
-        let projectStore = UserDefaultsPhotographerJobStore()
+        let selectedProjectStore = projectStore ?? UserDefaultsPhotographerJobStore()
         self.photographerJobViewModel = PhotographerJobViewModel(
-            store: projectStore,
-            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: projectStore)
+            store: selectedProjectStore,
+            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore)
         )
         setupBindings()
         self.transferJournal.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }

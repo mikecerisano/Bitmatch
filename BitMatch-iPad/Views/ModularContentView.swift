@@ -399,19 +399,19 @@ struct ComparisonControlsView: View {
                     .foregroundColor(.white.opacity(0.6))
                     .tracking(1.0)
                 
-                VStack(spacing: 8) {
-                    Toggle("Include file sizes", isOn: .constant(true))
-                        .font(.system(size: 13))
-                        .foregroundColor(.white)
-                    
-                    Toggle("Check modification dates", isOn: .constant(true))
-                        .font(.system(size: 13))
-                        .foregroundColor(.white)
-                    
-                    Toggle("Verify checksums", isOn: .constant(false))
-                        .font(.system(size: 13))
-                        .foregroundColor(.white)
+                Picker("Verification", selection: $coordinator.verificationMode) {
+                    ForEach(VerificationMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
                 }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(coordinator.verificationMode.description)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

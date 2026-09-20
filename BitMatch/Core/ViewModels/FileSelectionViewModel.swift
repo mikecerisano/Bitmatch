@@ -68,10 +68,12 @@ final class FileSelectionViewModel: ObservableObject {
     private var activeSecurityScopes = Set<URL>()
     
     // MARK: - Initialization
-    init() {
+    init(enableVolumeMonitoring: Bool = true) {
         loadRecentFolders()
-        setupVolumeMonitoring()
-        loadSavedBookmarks()
+        if enableVolumeMonitoring {
+            setupVolumeMonitoring()
+            loadSavedBookmarks()
+        }
     }
 
     deinit {

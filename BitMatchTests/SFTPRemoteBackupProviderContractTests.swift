@@ -94,6 +94,61 @@ struct SFTPRemoteBackupProviderContractTests {
         #endif
     }
 
+    @Test func discardTemporaryAcceptsOnlyItemOwnedUUIDPath() async throws {
+        #if os(macOS)
+        let recorder = OpenSSHCommandRecorder()
+        let knownHosts = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("known_hosts")
+        try FileManager.default.createDirectory(at: knownHosts.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("backup.example ssh-ed25519 AAAA\n".utf8).write(to: knownHosts)
+        defer { try? FileManager.default.removeItem(at: knownHosts.deletingLastPathComponent()) }
+
+        let provider = SFTPRemoteBackupProvider(
+            profile: try fixtureProfile(), credential: .sshAgent,
+            knownHostsURL: knownHosts,
+            run: { command in await recorder.run(command) }
+        )
+        let itemID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let temporary = try RemoteRelativePath(
+            components: ["Jobs", ".bitmatch-upload-\(itemID.uuidString.lowercased())"]
+        )
+
+        try await provider.discardTemporary(temporary)
+
+        let commands = await recorder.commands()
+        #expect(commands.count == 1)
+        #expect(commands[0].executable == "/usr/bin/ssh")
+        #expect(commands[0].arguments.last == "rm -f 'Backups/Jobs/.bitmatch-upload-11111111-2222-3333-4444-555555555555'")
+        #endif
+    }
+
+    @Test func discardTemporaryRejectsFinalAndShellUnsafePathsBeforeSSH() async throws {
+        #if os(macOS)
+        let recorder = OpenSSHCommandRecorder()
+        let knownHosts = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("known_hosts")
+        try FileManager.default.createDirectory(at: knownHosts.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("backup.example ssh-ed25519 AAAA\n".utf8).write(to: knownHosts)
+        defer { try? FileManager.default.removeItem(at: knownHosts.deletingLastPathComponent()) }
+
+        let provider = SFTPRemoteBackupProvider(
+            profile: try fixtureProfile(), credential: .sshAgent,
+            knownHostsURL: knownHosts,
+            run: { command in await recorder.run(command) }
+        )
+        let itemID = "11111111-2222-3333-4444-555555555555"
+        let final = try RemoteRelativePath(components: ["Jobs", "Card-001.mov"])
+        let malformedTemporary = try RemoteRelativePath(components: ["Jobs", ".bitmatch-upload-item"])
+        let shellUnsafeTemporary = try RemoteRelativePath(components: ["Jobs", ".bitmatch-upload-\(itemID);touch"])
+
+        for path in [final, malformedTemporary, shellUnsafeTemporary] {
+            await #expect(throws: RemoteBackupError.unsafePath) {
+                try await provider.discardTemporary(path)
+            }
+        }
+
+        #expect(await recorder.commands().isEmpty)
+        #endif
+    }
+
     @Test func verifiedModeRequiresNoReplacePromotionCapability() async throws {
         let capabilities = RemoteProviderCapabilities(
             supportsNoReplacePromotion: false,

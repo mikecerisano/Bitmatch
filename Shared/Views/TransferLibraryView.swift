@@ -96,7 +96,7 @@ struct TransferLibraryView: View {
             Text(record.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
             Text(record.destinations.map { $0.url.lastPathComponent }.joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary)
-            Text("\(record.verificationMode.rawValue) · \(record.results.count) reported files")
+            Text("\(record.verificationMode.rawValue) · \(record.results.count) reported \(record.results.count == 1 ? "file" : "files")")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 if record.state == .queued {

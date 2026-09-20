@@ -55,6 +55,7 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
     case permissionDenied
     case manifestUnavailable
     case resumeOffsetMismatch(local: Int64, remote: Int64)
+    case temporaryCleanupFailed
     case verificationFailed
     case cancelled
 
@@ -105,6 +106,8 @@ enum RemoteBackupError: Error, Equatable, Sendable, LocalizedError {
             return "The persisted remote backup manifest is unavailable."
         case .resumeOffsetMismatch(let local, let remote):
             return "The saved upload offset (\(local)) does not match the remote temporary object (\(remote))."
+        case .temporaryCleanupFailed:
+            return "The remote temporary upload could not be safely discarded; retry when the destination is reachable."
         case .verificationFailed:
             return "Remote backup verification did not produce matching SHA-256 evidence."
         case .cancelled:
@@ -116,6 +119,9 @@ protocol RemoteBackupProvider: Sendable {
     func preflight(profile: RemoteDestinationProfile, credential: RemoteCredential) async throws -> RemoteProviderCapabilities
     func inspect(path: RemoteRelativePath) async throws -> RemoteObject?
     func ensureDirectory(_ path: RemoteRelativePath) async throws
+    /// Removes only the item-owned temporary object. Implementations must
+    /// never remove a final destination through this operation.
+    func discardTemporary(_ path: RemoteRelativePath) async throws
     func upload(
         local: URL,
         toTemporary path: RemoteRelativePath,

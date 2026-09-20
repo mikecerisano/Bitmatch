@@ -100,6 +100,17 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         guard result.status == 0 else { throw classify(result) }
     }
 
+    func discardTemporary(_ path: RemoteRelativePath) async throws {
+        guard let basename = path.components.last,
+              basename.hasPrefix(".bitmatch-upload-"),
+              UUID(uuidString: String(basename.dropFirst(".bitmatch-upload-".count))) != nil
+        else {
+            throw RemoteBackupError.unsafePath
+        }
+        let result = try await run(ssh(command: "rm -f \(shellQuote(try remote(path)))"))
+        guard result.status == 0 else { throw classify(result) }
+    }
+
     func upload(local: URL, toTemporary path: RemoteRelativePath, fromOffset: Int64, progress: @Sendable (Int64) async -> Void) async throws {
         guard fromOffset >= 0 else { throw RemoteBackupError.resumeOffsetMismatch(local: fromOffset, remote: 0) }
         let remoteObject = try await inspect(path: path)

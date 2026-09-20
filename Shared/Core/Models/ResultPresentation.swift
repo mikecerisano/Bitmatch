@@ -141,7 +141,7 @@ struct DestinationResultSummary: Identifiable {
         guard !rows.isEmpty else { return "No file results recorded" }
         if issueCount > 0 { return "\(issueCount) of \(rows.count) reported results need attention" }
         if unverifiedCount > 0 { return "\(unverifiedCount) of \(rows.count) file results are unverified" }
-        return "\(rows.count) verified file results"
+        return rows.count == 1 ? "1 verified file result" : "\(rows.count) verified file results"
     }
 
     static func make(rows: [ResultRow], destinations: [URL]) -> [Self] {

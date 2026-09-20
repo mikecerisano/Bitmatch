@@ -31,7 +31,11 @@ extension Color {
 
 // MARK: - Main ContentView using Modular Architecture
 struct ContentView: View {
-    @StateObject private var coordinator = SharedAppCoordinator()
+    @StateObject private var coordinator: SharedAppCoordinator
+
+    init(coordinator: SharedAppCoordinator? = nil) {
+        _coordinator = StateObject(wrappedValue: coordinator ?? SharedAppCoordinator())
+    }
     
     var body: some View {
         GeometryReader { proxy in

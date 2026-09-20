@@ -79,6 +79,37 @@ actor RemoteBackupQueue {
     private var runGenerations: [UUID: UInt64] = [:]
     private var mutationGenerations: [UUID: UInt64] = [:]
     private var pendingWrites: [UUID: Task<Void, Error>] = [:]
+    private var pendingWriteTokens: [UUID: UUID] = [:]
+    private struct DeferredWrite {
+        var item: RemoteQueueItem
+        var generation: UInt64
+        var attempts: Int
+        var retryAt: Date
+    }
+    private var deferredWrites: [UUID: DeferredWrite] = [:]
+
+    /// Retry only the unsaved state. Remote work stays gated until that exact
+    /// intent (including pause, cancellation, or completion) becomes durable.
+    func recoverPendingWrites() async {
+        let due = deferredWrites.filter { $0.value.retryAt <= now() }.map(\.key)
+        for id in due {
+            guard !runningItemIDs.contains(id),
+                  let deferred = deferredWrites[id],
+                  mutationGenerations[id] == deferred.generation else { continue }
+            do {
+                try await saveSerially(deferred.item)
+                guard mutationGenerations[id] == deferred.generation else { continue }
+                items[id] = deferred.item
+                deferredWrites[id] = nil
+            } catch {
+                guard mutationGenerations[id] == deferred.generation else { continue }
+                var next = deferred
+                next.attempts += 1
+                next.retryAt = now().addingTimeInterval(min(60, pow(2, Double(min(next.attempts, 6)))))
+                deferredWrites[id] = next
+            }
+        }
+    }
 
     init(
         persistence: any RemoteBackupQueuePersistence,
@@ -192,6 +223,7 @@ actor RemoteBackupQueue {
                 item.promotionIntent = false
             }
             runGenerations[id] = nextRunGeneration
+            cancellingItemIDs.remove(id)
         } catch {
             cancellingItemIDs.remove(id)
             throw error
@@ -223,14 +255,17 @@ actor RemoteBackupQueue {
     /// Earliest future backoff among deferred work, for arming the next wake-up.
     /// Nil means nothing is waiting on a timer.
     func earliestDeferredAttempt() -> Date? {
-        items.values.compactMap { item -> Date? in
-            guard !item.state.isTerminal,
+        let uploadDeadline = items.values.compactMap { item -> Date? in
+            guard deferredWrites[item.id] == nil,
+                  !item.state.isTerminal,
                   item.state != .paused,
                   !runningItemIDs.contains(item.id),
                   !cancellingItemIDs.contains(item.id),
                   let at = item.nextAttemptAt else { return nil }
             return at
         }.min()
+        let saveDeadline = deferredWrites.values.map(\.retryAt).min()
+        return [uploadDeadline, saveDeadline].compactMap { $0 }.min()
     }
 
     /// Parks an item: in-flight work aborts at the next checkpoint and the
@@ -262,7 +297,7 @@ actor RemoteBackupQueue {
     /// Returns a parked, backing-off, or retry-exhausted item to the runnable
     /// queue. Anything else (including verified work) is left alone.
     func retry(_ id: UUID) async throws {
-        guard let item = items[id],
+        guard let item = deferredWrites[id]?.item ?? items[id],
               item.state == .paused || item.state == .retrying || item.state == .failed else { return }
         _ = try await transition(itemID: id) { queuedItem in
             queuedItem.state = queuedItem.promotionIntent ? .verifying : .queued
@@ -307,33 +342,38 @@ actor RemoteBackupQueue {
             return
         }
 
-        let remoteTemporaryByteCount = try await provider.inspect(path: item.temporaryRemoteRelativePath)?.byteCount ?? 0
+        let remoteTemporaryObject = try await provider.inspect(path: item.temporaryRemoteRelativePath)
+        var remoteTemporaryByteCount = remoteTemporaryObject?.byteCount ?? 0
         guard isRunnable(itemID, runGeneration: runGeneration) else { return }
 
         // `.verifying` is the durable promotion-intent marker. It is written
         // before promotion, so a crash after promotion can only resume finalization.
         if item.state == .verifying {
-            guard remoteTemporaryByteCount == manifestEntry.byteCount else {
-                throw RemoteBackupError.resumeOffsetMismatch(
-                    local: manifestEntry.byteCount,
-                    remote: remoteTemporaryByteCount
+            if let remoteTemporaryObject,
+               remoteTemporaryObject.byteCount == manifestEntry.byteCount {
+                try await promoteAndFinalize(
+                    itemID: itemID,
+                    runGeneration: runGeneration,
+                    profile: profile,
+                    manifestEntry: manifestEntry,
+                    provider: provider
                 )
+                return
+            } else {
+                try await resetMismatchedTemporary(
+                    itemID: itemID,
+                    runGeneration: runGeneration,
+                    provider: provider
+                )
+                remoteTemporaryByteCount = 0
             }
-            try await promoteAndFinalize(
+        } else if item.uploadedByteCount != remoteTemporaryByteCount {
+            try await resetMismatchedTemporary(
                 itemID: itemID,
                 runGeneration: runGeneration,
-                profile: profile,
-                manifestEntry: manifestEntry,
                 provider: provider
             )
-            return
-        }
-
-        guard item.uploadedByteCount == remoteTemporaryByteCount else {
-            throw RemoteBackupError.resumeOffsetMismatch(
-                local: item.uploadedByteCount,
-                remote: remoteTemporaryByteCount
-            )
+            remoteTemporaryByteCount = 0
         }
 
         if item.remoteRelativePath.components.count > 1 {
@@ -407,6 +447,34 @@ actor RemoteBackupQueue {
         )
     }
 
+    /// A temporary object is disposable recovery state. When its observed
+    /// length disagrees with the durable queue offset, delete that object and
+    /// restart from zero rather than appending to bytes whose provenance is
+    /// unknown. This operation is scoped to the item-owned temporary path and
+    /// can never replace or delete the final object.
+    private func resetMismatchedTemporary(
+        itemID: UUID,
+        runGeneration: UInt64,
+        provider: any RemoteBackupProvider
+    ) async throws {
+        guard let item = items[itemID], isRunnable(itemID, runGeneration: runGeneration) else { return }
+        do {
+            try await provider.discardTemporary(item.temporaryRemoteRelativePath)
+        } catch {
+            // Do not retry or append to an object whose ownership/offset could
+            // not be reset safely. Leave the item paused for explicit retry.
+            throw RemoteBackupError.temporaryCleanupFailed
+        }
+        guard isRunnable(itemID, runGeneration: runGeneration) else { return }
+        _ = try await transition(itemID: itemID) { queuedItem in
+            queuedItem.state = .queued
+            queuedItem.uploadedByteCount = 0
+            queuedItem.nextAttemptAt = nil
+            queuedItem.errorSummary = nil
+            queuedItem.promotionIntent = false
+        }
+    }
+
     private func finalizeOwnedFinal(
         itemID: UUID,
         runGeneration: UInt64,
@@ -464,6 +532,7 @@ actor RemoteBackupQueue {
               let entry = manifest.entries.first(where: { $0.id == item.manifestEntryID }),
               entry.relativePath == item.localArtifactRelativePath,
               item.remoteRelativePath == (try expectedFinalPath(manifest: manifest, entry: entry)),
+              item.temporaryRemoteRelativePath != item.remoteRelativePath,
               item.temporaryRemoteRelativePath == (try expectedTemporaryPath(
                   final: item.remoteRelativePath,
                   itemID: item.id
@@ -506,7 +575,8 @@ actor RemoteBackupQueue {
     }
 
     private func handle(error: Error, itemID: UUID, runGeneration: UInt64) async {
-        guard (self.runGenerations[itemID] ?? 0) == runGeneration,
+        guard deferredWrites[itemID] == nil,
+              (self.runGenerations[itemID] ?? 0) == runGeneration,
               !cancellingItemIDs.contains(itemID),
               let item = items[itemID],
               !item.state.isTerminal,
@@ -565,7 +635,8 @@ actor RemoteBackupQueue {
     }
 
     private func isRunnable(_ id: UUID, runGeneration: UInt64? = nil) -> Bool {
-        guard let item = items[id], !cancellingItemIDs.contains(id) else { return false }
+        guard deferredWrites[id] == nil,
+              let item = items[id], !cancellingItemIDs.contains(id) else { return false }
         if let runGeneration, (self.runGenerations[id] ?? 0) != runGeneration { return false }
         guard !item.state.isTerminal, item.state != .paused else { return false }
         return item.nextAttemptAt.map { $0 <= now() } ?? true
@@ -576,14 +647,34 @@ actor RemoteBackupQueue {
         allowingCancellation: Bool = false,
         _ change: (inout RemoteQueueItem) -> Void
     ) async throws -> Bool {
-        guard var updatedItem = items[itemID], allowingCancellation || !cancellingItemIDs.contains(itemID) else {
+        guard var updatedItem = deferredWrites[itemID]?.item ?? items[itemID],
+              allowingCancellation || !cancellingItemIDs.contains(itemID) else {
             return false
         }
         change(&updatedItem)
         updatedItem.updatedAt = now()
         let generation = nextMutationGeneration(for: itemID)
-        try await saveSerially(updatedItem)
+        do {
+            try await saveSerially(updatedItem)
+        } catch {
+            if mutationGenerations[itemID] == generation {
+                deferredWrites[itemID] = DeferredWrite(
+                    item: updatedItem, generation: generation, attempts: 0,
+                    retryAt: now().addingTimeInterval(1)
+                )
+                runGenerations[itemID] = (runGenerations[itemID] ?? 0) &+ 1
+                // This is a presentation of the storage fault, not a claim
+                // that the intended transition was persisted.
+                var blocked = updatedItem
+                blocked.state = updatedItem.state == .cancelled ? .cancelled : .paused
+                blocked.nextAttemptAt = nil
+                blocked.errorSummary = "Could not save off-site backup progress. Remote work is stopped. Keep BitMatch open while it retries saving automatically."
+                items[itemID] = blocked
+            }
+            throw error
+        }
         guard mutationGenerations[itemID] == generation else { return false }
+        deferredWrites[itemID] = nil
         items[itemID] = updatedItem
         return true
     }
@@ -596,6 +687,7 @@ actor RemoteBackupQueue {
 
     private func saveSerially(_ item: RemoteQueueItem) async throws {
         let priorWrite = pendingWrites[item.id]
+        let token = UUID()
         let persistence = persistence
         let write = Task<Void, Error> {
             if let priorWrite {
@@ -604,7 +696,23 @@ actor RemoteBackupQueue {
             try await persistence.save(item)
         }
         pendingWrites[item.id] = write
-        try await write.value
+        pendingWriteTokens[item.id] = token
+        do {
+            try await write.value
+        } catch {
+            // A failed task must not poison the next write. Keep a newer task
+            // installed for this item if one was queued while this write was
+            // suspended; otherwise clear the failed task and its token.
+            if pendingWriteTokens[item.id] == token {
+                pendingWrites[item.id] = nil
+                pendingWriteTokens[item.id] = nil
+            }
+            throw error
+        }
+        if pendingWriteTokens[item.id] == token {
+            pendingWrites[item.id] = nil
+            pendingWriteTokens[item.id] = nil
+        }
     }
 
     private func isSHA256(_ digest: String) -> Bool {
@@ -615,7 +723,7 @@ actor RemoteBackupQueue {
 
     private func clearsPromotionIntent(_ error: RemoteBackupError) -> Bool {
         switch error {
-        case .manifestUnavailable, .verificationFailed, .conflict, .resumeOffsetMismatch:
+        case .manifestUnavailable, .verificationFailed, .conflict, .resumeOffsetMismatch, .temporaryCleanupFailed:
             return true
         default:
             return false

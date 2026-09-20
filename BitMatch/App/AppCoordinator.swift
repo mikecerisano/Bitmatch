@@ -19,7 +19,7 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - macOS-Specific ViewModels (backward compat for views)
     @Published var progressViewModel = ProgressViewModel()
-    @Published var fileSelectionViewModel = FileSelectionViewModel()
+    @Published var fileSelectionViewModel: FileSelectionViewModel
     @Published var cameraLabelViewModel = CameraLabelViewModel()
     @Published var settingsViewModel = SettingsViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
@@ -243,6 +243,7 @@ final class AppCoordinator: ObservableObject {
         repeat {
             remoteSchedulerNeedsRun = false
             do {
+                await queue.recoverPendingWrites()
                 try await queue.restore()
                 await refreshAllRemoteBackupSummaries()
                 for id in await queue.runnableIDs() {
@@ -428,11 +429,14 @@ final class AppCoordinator: ObservableObject {
     /// that does not present modal alerts.
     init(
         photographerJobViewModel: PhotographerJobViewModel? = nil,
+        fileSelectionViewModel: FileSelectionViewModel? = nil,
         platformManager: PlatformManager = MacOSPlatformManager.shared,
         remoteBackupQueue: RemoteBackupQueue? = nil,
-        startRemoteScheduler: Bool = true
+        startRemoteScheduler: Bool = true,
+        sharedCoordinator: SharedAppCoordinator? = nil
     ) {
-        self.sharedCoordinator = SharedAppCoordinator(platformManager: platformManager)
+        self.sharedCoordinator = sharedCoordinator ?? SharedAppCoordinator(platformManager: platformManager)
+        self.fileSelectionViewModel = fileSelectionViewModel ?? FileSelectionViewModel()
         if let photographerJobViewModel {
             self.photographerJobViewModel = photographerJobViewModel
             self.remoteBackupQueue = remoteBackupQueue

@@ -27,3 +27,5 @@ Regression coverage includes stale comparison inputs, metadata-named ordinary fi
 These are source, unit/integration, and build checks. No new interactive screenshots, physical-device transfers, real SFTP-server tests, or receiving-tool ASC acceptance tests were recorded. Report failures can leave partial report files, but completion and history retain the failure. Remote pause takes effect at worker checkpoints; bytes can still reach a provider before it stops, and offset disagreements remain fail-closed. A persistent queue-store write failure can still require manual recovery; this review does not claim automatic recovery from unavailable storage.
 
 The public download remains v0.1.4. This review does not sign, notarize, or publish a new binary. GitHub Actions remains disabled as requested.
+
+Follow-up: [September 20 recovery and layout validation](../2026-09-20/recovery-and-layout.md) adds automatic in-process save recovery, safe restarts for temporary upload drift, and fresh layout captures.
