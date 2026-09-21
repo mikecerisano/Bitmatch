@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.5] - 2026-09-21
+
+- Camera detection: Fix scan/detection races across unmount and same-path remount (per-volume generations, tombstones, owned request handles); a rescan while monitoring is stopped no longer publishes.
+- Compare: iPhone and iPad use the real document picker; cancelling any folder picker preserves the existing selection.
+- Responsiveness: Mac folder enumeration, camera-hint detection, and camera label memory detection run off the main actor with cancellation and stale-result guards.
+- Cancellation: Camera detection honors task cancellation at stage boundaries, inside enumeration loops, and at metadata subprocesses (terminated on cancel, bounded wait); camera memory store is lock-guarded.
+- Outcomes: Cancelled operations keep visible partial results on Mac, iPhone, and iPad with explicit cancelled wording.
+- Destinations: Volume rediscovery no longer re-adds an explicitly removed destination until the drive is unplugged or re-added.
+- Cleanup: Remove dead async utilities, regex helper, and unused test mocks; report exports log through the shared logger.
+
 ## [Unreleased]
 
 - Interface: Simplify transfer setup and completion, keep optional controls under Advanced, and show a result for each backup on Mac, iPad, and iPhone.
