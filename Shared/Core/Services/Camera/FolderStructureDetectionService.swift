@@ -16,6 +16,7 @@ final class FolderStructureDetectionService {
         
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
             for case let folderURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 do {
                     let resourceValues = try folderURL.resourceValues(forKeys: [.isDirectoryKey])
                     if resourceValues.isDirectory == true {

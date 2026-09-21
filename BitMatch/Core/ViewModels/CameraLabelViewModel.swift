@@ -10,7 +10,10 @@ final class CameraLabelViewModel: ObservableObject {
     @Published var currentFingerprint: CameraMemoryService.CameraFingerprint?
     
     // MARK: - Private Properties
-    private let cameraDetection = CameraDetectionOrchestrator.shared
+    /// Owned detection task and its generation: reselecting the source
+    /// cancels the in-flight detection and only the latest may publish.
+    private var detectionTask: Task<Void, Never>?
+    private var detectionGeneration = 0
     
     // MARK: - Initialization
     init() {
@@ -19,52 +22,65 @@ final class CameraLabelViewModel: ObservableObject {
     
     // MARK: - Public Methods (Updated with Memory System)
     func detectCameraWithMemory(at url: URL) {
-        Task {
-            // First detect the camera model (existing functionality)
-            let detectedName = cameraDetection.detectCamera(at: url)
-            let cameraType = mapCameraNameToType(detectedName)
-            
+        // Supersede any in-flight detection: only the latest source may
+        // publish. Detection itself honors task cancellation at the
+        // orchestrator's stage boundaries.
+        detectionTask?.cancel()
+        detectionGeneration += 1
+        let generation = detectionGeneration
+        detectionTask = Task.detached {
+            // Filesystem enumeration, metadata subprocesses, and
+            // fingerprinting run off the main actor.
+            let detectedName = CameraDetectionOrchestrator.shared.detectCamera(at: url)
+            let cameraType = Self.mapCameraNameToType(detectedName)
+            // A superseded request must not start further scans.
+            guard !Task.isCancelled else { return }
+
             // Then try to get the camera's fingerprint
             let fingerprint = CameraMemoryService.shared.getCameraFingerprint(at: url)
-            
-            await MainActor.run {
+            guard !Task.isCancelled else { return }
+            // Folder-analysis naming suggestion, also off the main actor.
+            let suggestion = CameraNamingService.getBestCameraSuggestion(for: url)
+
+            await MainActor.run { [weak self] in
+                guard let self, generation == self.detectionGeneration else { return }
                 self.detectedCamera = cameraType
                 self.currentFingerprint = fingerprint
-                
+
                 // Check if we remember this specific camera
                 if let fingerprint = fingerprint,
                    let rememberedLabel = CameraMemoryService.shared.getRememberedLabel(for: fingerprint) {
-                    
+
                     // We've seen this exact camera before! Use its remembered label
-                    destinationLabelSettings.label = rememberedLabel
-                    
+                    self.destinationLabelSettings.label = rememberedLabel
+
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        saveCameraLabelSettings()
+                        self.saveCameraLabelSettings()
                     }
 
                     SharedLogger.info("Recognized camera: \(fingerprint.displayName) → Auto-applied label: \"\(rememberedLabel)\"", category: .transfer)
-                    
-                } else if destinationLabelSettings.label.isEmpty {
+
+                } else if self.destinationLabelSettings.label.isEmpty {
                     // Try intelligent camera naming from video files first
-                    if let cameraSuggestion = CameraNamingService.getBestCameraSuggestion(for: url) {
-                        destinationLabelSettings.label = cameraSuggestion.suggestedName
+                    if let cameraSuggestion = suggestion {
+                        self.destinationLabelSettings.label = cameraSuggestion.suggestedName
 
                         SharedLogger.info("Auto-detected camera designation: \(cameraSuggestion.cameraDesignation) from \(cameraSuggestion.sourceFilename)", category: .transfer)
                         SharedLogger.debug("Suggested folder name: \"\(cameraSuggestion.suggestedName)\" (confidence: \(cameraSuggestion.confidence * 100)%)", category: .transfer)
-                        
+
                     } else if cameraType != .generic {
                         // Fallback to model-based naming using clean camera names
                         if let detectedName = detectedName {
                             let cleanName = CleanCameraNameService.shared.getCleanCameraName(from: detectedName)
-                            destinationLabelSettings.label = cleanName
+                            self.destinationLabelSettings.label = cleanName
                         } else {
-                            let suggestedLabel = getCameraModelLabel(for: cameraType)
-                            destinationLabelSettings.label = suggestedLabel
+                            let suggestedLabel = self.getCameraModelLabel(for: cameraType)
+                            self.destinationLabelSettings.label = suggestedLabel
                         }
                     }
-                    
+
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        saveCameraLabelSettings()
+                        self.saveCameraLabelSettings()
                     }
 
                     SharedLogger.info("New camera detected: \(cameraType.rawValue)", category: .transfer)
@@ -161,7 +177,7 @@ final class CameraLabelViewModel: ObservableObject {
     }
     
     // MARK: - Camera Type Mapping
-    private func mapCameraNameToType(_ name: String?) -> CameraType {
+    private nonisolated static func mapCameraNameToType(_ name: String?) -> CameraType {
         guard let name = name else { return .generic }
         
         let lowercased = name.lowercased()

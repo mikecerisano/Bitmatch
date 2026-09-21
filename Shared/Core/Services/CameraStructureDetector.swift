@@ -24,11 +24,6 @@ struct CameraStructureDetector {
         // Try each camera type detection pattern
         for detector in cameraDetectors {
             if let detection = detector.detect(at: volume) {
-                // Future enhancement: populate volume info if needed for UI
-                // guard let volumeInfo = VolumeScanner.getVolumeInfo(for: volume) else {
-                //     continue
-                // }
-                
                 return CameraCard(
                     name: detection.cameraType.rawValue,
                     manufacturer: detection.cameraType.rawValue,

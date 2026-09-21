@@ -27,6 +27,12 @@ final class CameraMemoryService {
     }
     
     // MARK: - Memory Storage
+    /// Guards `memory`: fingerprinting runs off the main actor (label-view
+    /// background detection) while label reads/writes happen on it.
+    /// Mutations still auto-save via didSet, which runs inside the lock on
+    /// the mutating thread; `saveMemory` only re-reads `memory` on that
+    /// same thread, so no re-entry occurs.
+    private let memoryLock = NSLock()
     private var memory: [String: CameraFingerprint] = [:] {
         didSet {
             saveMemory()
@@ -64,9 +70,9 @@ final class CameraMemoryService {
         // Create or retrieve existing fingerprint
         let uniqueID = "Sony-\(kind)-\(id)"
         
-        if let existing = memory[uniqueID] {
+        if let existing = cachedFingerprint(for: uniqueID) {
             // Update last seen
-            memory[uniqueID]?.lastSeen = Date()
+            touchFingerprint(for: uniqueID)
             return existing
         } else {
             // Create new fingerprint
@@ -77,7 +83,7 @@ final class CameraMemoryService {
                 assignedLabel: "",
                 lastSeen: Date()
             )
-            memory[uniqueID] = fingerprint
+            storeFingerprint(fingerprint, for: uniqueID)
 
             SharedLogger.info("New Sony camera fingerprinted: \(fingerprint.displayName)", category: .transfer)
             return fingerprint
@@ -131,33 +137,53 @@ final class CameraMemoryService {
         var updated = fingerprint
         updated.assignedLabel = label
         updated.lastSeen = Date()
-        memory[fingerprint.uniqueID] = updated
+        storeFingerprint(updated, for: fingerprint.uniqueID)
 
         SharedLogger.info("Remembered: \(fingerprint.displayName) = \"\(label)\"", category: .transfer)
     }
-    
+
     /// Get the remembered label for a camera
     func getRememberedLabel(for fingerprint: CameraFingerprint) -> String? {
-        return memory[fingerprint.uniqueID]?.assignedLabel
+        cachedFingerprint(for: fingerprint.uniqueID)?.assignedLabel
     }
-    
+
     /// Update label if user changes it
     func updateLabel(_ newLabel: String, for fingerprint: CameraFingerprint) {
-        if var existing = memory[fingerprint.uniqueID] {
-            let oldLabel = existing.assignedLabel
+        let oldLabel: String? = memoryLock.withLock { () -> String? in
+            guard var existing = memory[fingerprint.uniqueID] else { return nil }
+            let old = existing.assignedLabel
             existing.assignedLabel = newLabel
             existing.lastSeen = Date()
             memory[fingerprint.uniqueID] = existing
+            return old
+        }
+        if let oldLabel {
             SharedLogger.info("Updated: \(fingerprint.displayName) = \"\(newLabel)\" (was: \(oldLabel))", category: .transfer)
         } else {
             rememberLabel(newLabel, for: fingerprint)
         }
     }
-    
+
     /// Clear old memories (optional cleanup after X days)
     func cleanupOldMemories(olderThan days: Int = 90) {
         let cutoffDate = Date().addingTimeInterval(-Double(days * 24 * 3600))
-        memory = memory.filter { $0.value.lastSeen > cutoffDate }
+        memoryLock.withLock {
+            memory = memory.filter { $0.value.lastSeen > cutoffDate }
+        }
+    }
+
+    // MARK: - Synchronized Access
+
+    private func cachedFingerprint(for id: String) -> CameraFingerprint? {
+        memoryLock.withLock { memory[id] }
+    }
+
+    private func storeFingerprint(_ fingerprint: CameraFingerprint, for id: String) {
+        memoryLock.withLock { memory[id] = fingerprint }
+    }
+
+    private func touchFingerprint(for id: String) {
+        memoryLock.withLock { memory[id]?.lastSeen = Date() }
     }
     
     // MARK: - Detection Methods

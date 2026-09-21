@@ -90,12 +90,7 @@ struct TransferCardView: View {
     
     @ViewBuilder
     private var rollsText: some View {
-        // Note: rolls property doesn't exist in TransferCard model, commenting out for now
-        // if transfer.rolls > 1 {
-        //     Text("\(transfer.rolls) rolls")
-        //         .font(.system(size: 11))
-        //         .foregroundColor(.white.opacity(0.5))
-        // }
+        // No roll count in the TransferCard model; renders nothing.
         EmptyView()
     }
     

@@ -14,12 +14,15 @@ final class UnifiedMetadataDetectionService {
         if let videoResult = detectCameraFromVideo(at: url) {
             return videoResult
         }
-        
+
+        // A cancelled detection must not start another full scan.
+        guard !Task.isCancelled else { return nil }
+
         // Fall back to media file metadata
         if let mediaResult = detectCameraFromMedia(at: url) {
             return mediaResult
         }
-        
+
         return nil
     }
     
@@ -33,7 +36,10 @@ final class UnifiedMetadataDetectionService {
         if let result = extractVideoMetadataWithMdls(videoFile) {
             return result
         }
-        
+
+        // A cancellation during mdls must not launch another subprocess.
+        guard !Task.isCancelled else { return nil }
+
         // Try ffprobe if available (more detailed)
         if let result = extractVideoMetadataWithFFProbe(videoFile) {
             return result
@@ -56,6 +62,7 @@ final class UnifiedMetadataDetectionService {
             var mediaFiles: [URL] = []
             
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 if mediaExtensions.contains(fileURL.pathExtension.uppercased()) {
                     mediaFiles.append(fileURL)
                     if mediaFiles.count >= 5 { break } // Analyze a few samples
@@ -64,8 +71,10 @@ final class UnifiedMetadataDetectionService {
             
             // Try to extract camera info from media files. Spotlight/mdls is
             // macOS-only; iOS media metadata comes from the other services.
+            // A cancelled detection must not start another subprocess.
             for mediaFile in mediaFiles {
                 #if os(macOS)
+                guard !Task.isCancelled else { return nil }
                 if let cameraInfo = extractCameraFromMediaFile(mediaFile) {
                     return cameraInfo
                 }
@@ -85,6 +94,7 @@ final class UnifiedMetadataDetectionService {
         // Search recursively for video files
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                if Task.isCancelled { return nil }
                 if videoExtensions.contains(fileURL.pathExtension.uppercased()) {
                     return fileURL
                 }
@@ -97,27 +107,48 @@ final class UnifiedMetadataDetectionService {
     // MARK: - macOS-specific Metadata Extraction
     
     #if os(macOS)
+    /// Wait for a metadata subprocess, terminating it early when the
+    /// current task is cancelled. Returns false when cancelled or when the
+    /// process could not launch; the caller's exit-status handling is
+    /// unchanged. Outside a task context this behaves like waitUntilExit().
+    private func waitForExitUnlessCancelled(_ task: Process) -> Bool {
+        // Never spawn the subprocess when already cancelled.
+        guard !Task.isCancelled else { return false }
+        let semaphore = DispatchSemaphore(value: 0)
+        task.terminationHandler = { _ in semaphore.signal() }
+        do {
+            try task.run()
+        } catch {
+            return false
+        }
+        while semaphore.wait(timeout: .now() + .milliseconds(50)) == .timedOut {
+            if Task.isCancelled {
+                task.terminate()
+                // Bounded wait after requesting termination: a wedged
+                // process must not block cancellation indefinitely. This
+                // bounds the caller's wait, not the process's exit.
+                _ = semaphore.wait(timeout: .now() + .seconds(2))
+                return false
+            }
+        }
+        return true
+    }
+
     private func extractVideoMetadataWithMdls(_ videoFile: URL) -> String? {
         let task = Process()
         task.launchPath = "/usr/bin/mdls"
         task.arguments = ["-name", "kMDItemAcquisitionMake", "-name", "kMDItemAcquisitionModel", videoFile.path]
-        
+
         let pipe = Pipe()
         task.standardOutput = pipe
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            
-            return parseMdlsOutput(output)
-        } catch {
-            return nil
-        }
+
+        guard waitForExitUnlessCancelled(task) else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+
+        return parseMdlsOutput(output)
     }
-    
+
     private func extractVideoMetadataWithFFProbe(_ videoFile: URL) -> String? {
         let task = Process()
         task.launchPath = "/usr/local/bin/ffprobe"
@@ -128,24 +159,18 @@ final class UnifiedMetadataDetectionService {
             "-of", "csv=p=0",
             videoFile.path
         ]
-        
+
         let pipe = Pipe()
         task.standardOutput = pipe
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            if task.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-                return parseFFProbeOutput(output)
-            }
-        } catch {
-            // FFProbe not available, continue
+
+        guard waitForExitUnlessCancelled(task),
+              task.terminationStatus == 0 else {
+            // FFProbe not available or detection cancelled, continue
+            return nil
         }
-        
-        return nil
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return parseFFProbeOutput(output)
     }
     
     private func extractCameraFromMediaFile(_ mediaFile: URL) -> String? {

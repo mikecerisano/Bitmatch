@@ -53,6 +53,7 @@ final class CanonDetectionService {
         
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 if rawExtensions.contains(fileURL.pathExtension.uppercased()) {
                     if let model = extractCanonModelFromRAW(fileURL) {
                         return "Canon \(model)"

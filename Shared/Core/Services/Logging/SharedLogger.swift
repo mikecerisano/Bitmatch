@@ -1,7 +1,5 @@
 import Foundation
 import os.log
-import Foundation
-import os.log
 
 enum SharedLogger {
       enum Category: String {

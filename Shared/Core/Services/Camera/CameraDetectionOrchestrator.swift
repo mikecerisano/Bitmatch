@@ -21,20 +21,34 @@ final class CameraDetectionOrchestrator {
     
     // MARK: - Public Interface
     
-    /// Detect camera with full hierarchy of methods
+    /// Detect camera with full hierarchy of methods.
+    /// Cooperative cancellation: every stage boundary checks the current
+    /// task, so cancelling the caller's task stops the detection at the
+    /// next boundary instead of running the full hierarchy. Outside a task
+    /// context the checks are always false and behavior is unchanged.
     func detectCamera(at url: URL) -> String? {
         // Try detection methods in order of reliability
+        guard !Task.isCancelled else { return nil }
         if let metadataInfo = unifiedMetadataDetection.detectCameraFromMetadata(at: url) { return metadataInfo }
+        guard !Task.isCancelled else { return nil }
         if let fujiInfo = fujiDetection.detectFujiCamera(at: url) { return fujiInfo }
+        guard !Task.isCancelled else { return nil }
         if let sonyInfo = sonyDetection.detectSonyCamera(at: url) { return sonyInfo }
+        guard !Task.isCancelled else { return nil }
         if let canonInfo = canonDetection.detectCanonCamera(at: url) { return canonInfo }
+        guard !Task.isCancelled else { return nil }
         if let panasonicInfo = panasonicDetection.detectPanasonicCamera(at: url) { return panasonicInfo }
+        guard !Task.isCancelled else { return nil }
         if let arriInfo = arriDetection.detectARRICamera(at: url) { return arriInfo }
+        guard !Task.isCancelled else { return nil }
         if let folderInfo = folderStructureDetection.detectCameraFromStructure(at: url) { return folderInfo }
+        guard !Task.isCancelled else { return nil }
         if let nameInfo = fileNamingDetection.detectCameraFromNaming(at: url) { return nameInfo }
+        guard !Task.isCancelled else { return nil }
         if let extInfo = fileExtensionDetection.detectCameraFromExtensions(at: url) { return extInfo }
+        guard !Task.isCancelled else { return nil }
         if let xmlInfo = xmlMetadataDetection.detectCameraFromXML(at: url) { return xmlInfo }
-        
+
         return nil
     }
     

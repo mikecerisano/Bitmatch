@@ -1,6 +1,5 @@
 // UI/Components/Components.swift
 import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - Custom Button Style
 struct CustomButtonStyle: ButtonStyle {

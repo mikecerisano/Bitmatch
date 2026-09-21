@@ -10,13 +10,8 @@ struct ModularContentView: View {
     @State private var showingVolumeSelector = false
     @State private var showCancelToast = false
     
-    // Simplified completion logic
-    private var showCompletionSummary: Bool {
-        if case .completed = coordinator.operationState {
-            return true
-        }
-        return false
-    }
+    // Outcome logic lives on the coordinator so phone, pad, and Mac share
+    // one definition of which states keep results visible.
     
     var body: some View {
         ZStack {
@@ -91,7 +86,7 @@ extension ModularContentView {
                     .onAppear {
                         SharedLogger.debug("UI switched to OPERATION view")
                     }
-            } else if showCompletionSummary || coordinator.operationState == .failed {
+            } else if coordinator.showsOutcomeSummary {
                 // COMPLETION STATE: Show transfer summary
                 ScrollView { CompletionSummaryView(coordinator: coordinator) }
                     .onAppear {
@@ -181,8 +176,6 @@ struct IdleStateView: View {
 
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
-    @State private var showingLeftPicker = false
-    @State private var showingRightPicker = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -204,7 +197,7 @@ struct CompareFoldersView: View {
                             folderInfo: coordinator.leftFolderInfo?.asFolderInfo,
                             isLoading: coordinator.leftURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
                             color: .blue,
-                            onSelect: { showingLeftPicker = true },
+                            onSelect: { Task { await coordinator.selectLeftFolder() } },
                             onClear: { coordinator.leftURL = nil }
                         )
                         
@@ -215,7 +208,7 @@ struct CompareFoldersView: View {
                             folderInfo: coordinator.rightFolderInfo?.asFolderInfo,
                             isLoading: coordinator.rightURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
                             color: .green,
-                            onSelect: { showingRightPicker = true },
+                            onSelect: { Task { await coordinator.selectRightFolder() } },
                             onClear: { coordinator.rightURL = nil }
                         )
                     }
@@ -238,16 +231,6 @@ struct CompareFoldersView: View {
             }
         }
         .padding(.horizontal, 20)
-        .sheet(isPresented: $showingLeftPicker) {
-            FolderPicker(title: "Select Left Folder") { url in
-                coordinator.leftURL = url
-            }
-        }
-        .sheet(isPresented: $showingRightPicker) {
-            FolderPicker(title: "Select Right Folder") { url in
-                coordinator.rightURL = url
-            }
-        }
     }
 }
 
@@ -494,28 +477,6 @@ struct ComparisonProgressView: View {
                     )
             }
             .buttonStyle(.plain)
-        }
-    }
-}
-
-struct FolderPicker: View {
-    let title: String
-    let onSelection: (URL) -> Void
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationView {
-            VStack {
-                Text("iOS folder picker would be presented here")
-                    .padding()
-                
-                Button("Cancel") {
-                    dismiss()
-                }
-                .padding()
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }

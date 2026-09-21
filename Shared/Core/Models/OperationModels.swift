@@ -90,15 +90,16 @@ enum CompletionState: Equatable {
     case success(message: String)
     case issues(message: String)
     case failed(message: String)
-    
+    case cancelled(message: String)
+
     var isActive: Bool {
         if case .inProgress = self { return true }
         return false
     }
-    
+
     var isComplete: Bool {
         switch self {
-        case .success, .issues, .failed: return true
+        case .success, .issues, .failed, .cancelled: return true
         default: return false
         }
     }

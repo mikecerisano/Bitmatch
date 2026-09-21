@@ -15,6 +15,7 @@ final class FileNamingDetectionService {
         // Collect sample filenames for pattern analysis
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 let filename = fileURL.lastPathComponent
                 sampleFiles.append(filename)
                 

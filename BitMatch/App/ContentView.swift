@@ -363,26 +363,29 @@ struct ContentView: View {
         case .success(let msg): return msg
         case .issues(let msg): return msg
         case .failed(let msg): return msg
+        case .cancelled(let msg): return msg
         case .idle: return ""
         case .inProgress: return ""
         }
     }
-    
+
     private var completionIcon: String {
         switch coordinator.completionState {
         case .success: return "checkmark.circle.fill"
         case .issues: return "exclamationmark.triangle.fill"
         case .failed: return "xmark.circle.fill"
+        case .cancelled: return "xmark.circle"
         case .idle: return ""
         case .inProgress: return "clock.fill"
         }
     }
-    
+
     private var completionColor: Color {
         switch coordinator.completionState {
         case .success: return .green
         case .issues: return .yellow
         case .failed: return .red
+        case .cancelled: return .gray
         case .idle: return .gray
         case .inProgress: return .blue
         }

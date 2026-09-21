@@ -38,6 +38,16 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
         hasErrors: Bool,
         hasCriticalErrors: Bool
     ) -> Self {
+        // A cancelled operation keeps its partial results, but it is not
+        // an issue state: label it plainly instead of "Review required".
+        if state == .cancelled {
+            return Self(
+                title: "Transfer cancelled",
+                detail: "Partial results below are retained. Start a new transfer when ready.",
+                symbol: "xmark.circle",
+                sourceGuidance: "Keep source media intact until a transfer completes."
+            )
+        }
         let presentation = make(
             CompletionVerdict.resolve(
                 state: state,

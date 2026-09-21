@@ -5,10 +5,13 @@ import Foundation
 final class XMLMetadataDetectionService {
     static let shared = XMLMetadataDetectionService()
     private init() {}
-    
+
     // MARK: - Public Interface
-    
-    func detectCameraFromXML(at url: URL) -> String? {
+
+    /// The `onEnumerationStarted` hook is invocation-specific and defaults
+    /// to nil: production callers omit it, so no shared mutable state is
+    /// involved and parallel detections cannot cross-signal.
+    func detectCameraFromXML(at url: URL, onEnumerationStarted: (() -> Void)? = nil) -> String? {
         let fm = FileManager.default
         
         // Common XML metadata files
@@ -20,8 +23,10 @@ final class XMLMetadataDetectionService {
         ]
         
         // Search for XML files in directory structure
+        onEnumerationStarted?()
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 if fileURL.pathExtension.lowercased() == "xml" {
                     if let cameraInfo = parseCameraFromXML(fileURL) {
                         return cameraInfo

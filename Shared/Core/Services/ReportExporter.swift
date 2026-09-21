@@ -509,12 +509,12 @@ final class ReportExporter {
                 try writeRecordedChecksumManifest(results: results, algorithm: algorithm, to: checksumURL)
             }
             
-            NSLog("Report auto-saved successfully to: \(pdfURL.path)")
+            SharedLogger.info("Report auto-saved successfully to: \(pdfURL.path)")
 
             // No need for success dialog since this is auto-save
 
         } catch {
-            NSLog("Report export error: \(error.localizedDescription)")
+            SharedLogger.info("Report export error: \(error.localizedDescription)")
             throw error
         }
     }
@@ -596,13 +596,13 @@ final class ReportExporter {
                     askToExportChecksums(results: results, algorithm: algorithm, baseURL: pdfURL)
                 }
                 
-                NSLog("Report exported successfully to: \(pdfURL.path)")
+                SharedLogger.info("Report exported successfully to: \(pdfURL.path)")
                 
                 // Show success notification
                 showInfoAlert(message: "Report exported successfully to:\n\(pdfURL.lastPathComponent)")
                 
             } catch {
-                NSLog("Report export error: \(error.localizedDescription)")
+                SharedLogger.info("Report export error: \(error.localizedDescription)")
                 showErrorAlert(message: "Failed to save report: \(error.localizedDescription)")
             }
         }

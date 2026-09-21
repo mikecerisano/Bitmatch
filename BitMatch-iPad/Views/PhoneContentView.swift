@@ -72,9 +72,7 @@ struct PhoneContentView: View {
     private var copyAndVerifyStack: some View {
         if coordinator.isOperationInProgress {
             OperationProgressView(coordinator: coordinator)
-        } else if case .completed = coordinator.operationState {
-            CompletionSummaryView(coordinator: coordinator)
-        } else if coordinator.operationState == .failed {
+        } else if coordinator.showsOutcomeSummary {
             CompletionSummaryView(coordinator: coordinator)
         } else {
             CopyAndVerifyView(coordinator: coordinator)

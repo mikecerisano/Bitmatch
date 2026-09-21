@@ -20,6 +20,7 @@ final class FujiDetectionService {
         
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 if fileURL.pathExtension.uppercased() == "RAF" {
                     rafFiles.append(fileURL)
                 }

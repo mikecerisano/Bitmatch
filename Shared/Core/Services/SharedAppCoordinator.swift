@@ -224,7 +224,10 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - File Selection Methods
     
     func selectSourceFolder() async {
-        sourceURL = await platformManager.fileSystem.selectSourceFolder()
+        // A cancelled picker returns nil: preserve the existing selection.
+        if let url = await platformManager.fileSystem.selectSourceFolder() {
+            sourceURL = url
+        }
     }
     
     func addDestinationFolder() async {
@@ -241,13 +244,30 @@ class SharedAppCoordinator: ObservableObject {
     }
     
     func selectLeftFolder() async {
-        leftURL = await platformManager.fileSystem.selectLeftFolder()
+        // A cancelled picker returns nil: preserve the existing selection.
+        if let url = await platformManager.fileSystem.selectLeftFolder() {
+            leftURL = url
+        }
     }
-    
+
     func selectRightFolder() async {
-        rightURL = await platformManager.fileSystem.selectRightFolder()
+        // A cancelled picker returns nil: preserve the existing selection.
+        if let url = await platformManager.fileSystem.selectRightFolder() {
+            rightURL = url
+        }
     }
     
+    /// Completed, failed, and cancelled operations keep their (possibly
+    /// partial) results visible instead of dropping back to setup.
+    var showsOutcomeSummary: Bool {
+        switch operationState {
+        case .completed, .failed, .cancelled:
+            return true
+        default:
+            return false
+        }
+    }
+
     // MARK: - Operation Control
 
     func startQueue() {
@@ -770,7 +790,9 @@ class SharedAppCoordinator: ObservableObject {
             return .failed(message: "Operation failed")
         case .inProgress, .copying, .verifying, .resuming:
             return .inProgress
-        case .idle, .notStarted, .paused, .cancelled:
+        case .cancelled:
+            return .cancelled(message: "Operation cancelled by user")
+        case .idle, .notStarted, .paused:
             return .idle
         }
     }
@@ -1178,8 +1200,3 @@ struct FolderMetadataSummary {
         return "Diverse"
     }
 }
-
-#if os(macOS)
-import AppKit
-
-#endif

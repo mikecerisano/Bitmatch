@@ -20,6 +20,7 @@ final class ARRIDetectionService {
         // Look for .ale files in the directory tree
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 if fileURL.pathExtension.lowercased() == "ale" {
                     return extractCameraFromALE(aleFile: fileURL)
                 }

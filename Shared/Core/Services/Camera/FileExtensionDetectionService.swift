@@ -15,6 +15,7 @@ final class FileExtensionDetectionService {
         // Count file extensions
         if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
             for case let fileURL as URL in enumerator {
+                guard !Task.isCancelled else { return nil }
                 let ext = fileURL.pathExtension.uppercased()
                 if !ext.isEmpty {
                     extensionCounts[ext, default: 0] += 1
