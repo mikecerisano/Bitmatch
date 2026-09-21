@@ -16,8 +16,10 @@ final class SettingsViewModel: ObservableObject {
     
     // MARK: - Initialization
     init() {
-        // ReportPrefs handles its own persistence
-        requestNotificationPermission()
+        // ReportPrefs handles its own persistence.
+        // Notification permission is never requested here: it is a
+        // user-visible prompt and fires lazily when a notification is
+        // actually scheduled, or via requestNotificationPermission().
         // Load persisted preferences if available
         loadPrefs()
     }
@@ -43,6 +45,28 @@ final class SettingsViewModel: ObservableObject {
     }
     
     func scheduleNotification(title: String, body: String) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                self.addNotification(title: title, body: body)
+            case .notDetermined:
+                UNUserNotificationCenter.current().requestAuthorization(
+                    options: [.alert, .badge, .sound]
+                ) { granted, error in
+                    if let error = error {
+                        SharedLogger.error("Notification permission error: \(error)", category: .transfer)
+                    }
+                    if granted {
+                        self.addNotification(title: title, body: body)
+                    }
+                }
+            default:
+                SharedLogger.warning("Notifications not authorized; skipping scheduled notification", category: .transfer)
+            }
+        }
+    }
+
+    private func addNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

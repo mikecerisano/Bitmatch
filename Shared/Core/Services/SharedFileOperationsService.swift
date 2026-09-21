@@ -565,8 +565,11 @@ class SharedFileOperationsService: FileOperationsService {
                     if shouldPipelineVerify {
                         let mode = operation.verificationMode
                         let task = Task { [verifySemaphore] in
-                            // Bug 7 fix: use withSemaphore to guarantee permit release on cancel/throw
-                            await withSemaphore(verifySemaphore) {
+                            // Bug 7 fix: use withSemaphore to guarantee permit release on cancel/throw.
+                            // Only acquisition can throw here (CancellationError while
+                            // queued): every operation outcome is recorded inside,
+                            // so `try?` discards exactly the no-permit case.
+                            _ = try? await withSemaphore(verifySemaphore) {
                                 do {
                                     try Task.checkCancellation()
                                     try await self.waitIfPaused()
