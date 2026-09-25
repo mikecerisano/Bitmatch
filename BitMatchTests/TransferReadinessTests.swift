@@ -73,8 +73,11 @@ struct TransferReadinessTests {
         let result = assess(sourceBytes: 5 * gigabyte, destinations: [inside], available: { _ in self.gigabyte })
 
         #expect(result.status == .blocked)
-        #expect(result.blockers.contains("inside: Destination is inside the source folder"))
-        #expect(result.blockers.contains("Insufficient space on inside"))
+        // Which check words the refusal depends on the checks that apply
+        // (made-up paths also trip the fail-closed source-drive rule); the
+        // point is that the space problem is reported alongside it.
+        #expect(result.blockers.contains { $0.contains("Destination is inside the source folder") }, "\(result.blockers)")
+        #expect(result.blockers.contains("Insufficient space on inside"), "\(result.blockers)")
     }
 
     /// Ready exactly when the copy's own space check would pass.
