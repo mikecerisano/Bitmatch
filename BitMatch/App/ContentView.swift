@@ -29,11 +29,6 @@ struct MacMainView: View {
     @State private var showingTransfers = false
     @State private var showOnlyIssues = false
     
-    // Keep an active transfer visually stable while its queue grows.
-    @State private var contentHeight: CGFloat = 900
-    @State private var isOperationActive = false
-    @State private var lockHeight = false
-    
     // Preferences window management
     @State private var preferencesWindowController: PreferencesWindowController?
     
@@ -48,47 +43,57 @@ struct MacMainView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     
-    // Calculate ideal window height based on content and current mode
-    private var idealWindowHeight: CGFloat {
-        let baseHeight: CGFloat = 200  // Header + margins
-        
-        var totalHeight = baseHeight
-        
-        // Add content height based on current mode
+    /// The screen the window shows, for its height. Only what changes a
+    /// screen's layout is in it, so progress ticks never resize the window.
+    private var windowScreen: MacWindowHeightPolicy.Screen {
         switch coordinator.currentMode {
-        case .copyAndVerify:
-            // Allow room for the source row, backup grid, and primary action.
-            // Backup rows grow in pairs at the default compact window width.
-            let destinationCount = coordinator.destinationURLs.count
-            let hasSource = coordinator.sourceURL != nil
-            let extraRows = max(0, (destinationCount + 1) / 2 - 1)
-            let locationsHeight: CGFloat = hasSource ? 320 + CGFloat(extraRows) * 84 : 230
-            totalHeight += locationsHeight + 200
-
-            if transferOptionsExpanded { totalHeight += 330 }
-            
         case .compareFolders:
-            // CompareScreen: title, the two folder slots, then checks and the
-            // Compare button. Results scroll below; the window is not grown for them.
-            let headerHeight: CGFloat = 60
-            let foldersHeight: CGFloat = 170
-            let actionsHeight: CGFloat = 170
-            totalHeight += headerHeight + foldersHeight + actionsHeight
-
-            if verificationModeExpanded {
-                totalHeight += 150  // Advanced: verification picker
-            }
-            
+            return .compare(advancedExpanded: verificationModeExpanded)
         case .masterReport:
-            let reportContentHeight: CGFloat = 300  // Master report centered content area
-            totalHeight += reportContentHeight
+            return .masterReport
+        case .copyAndVerify:
+            // The same choice as `mainContentSwitch`: after a compare, Copy
+            // shows Setup, never the compare's outcome.
+            if coordinator.isOperationInProgress && !coordinator.lastOperationWasCompare {
+                return .progress(backups: coordinator.destinationURLs.count)
+            }
+            switch coordinator.lastOperationWasCompare ? CompletionState.idle : coordinator.completionState {
+            case .idle, .inProgress:
+                let setup = SetupPresentation.make(coordinator: coordinator)
+                let showsProblemBanner: Bool
+                switch setup.plan.status {
+                case .warning, .blocked: showsProblemBanner = true
+                case .incomplete, .analyzing, .ready: showsProblemBanner = false
+                }
+                return .setup(MacWindowHeightPolicy.Setup(
+                    hasSource: coordinator.sourceURL != nil,
+                    backups: coordinator.destinationURLs.count,
+                    showsProblemBanner: showsProblemBanner,
+                    optionsExpanded: transferOptionsExpanded,
+                    showsProjectSetup: setup.showsProjectSetup
+                ))
+            default:
+                let outcome = TransferOutcomePresentation.make(coordinator: coordinator)
+                return .outcome(
+                    backups: coordinator.destinationURLs.count,
+                    needsAttention: outcome.counts.needsAttention > 0
+                )
+            }
         }
-        
-        // Get screen height and leave room for menu bar + dock
-        let screenHeight = NSScreen.main?.visibleFrame.height ?? 800
-        let maxAllowedHeight = screenHeight - 100  // Leave 100px for system UI
-        
-        return min(totalHeight, maxAllowedHeight)
+    }
+
+    /// The height `windowScreen` needs at `width` (by default the window's
+    /// current width), within the window's limits and the screen
+    /// (`MacWindowHeightPolicy`).
+    private func idealWindowHeight(forWidth width: CGFloat? = nil) -> CGFloat {
+        let window = NSApplication.shared.windows.first
+        let screenHeight = (window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
+        return MacWindowHeightPolicy.idealHeight(
+            for: windowScreen,
+            windowWidth: width ?? window?.frame.width ?? compactWindowWidth,
+            // Leave room for the menu bar and Dock.
+            available: screenHeight - 100
+        )
     }
     
     /// BitMatch opens as a compact instrument. From that point, the person owns the width.
@@ -107,7 +112,7 @@ struct MacMainView: View {
             }
             .onAppear {
                 restoreWindowFrame()
-                updateWindowSize(width: compactWindowWidth, height: idealWindowHeight)
+                updateWindowSize(width: compactWindowWidth, height: idealWindowHeight(forWidth: compactWindowWidth))
 #if DEBUG
                 // The Developer menu's stress test drives this window.
                 DevModeManager.shared.attach(coordinator)
@@ -198,7 +203,6 @@ struct MacMainView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
-        .frame(maxHeight: lockHeight ? contentHeight : 900)
     }
     
     @ViewBuilder
@@ -328,10 +332,7 @@ struct MacMainView: View {
     /// dashboard and its SFTP actions in the evidence slot.
     @ViewBuilder
     private var completionView: some View {
-        CoordinatorOutcomeScreen(coordinator: coordinator, onNewTransfer: {
-            lockHeight = false
-            isOperationActive = false
-        }) {
+        CoordinatorOutcomeScreen(coordinator: coordinator) {
             if let job = coordinator.photographerJobViewModel.dashboardJob,
                CompletionEvidencePresentation.shouldShowProjectMedia(
                 hasDashboardJob: true,
@@ -392,23 +393,6 @@ struct MacMainView: View {
         )
     }
 
-    private func handleOperationStateChange(oldValue: Bool, newValue: Bool) {
-        if newValue && !lockHeight {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) {
-                if let window = NSApplication.shared.windows.first {
-                    contentHeight = window.contentView?.bounds.height ?? 700
-                }
-            }
-            lockHeight = true
-            isOperationActive = true
-        } else if !newValue && isOperationActive {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                lockHeight = false
-                isOperationActive = false
-            }
-        }
-    }
-    
     private func updateWindowHeight(to newHeight: CGFloat) {
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
@@ -478,28 +462,12 @@ struct MacMainView: View {
     @ViewBuilder
     private var windowObserversView: some View {
         styledMainContentView
-            .onChange(of: idealWindowHeight) { _, newHeight in
-                if !coordinator.isOperationInProgress {
-                    updateWindowHeight(to: newHeight)
-                }
-            }
-            .onChange(of: coordinator.currentMode) { _, _ in
-                if !coordinator.isOperationInProgress {
-                    updateWindowHeight(to: idealWindowHeight)
-                }
-            }
-            .onChange(of: transferOptionsExpanded) { _, _ in
-                if !coordinator.isOperationInProgress {
-                    updateWindowHeight(to: idealWindowHeight)
-                }
-            }
-            .onChange(of: verificationModeExpanded) { _, _ in
-                if !coordinator.isOperationInProgress {
-                    updateWindowHeight(to: idealWindowHeight)
-                }
-            }
-            .onChange(of: coordinator.isOperationInProgress) { oldValue, newValue in
-                handleOperationStateChange(oldValue: oldValue, newValue: newValue)
+            // Resized when the screen or its layout changes: once as a run
+            // starts (Progress) and once as it ends (Outcome), never per
+            // tick. A width the user drags is kept; the height follows at
+            // the next change.
+            .onChange(of: windowScreen) { _, _ in
+                updateWindowHeight(to: idealWindowHeight())
             }
     }
     
