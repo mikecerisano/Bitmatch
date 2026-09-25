@@ -478,7 +478,9 @@ struct HorizontalFlowView: View {
 
     private func addDestinationURLs(_ urls: [URL]) {
         for url in urls where validateDestination(url, replacingIndex: nil) {
-            volumeAccess.addDestination(url)
+            if let refusal = volumeAccess.addDestination(url) {
+                rejectDrop(refusal)
+            }
         }
         refreshID = UUID()
     }
@@ -501,6 +503,14 @@ struct HorizontalFlowView: View {
         if let sourceURL = coordinator.sourceURL,
            let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: url) {
             rejectDrop(issue)
+            return false
+        }
+
+        // The startup disk, system volumes, the card's own drive: refused
+        // with a reason (a drop onto an existing card replaces it, so it
+        // must pass here; a new add is checked again when it is added).
+        if let refusal = BackupTargetPolicy.refusal(for: url, origin: .userChoice, source: coordinator.sourceURL) {
+            rejectDrop(refusal)
             return false
         }
 

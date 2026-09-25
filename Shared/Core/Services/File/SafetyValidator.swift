@@ -75,6 +75,11 @@ final class SafetyValidator {
             throw FileOperationError.unsafeOperation("System folders cannot be used as destinations")
         }
 
+        // The same rule every add path uses, as the engine's last word.
+        if let refusal = BackupTargetPolicy.refusal(for: destination, origin: .userChoice, source: source) {
+            throw FileOperationError.unsafeOperation(refusal)
+        }
+
         if let safetyIssue = destinationSafetyIssue(source: source, destination: destination) {
             throw FileOperationError.unsafeOperation(safetyIssue)
         }
