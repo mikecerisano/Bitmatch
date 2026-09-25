@@ -148,7 +148,7 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
 
 /// Owns the single operation admitted by a service instance.
 /// Cancellation never releases the slot; only the matching operation's exit does.
-private final class ActiveOperationRegistry: @unchecked Sendable {
+final class ActiveOperationRegistry: @unchecked Sendable {
     private struct Entry {
         var task: Task<FileOperation, Error>?
         var cancellationRequested = false
