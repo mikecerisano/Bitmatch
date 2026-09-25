@@ -500,50 +500,6 @@ struct SharedFileOperationsEdgeCaseTests {
         #expect(snapshot.first { $0.sourceURL.lastPathComponent == "file-42.mov" }?.success == false)
     }
 
-    @Test
-    func testOverflowResultsCoalesceSpilledCopyRowsWithLatestVerifyRows() async throws {
-        let service = ResultsOverflowService(operationId: UUID(), maxInMemoryResults: 1)
-        let firstCopy = ResultRow(
-            path: "/source/file-1.mov",
-            status: "✅ Copied",
-            size: 10,
-            checksum: nil,
-            destination: "RAID",
-            destinationPath: "/dest/file-1.mov"
-        )
-        let secondCopy = ResultRow(
-            path: "/source/file-2.mov",
-            status: "✅ Copied",
-            size: 20,
-            checksum: nil,
-            destination: "RAID",
-            destinationPath: "/dest/file-2.mov"
-        )
-        let firstVerified = ResultRow(
-            path: "/source/file-1.mov",
-            status: "✅ Verified",
-            size: 10,
-            checksum: "abc123",
-            destination: "RAID",
-            destinationPath: "/dest/file-1.mov"
-        )
-
-        await service.addResult(firstCopy)
-        await service.addResult(secondCopy)
-        let updatedInMemory = await service.updateResult(
-            matching: firstCopy.path,
-            destination: firstCopy.destination ?? "",
-            with: firstVerified
-        )
-        #expect(updatedInMemory == false)
-        await service.addResult(firstVerified)
-
-        let results = await service.getAllResults()
-        #expect(results.count == 2)
-        #expect(results.first { $0.path == firstCopy.path }?.status == "✅ Verified")
-        #expect(results.first { $0.path == firstCopy.path }?.checksum == "abc123")
-        await service.clear()
-    }
 }
 
 private actor SourceMutationTrigger {

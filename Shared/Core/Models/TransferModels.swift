@@ -179,3 +179,35 @@ enum AutomaticSourceSelectionPolicy {
         automaticSelectionEnabled && !hasExistingSource && isReadable
     }
 }
+
+// MARK: - ResultRow Codable Extension
+
+extension ResultRow: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, path, status, size, checksum, destination, destinationPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let path = try container.decode(String.self, forKey: .path)
+        let status = try container.decode(String.self, forKey: .status)
+        let size = try container.decode(Int64.self, forKey: .size)
+        let checksum = try container.decodeIfPresent(String.self, forKey: .checksum)
+        let destination = try container.decodeIfPresent(String.self, forKey: .destination)
+        let destinationPath = try container.decodeIfPresent(String.self, forKey: .destinationPath)
+
+        self.init(id: id, path: path, status: status, size: size, checksum: checksum, destination: destination, destinationPath: destinationPath)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(path, forKey: .path)
+        try container.encode(status, forKey: .status)
+        try container.encode(size, forKey: .size)
+        try container.encodeIfPresent(checksum, forKey: .checksum)
+        try container.encodeIfPresent(destination, forKey: .destination)
+        try container.encodeIfPresent(destinationPath, forKey: .destinationPath)
+    }
+}

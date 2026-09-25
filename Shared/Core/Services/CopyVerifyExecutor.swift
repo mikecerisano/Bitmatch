@@ -87,7 +87,6 @@ final class CopyVerifyExecutor {
     private let sleepPreventer: TransferSleepPreventing
 
     // MARK: - State
-    private let maxResultsInMemory = 5_000
     private var handoffTask: Task<[String], Error>?
     private var reportTask: Task<Void, Error>?
     private var cancellationRequested = false
@@ -123,11 +122,6 @@ final class CopyVerifyExecutor {
         destinationRoots = config.destinationURLs
         SharedLogger.info("CopyVerifyExecutor: starting operation \(config.operationId)", category: .transfer)
 
-        // Create overflow service for large transfers
-        let overflowService = ResultsOverflowService(
-            operationId: config.operationId,
-            maxInMemoryResults: maxResultsInMemory
-        )
 
         // Start iOS background task
         backgroundTaskService.beginOperation(estimatedFiles: config.estimatedFiles)
@@ -176,14 +170,12 @@ final class CopyVerifyExecutor {
                 guard let self else { return }
                 await self.handleFileResult(
                     fileResult,
-                    overflowService: overflowService,
                     callbacks: callbacks
                 )
             }
 
             return try await handleSuccess(
                 operation: operation,
-                overflowService: overflowService,
                 config: config,
                 callbacks: callbacks
             )
@@ -193,7 +185,6 @@ final class CopyVerifyExecutor {
             keepAwake.release()
             await handleError(
                 error,
-                overflowService: overflowService,
                 config: config,
                 callbacks: callbacks
             )
@@ -226,7 +217,6 @@ final class CopyVerifyExecutor {
 
     private func handleFileResult(
         _ fileResult: FileOperationResult,
-        overflowService: ResultsOverflowService,
         callbacks: CopyVerifyCallbacks
     ) async {
         let destName = driveName(for: fileResult.destinationURL)
@@ -241,11 +231,6 @@ final class CopyVerifyExecutor {
             destinationPath: fileResult.destinationURL.path
         )
 
-        // Use overflow service for large transfers. Single atomic call:
-        // copy and verify rows can arrive out of order, and the store
-        // refuses to let a copy row replace a verify result.
-        await overflowService.upsert(resultRow)
-
         callbacks.onResult(resultRow)
     }
 
@@ -253,7 +238,6 @@ final class CopyVerifyExecutor {
 
     private func handleSuccess(
         operation: FileOperation,
-        overflowService: ResultsOverflowService,
         config: CopyVerifyConfig,
         callbacks: CopyVerifyCallbacks
     ) async throws -> FileOperation {
@@ -327,8 +311,6 @@ final class CopyVerifyExecutor {
         callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
         // Clean up
-        await cleanupOverflowService(overflowService)
-
         SharedLogger.info("CopyVerifyExecutor: operation completed", category: .transfer)
         NotificationCenter.default.post(name: .operationCompleted, object: nil)
 
@@ -397,12 +379,9 @@ final class CopyVerifyExecutor {
 
     private func handleError(
         _ error: Error,
-        overflowService: ResultsOverflowService,
         config: CopyVerifyConfig,
         callbacks: CopyVerifyCallbacks
     ) async {
-        await cleanupOverflowService(overflowService)
-
         if error is CancellationError {
             timingService.cancelOperation()
             errorService.completeErrorTracking()
@@ -508,10 +487,6 @@ final class CopyVerifyExecutor {
     }
 
     // MARK: - Helpers
-
-    private func cleanupOverflowService(_ overflowService: ResultsOverflowService) async {
-        await overflowService.clear()
-    }
 
     private func driveName(for url: URL) -> String {
         Self.destinationLabel(for: url, roots: destinationRoots)
