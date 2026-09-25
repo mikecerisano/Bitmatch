@@ -9,15 +9,19 @@ struct ResultsTableView: View {
     
     /// Observed directly: the coordinator does not forward its ticks.
     @ObservedObject private var progress: ProgressPresentationModel
+    /// Observed directly: the coordinator does not announce per-file rows,
+    /// so a new row redraws this table and not the whole window.
+    @ObservedObject private var liveResults: LiveResultsFeed
 
     init(coordinator: SharedAppCoordinator, showOnlyIssues: Binding<Bool>) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
         _showOnlyIssues = showOnlyIssues
         _progress = ObservedObject(wrappedValue: coordinator.progressPresentation)
+        _liveResults = ObservedObject(wrappedValue: coordinator.liveResults)
     }
 
-    // Convenience accessors
-    private var results: [ResultRow] { coordinator.results }
+    // Convenience accessors: the same rows as `coordinator.results`.
+    private var results: [ResultRow] { liveResults.rows }
 
     private var resultSummary: ResultIntegritySummary {
         ResultIntegritySummary(rows: results)

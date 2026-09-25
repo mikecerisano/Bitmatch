@@ -98,7 +98,22 @@ class SharedAppCoordinator: ObservableObject {
     /// Backups in the run being presented, so a later change of selection
     /// cannot mismatch the per-destination bars.
     private var presentedDestinationCount: Int?
-    @Published var results: [ResultRow] = []
+    /// The run's per-file results. Stored in `liveResults`, the one copy the
+    /// outcome screen, verdict, journal and export read. Writing the whole
+    /// list here (clear, or the engine's authoritative list) announces the
+    /// change on this coordinator as the published property did; a live
+    /// per-file row goes through `receiveLiveResult(_:)` and does not, so
+    /// the shells are not redrawn once per file per backup.
+    var results: [ResultRow] {
+        get { liveResults.rows }
+        set {
+            objectWillChange.send()
+            liveResults.replace(with: newValue)
+        }
+    }
+    /// Deliberately not forwarded to this object's `objectWillChange`.
+    /// Views that list live results observe it directly.
+    let liveResults = LiveResultsFeed()
     @Published var currentOperation: FileOperation?
 
     // MARK: - Sub-coordinators
@@ -616,6 +631,15 @@ class SharedAppCoordinator: ObservableObject {
 
     func startOperation() async { await executeOperation(journalRecordID: nil) }
 
+    /// One live row from the engine while a transfer runs: replaces the row
+    /// for the same file and backup, or appends it. Only `liveResults`
+    /// announces the change, so the shells observing this coordinator are
+    /// not redrawn per file. The engine's authoritative list replaces these
+    /// rows through `results` before the verdict is set.
+    func receiveLiveResult(_ row: ResultRow) {
+        liveResults.upsert(row)
+    }
+
     private func executeOperation(journalRecordID: UUID?) async {
         // The run-only override applies to this attempt and never lingers.
         let runCameraSettings = projectRunCameraSettings ?? cameraLabelSettings
@@ -740,11 +764,7 @@ class SharedAppCoordinator: ObservableObject {
                 guard let self,
                       self.activeStartID == startID,
                       !self.startCancellationRequested else { return }
-                if let idx = self.results.firstIndex(where: { $0.path == result.path && $0.destination == result.destination }) {
-                    self.results[idx] = result
-                } else {
-                    self.results.append(result)
-                }
+                self.receiveLiveResult(result)
             },
             onStateChange: { [weak self] state in
                 guard let self,

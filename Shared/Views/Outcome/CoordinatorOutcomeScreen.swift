@@ -32,6 +32,10 @@ extension TransferOutcomePresentation {
 /// iPhone pass nothing.
 struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    /// The rows `coordinator.results` returns, observed directly because the
+    /// coordinator does not announce live per-file rows. A cancelled or
+    /// failed run keeps its partial rows here.
+    @ObservedObject private var liveResults: LiveResultsFeed
     private let onNewTransfer: () -> Void
     private let projectEvidence: ProjectEvidence
     @State private var retryRequested = false
@@ -42,6 +46,7 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
         @ViewBuilder projectEvidence: () -> ProjectEvidence
     ) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
+        _liveResults = ObservedObject(wrappedValue: coordinator.liveResults)
         self.onNewTransfer = onNewTransfer
         self.projectEvidence = projectEvidence()
     }
