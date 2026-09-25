@@ -117,8 +117,9 @@ private func runParityTransfer(platformManager: PlatformManager) async throws ->
         verdict: CompletionVerdict.resolve(
             state: finalState,
             rows: authoritativeRows,
-            hasErrors: errorService.hasErrors,
-            hasCriticalErrors: errorService.hasCriticalErrors
+            // Same expressions as SharedAppCoordinator.hasErrors / hasCriticalErrors.
+            hasErrors: !errorService.currentErrors.isEmpty,
+            hasCriticalErrors: !errorService.getCriticalErrors().isEmpty
         )
     )
 }

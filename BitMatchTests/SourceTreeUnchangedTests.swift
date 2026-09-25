@@ -9,6 +9,7 @@ import Darwin
 /// Promise 1, "the card is sacred": a transfer leaves every entry in the
 /// source tree exactly as it found it. Nothing is added, removed, rewritten,
 /// resized, re-dated, or re-permissioned, in any verification mode.
+@MainActor
 final class SourceTreeUnchangedTests: XCTestCase {
     func testTransferLeavesSourceTreeUnchangedInEveryVerificationMode() async throws {
         try await FileOperationsTestLock.shared.run {
@@ -22,21 +23,44 @@ final class SourceTreeUnchangedTests: XCTestCase {
                 let source = sourceTreeCanonicalDirectoryURL(fixture.source)
                 let before = try SourceTreeSnapshot(root: source)
 
-                let operation = try await SharedFileOperationsService(
-                    fileSystem: MacOSFileSystemService.shared,
-                    checksum: SharedChecksumService.shared
-                ).performFileOperation(
+                // Drive the executor the app uses, with every writer on
+                // (report and ASC MHL), so evidence written to the wrong
+                // folder is caught too, not just the copy loop.
+                let executor = await MainActor.run {
+                    CopyVerifyExecutor(
+                        platformManager: MacOSPlatformManager.shared,
+                        timingService: OperationTimingService(),
+                        errorService: ErrorReportingService(),
+                        stateService: OperationStateService(),
+                        backgroundTaskService: IOSBackgroundTaskService.shared
+                    )
+                }
+                let config = CopyVerifyConfig(
+                    operationId: UUID(),
                     sourceURL: source,
                     destinationURLs: fixture.destinations,
                     verificationMode: mode,
-                    settings: CameraLabelSettings(),
-                    estimatedTotalBytes: nil,
-                    progressCallback: { _ in },
-                    onFileResult: nil
+                    cameraLabelSettings: CameraLabelSettings(),
+                    reportSettings: ReportPrefs(makeReport: true),
+                    estimatedFiles: fixture.manifest.count,
+                    estimatedBytes: 0,
+                    currentMode: .copyAndVerify,
+                    generateASCMHL: true
                 )
+                let finalState = StateBox()
+                let maybeOperation = try await executor.execute(
+                    config: config,
+                    callbacks: CopyVerifyCallbacks(
+                        onProgress: { _ in },
+                        onResult: { _ in },
+                        onStateChange: { finalState.value = $0 },
+                        onAuthoritativeResults: { _ in }
+                    )
+                )
+                let operation = try XCTUnwrap(maybeOperation, "\(mode.rawValue): executor returned no operation")
 
                 // Guard against a vacuous pass: the transfer must actually
-                // have read every source file.
+                // have read every source file and finished green.
                 XCTAssertEqual(
                     operation.results.count,
                     fixture.manifest.count * fixture.destinations.count,
@@ -46,6 +70,12 @@ final class SourceTreeUnchangedTests: XCTestCase {
                     operation.results.allSatisfy(\.success),
                     "\(mode.rawValue): transfer reported failures"
                 )
+                // Quick copies are never reported as verified (P2), so only
+                // the checksum modes are required to finish green.
+                guard case .completed(let info) = finalState.value, info.success || mode == .quick else {
+                    XCTFail("\(mode.rawValue): operation did not complete as expected: \(finalState.value)")
+                    continue
+                }
 
                 let after = try SourceTreeSnapshot(root: source)
                 XCTAssertEqual(
@@ -63,6 +93,11 @@ final class SourceTreeUnchangedTests: XCTestCase {
             }
         }
     }
+}
+
+@MainActor
+private final class StateBox {
+    var value: OperationState = .idle
 }
 
 /// Every file and directory under a root, including hidden entries and the
