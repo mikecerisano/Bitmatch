@@ -235,4 +235,14 @@ struct ReportScannerTests {
         #expect(SkippedReportsPresentation.title(count: 1) == "1 report couldn't be read")
         #expect(SkippedReportsPresentation.title(count: 3) == "3 reports couldn't be read")
     }
+
+    /// Plant: in `SkippedReportsPresentation.scrolls`, return `false`.
+    /// A long list must scroll on the Mac instead of pushing the transfers
+    /// off screen; a short one shows in full.
+    @Test func longSkippedListScrolls() {
+        let limit = SkippedReportsPresentation.maxRowsBeforeScrolling
+        #expect(!SkippedReportsPresentation.scrolls(count: 0))
+        #expect(!SkippedReportsPresentation.scrolls(count: limit))
+        #expect(SkippedReportsPresentation.scrolls(count: limit + 1))
+    }
 }

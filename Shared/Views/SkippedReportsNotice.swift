@@ -19,6 +19,14 @@ enum SkippedReportsPresentation {
     }
 
     static let footnote = "These transfers are not in this Master Report."
+
+    /// Up to this many skipped reports show in full; a longer list scrolls
+    /// so it cannot push the transfers off screen.
+    static let maxRowsBeforeScrolling = 4
+
+    static func scrolls(count: Int) -> Bool {
+        count > maxRowsBeforeScrolling
+    }
 }
 
 /// Shown on the Master Report screen on Mac, iPad and iPhone when the scan

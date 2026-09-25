@@ -18,8 +18,16 @@ struct MasterReportView: View {
     var body: some View {
         VStack(spacing: 20) {
             if !scanningDrive {
-                SkippedReportsNotice(reports: skippedReports)
+                if SkippedReportsPresentation.scrolls(count: skippedReports.count) {
+                    ScrollView {
+                        SkippedReportsNotice(reports: skippedReports)
+                    }
+                    .frame(maxHeight: 220)
                     .padding(.horizontal, 20)
+                } else {
+                    SkippedReportsNotice(reports: skippedReports)
+                        .padding(.horizontal, 20)
+                }
             }
             if scanningDrive {
                 MasterReportScanningView(isScanning: scanningDrive)

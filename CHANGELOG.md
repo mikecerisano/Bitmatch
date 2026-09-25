@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Master Report: on the Mac, a long "couldn't be read" list now scrolls instead of pushing the transfers off screen. The unused Mac `DriveScanner` wrapper is removed; the Mac calls the shared `ReportScanner` directly.
 - Architecture: The Mac now runs on the same `SharedAppCoordinator` as iPad and iPhone (thesis step 3). `AppCoordinator`, which copied shared state into four Mac-only view models by hand, is gone; the Mac keeps small companions only for what is Mac-only (SFTP off-site backups, the drive-speed estimate, volume and backup-drive discovery, and choosing a detected camera card as the source). The Mac no longer scans the source twice per transfer.
 - Setup: One readiness rule on every platform. Start waits until the source has been analysed, and a backup needs more free space than the source plus 1 GB, the margin the copy itself requires, so "Ready" can no longer fail at start. Previously iOS blocked only at 90% of free space and the Mac allowed 100 MB of headroom. The Mac now shows the same readiness messages as iPad and iPhone.
 - iPad and iPhone: Report settings and the camera label are remembered across launches, and the camera label is suggested from the card and remembered per camera, as on the Mac. Choosing no source clears the label. A project card now uses its job's folder layout (only the Mac applied it before), for that transfer only.

@@ -227,7 +227,7 @@ For each operation, in order:
   - Always written: CSV and JSON.
   - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `BitMatch/Views/ReportView.swift` on macOS only (iOS writes no PDF).
 - **`SharedReportGenerationService`** (`Shared/Core/Services/SharedReportGenerationService.swift`): the Master Report PDF and JSON, built from scanned transfer reports.
-  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). `DriveScanner` (Mac) and `IOSDriverScanner` (iOS) are thin entry points; each platform picks the folder its own way. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform.
+  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). The Mac's `MasterReportView` calls it directly and `IOSDriverScanner` (iOS) is a thin entry point; each platform picks the folder its own way. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform.
   - Saving: through a save panel on Mac, or shared from a temporary file on iOS.
 - **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Views/TransferLibraryView.swift`).
 
@@ -304,7 +304,6 @@ Both file system services list files through `FileTreeEnumerator`.
 
 - `VolumeMonitorService` and `CameraCardDetectionService`: volume mount monitoring and card detection
 - `DriveBenchmarkService`: read and write speed, used for time estimates
-- `DriveScanner`: Mac entry point to the shared `ReportScanner` for Master Report scanning
 - `DevModeManager`: DEBUG tools
 - `GlobalErrorHandler`
 - `AppLogger`: forwards to `SharedLogger`
