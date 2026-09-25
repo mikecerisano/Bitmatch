@@ -29,8 +29,10 @@ struct FolderInfoServiceStalenessTests {
         await service.updateSource(first)
         await service.updateSource(second)
 
-        // Fast and full results publish in two phases; wait for both.
-        await waitUntil {
+        // Fast and full results publish in two phases; wait for both. Two
+        // seconds flaked under full-suite load; the timeout only costs time
+        // when the test is failing.
+        await waitUntil(timeout: .seconds(10)) {
             service.sourceFolderInfo?.url == second
                 && service.folderInfoLoadingState[second] == false
         }

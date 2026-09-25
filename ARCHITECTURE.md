@@ -1,323 +1,322 @@
-# BitMatch Architecture Documentation
+# BitMatch Architecture
 
-## Overview
+This document describes the code as it is today. It covers what exists and where it lives, not history or plans. For what BitMatch promises, and the plan for bringing the code in line with those promises, read [docs/THESIS.md](docs/THESIS.md).
 
-BitMatch keeps one copy-and-verify operation path in the shared core. macOS and
-iPad provide their own pickers, security/access integration, and SwiftUI views;
-both platforms hand the resolved operation to the same executor and file
-services. This keeps safety decisions and result semantics out of platform UI.
+Paths are relative to the repository root. Symbols are cited by type or function name rather than line number, because line numbers drift.
 
-## Core Design Principles
+## Targets
 
-### 1. Shared Business Logic
-All core functionality is implemented in shared services that both platforms can use:
-- File operations and verification
-- Camera detection and labeling
-- Report generation
-- Operation state management
+`BitMatch.xcodeproj` defines six targets. None has Swift package dependencies. Every target is built in Swift 5 language mode, and the two app targets set `SWIFT_STRICT_CONCURRENCY = targeted`.
 
-### 2. Platform Abstraction
-Platform-specific implementations are hidden behind protocols:
-- `FileSystemService` - File system operations
-- `PlatformManager` - Platform-specific UI and system integration
+| Target | Product | Platform | Compiles |
+|---|---|---|---|
+| `BitMatch` | macOS app | macOS 15.5 | `BitMatch/`, `Shared/`, and one file from `Platforms/`: `Platforms/macOS/Services/MacOSPlatformManager.swift` |
+| `BitMatch-iPad` | iPhone and iPad app (`TARGETED_DEVICE_FAMILY = 1,2`) | iOS 18.5 | `BitMatch-iPad/`, `Shared/`, `Platforms/`, and one item from `BitMatch/`: `BitMatch.xcdatamodeld` |
+| `BitMatchTests` | unit tests hosted in `BitMatch.app` | macOS | `BitMatchTests/`, including `BitMatchTests/TestHelpers/` |
+| `BitMatchUITests` | UI tests for `BitMatch` | macOS | `BitMatchUITests/` |
+| `BitMatch-iPadTests` | unit tests hosted in `BitMatch-iPad.app` | iOS | `BitMatch-iPadTests/` |
+| `BitMatch-iPadUITests` | UI tests for `BitMatch-iPad` | iOS | `BitMatch-iPadUITests/` |
 
-### 3. Reactive State Management
-Uses SwiftUI's `@Published` and `@ObservedObject` for reactive UI updates:
-- `SharedAppCoordinator` manages global application state
-- Views automatically update when state changes
+Target membership comes from Xcode file-system synchronized folders (`PBXFileSystemSynchronizedRootGroup`). Each target lists the folders it compiles; there are no per-file build phase entries. Only two single files cross over, each through a membership exception in `project.pbxproj`:
 
-## Key Components
+- `MacOSPlatformManager.swift` is added to the Mac target. The iPad target also compiles all of `Platforms/`, but that file's body is inside `#if os(macOS)`, so it compiles to nothing on iOS.
+- The Core Data model `BitMatch/BitMatch.xcdatamodeld` is added to the iPad target.
 
-### SharedAppCoordinator
-**Location**: `Shared/Core/Services/SharedAppCoordinator.swift`
+Test targets reach app code through `@testable import`. `test.sh` wraps the `xcodebuild` invocations for these jobs: `mac-test`, `mac-build`, `ipad-build`, `ipad-test` (which needs `IOS_SIMULATOR_DESTINATION`), and `release-builds`. `DEVELOPMENT.md` covers building and testing.
 
-The central coordinator that manages application state and orchestrates operations:
+## Source layout
 
-```swift
-class SharedAppCoordinator: ObservableObject {
-    // Core state
-    @Published var sourceURL: URL?
-    @Published var destinationURLs: [URL] = []
-    @Published var operationState: OperationState = .idle
-    @Published var progress: OperationProgress?
-    
-    // Platform abstraction
-    let platformManager: PlatformManager
-    
-    // Core operations
-    func startOperation() async
-    func selectSourceFolder() async
-    func addDestinationFolder() async
-}
+| Folder | Role | Built into |
+|---|---|---|
+| `Shared/Core/Models/` | Value types: operation state, progress, results, verification modes, camera, photographer and remote-backup models, and view-ready `*Presentation` types | Both apps |
+| `Shared/Core/Services/` | The engine: copy, verify, safety, checksums, compare, ASC MHL, reports, journal/queue, camera detection, timing, errors, and `SharedAppCoordinator` | Both apps |
+| `Shared/Core/ViewModels/` | `PhotographerJobViewModel` | Both apps |
+| `Shared/Views/` | SwiftUI views used by both apps: `CompareResultsView`, `TransferLibraryView` | Both apps |
+| `Platforms/iOS/Services/` | `IOSPlatformManager`, `IOSFileSystemService`, `IOSDriverScanner` | iOS app |
+| `Platforms/macOS/Services/` | `MacOSPlatformManager` | Mac app (via the exception above) |
+| `BitMatch/` | Mac app shell: `App/` (entry point, `ContentView`, `AppCoordinator`), view models, Mac-only services, and all Mac views | Mac app |
+| `BitMatch-iPad/` | iPhone/iPad app shell: entry point, `ContentView`, and views | iOS app |
+
+Some files under `Shared/` are wrapped in `#if os(...)` and so exist on only one platform. `RemoteBackupQueue.swift`, `RemoteBackupCoordinator.swift`, and `RemoteBackupProvider.swift` are macOS-only. `IOSBackgroundTaskService.swift` is real on iOS and a no-op stub on macOS.
+
+## App shells
+
+The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyView`, `MasterReportView`, and the Compare screen are implemented separately in each shell.
+
+### iPhone and iPad
+
+- **Entry point.** `BitMatch-iPad/BitMatch_iPadApp.swift` registers the `com.bitmatch.app.transferprocessing` background-task handler and shows `ContentView`.
+- **Coordinator.** `BitMatch-iPad/ContentView.swift` owns a `SharedAppCoordinator()` directly. Its iOS convenience initializer passes in `IOSPlatformManager.shared`.
+- **Layout.** The layout is chosen by window width, not device idiom. `AdaptiveNavigationPolicy` in `Shared/Core/Models/AdaptiveNavigationPresentation.swift` returns one of:
+  - `.compact` (under 600 pt): `BitMatch-iPad/Views/PhoneContentView.swift`
+  - `.toolbar` (under 960 pt) or `.sidebar`: `BitMatch-iPad/Views/ModularContentView.swift`
+- **Modes.** Both layouts switch on `coordinator.currentMode` (`AppMode`: Copy & Verify, Compare Folders, Master Report). They show `OperationProgressView` or `CompletionSummaryView` while an operation is running or finished.
+
+### macOS
+
+- **Entry point.** `BitMatch/App/BitMatchApp.swift` shows `BitMatch/App/ContentView.swift`. Menu commands (mode switching, Start, Cancel) are posted as `NotificationCenter` events.
+- **Coordinator.** `ContentView` owns an `AppCoordinator` (`BitMatch/App/AppCoordinator.swift`). `AppCoordinator` wraps a `SharedAppCoordinator` built with `MacOSPlatformManager.shared`. It mirrors shared state into Mac-only view models in `BitMatch/Core/ViewModels/`: `ProgressViewModel`, `FileSelectionViewModel`, `CameraLabelViewModel`, and `SettingsViewModel`. It also owns a Core Data–backed `PhotographerJobViewModel`. Before a start, it copies view-model state into the shared coordinator and then calls `startOperation()` or `compareFolders()` on it.
+- **Mac-only parts.** `AppCoordinator` owns the Mac-only pieces: the remote-backup (SFTP) scheduler and the Core Data photographer job store.
+
+**Being consolidated (see the [docs/THESIS.md](docs/THESIS.md) plan):** the Mac `AppCoordinator` and the hand-mirroring into its view models.
+
+## Operation state
+
+**Being consolidated (see the [docs/THESIS.md](docs/THESIS.md) plan).** Today, state is tracked in two places:
+
+- `SharedAppCoordinator.operationState` (`OperationState`, `Shared/Core/Models/OperationModels.swift`) is what the UI displays. The executor's `onStateChange` callback sets it.
+- `OperationStateService` (`Shared/Core/Services/OperationStateService.swift`) tracks pause/resume capability and saved pause data. It routes transitions through `OperationStateMachine` (`Shared/Core/Services/OperationStateMachine.swift`), which can reject a transition.
+
+`CopyVerifyExecutor` updates both, and `SharedAppCoordinator.pauseOperation()` / `resumeOperation()` read from `OperationStateService`.
+
+## Copy → verify pipeline
+
+The copy and verify path is the same on every platform:
+
+```
+SharedAppCoordinator.startOperation()
+  → CopyVerifyExecutor.execute(config:callbacks:)
+    → platformManager.fileOperations.performFileOperation(...)   // SharedFileOperationsService on both platforms
+      → FileTreeEnumerator.enumerateRegularFiles                   // source manifest
+      → SafetyValidator                                            // preflight
+      → FileCopyService.copyAllSafely                              // per destination
+      → FileCopyService.verifyPinnedDestinationFile                // per file, pipelined or sequential
+    → ASCMHLGenerator.generateInitialHistory                       // optional, per destination
+    → ReportExporter.export                                        // optional
 ```
 
-### Shared Copy-and-Verify Path
+### 1. SharedAppCoordinator (`Shared/Core/Services/SharedAppCoordinator.swift`)
 
-`SharedAppCoordinator` prepares `CopyVerifyConfig` and delegates execution to
-`CopyVerifyExecutor`. The executor owns operation timing, state, error
-tracking, iPad background-task handling, result overflow, and report handoff.
-It calls `PlatformManager.fileOperations.performFileOperation(...)`, which is
-implemented by `SharedFileOperationsService` on both platforms.
+`executeOperation(journalRecordID:)` runs these steps in order:
 
-The shared service acquires access scopes, checks source and destination access,
-runs `SafetyValidator`, enumerates the source, copies with bounded concurrency,
-and records one current result per source/destination pair. Verification can
-run in a bounded pipeline. The executor maps progress and rows back to each
-platform UI, then seals completion state and generates enabled reports. A view
-can explain readiness, but it cannot bypass this shared preflight.
+1. Requires a source and at least one destination.
+2. Acquires platform access scopes for every selected URL.
+3. Records the transfer in `LocalTransferJournal` (`enqueue`, then `markRunning`) before any copying. If this fails, the transfer does not start.
+4. Runs `SafetyValidator.validateResolvedDestinationRoots`.
+5. Builds a `CopyVerifyConfig` and calls the executor.
+6. Afterwards, records the outcome in the journal with `finish`, `interrupt`, or `cancel`.
 
-### Platform Managers
+The executor's `onResult` and `onAuthoritativeResults` callbacks fill `results`. The final list replaces any rows streamed during the run.
 
-#### macOS: MacOSPlatformManager
-- Native macOS file dialogs
-- Menu bar integration
-- Window management
-- macOS-specific file system operations
+### 2. CopyVerifyExecutor (`Shared/Core/Services/CopyVerifyExecutor.swift`)
 
-#### iOS: IOSPlatformManager
-- UIDocumentPickerViewController integration
-- iOS security-scoped resource management
-- Touch-optimized interactions
-- iOS-specific permissions handling
+`@MainActor`. It starts the services that run alongside the copy:
 
-### Shared Services at a Glance
-
-- `SharedFileOperationsService`
-  - Copy to multiple destinations, pause/resume, progress callbacks
-  - Verification: checksum or byte‑by‑byte (paranoid)
-- `FileCopyService`
-  - Temp-file copy, flush, source-stability check, destination conflict checks, and final promotion
-  - Reuses existing destination files only when they are proven identical
-- `SafetyValidator`
-  - Preflight source/destination containment, duplicate roots, symlinked output roots, unsafe relative paths, and case/Unicode-normalized collisions
-- `SharedChecksumCache`
-  - Actor‑based persistent cache (1h TTL) keyed by path + algorithm + file size + modification time
-  - Disk‑backed (Caches/com.bitmatch.app), reduces re‑verification time by orders of magnitude
-- `SharedChecksumService`
-  - MD5, SHA‑1, SHA‑256 (chunked hashing with progress)
-  - Byte compare for parity checks
-  - MD5 is provided via CryptoKit’s `Insecure.MD5` for legacy compatibility; SHA‑256 is recommended for integrity verification
+- `IOSBackgroundTaskService`: background task, idle timer, and Live Activity on iOS; a no-op stub on macOS
 - `OperationTimingService`
-  - Tracks elapsed time, rolling/average/peak speeds, ETA (bytes‑based)
-- `OperationStateService`
-  - Pause/resume lifecycle, minimal persistence, system notifications (iOS/macos)
 - `ErrorReportingService`
-  - Collects errors/warnings, summarizes, exports textual report
-- `SharedReportGenerationService`
-  - Generates professional PDF and JSON reports (cross‑platform rendering helpers)
-- `ResultsOverflowService`
-  - Spills very large result sets to disk while preserving latest per-file/per-destination status for reports
+- `OperationStateService`
+- `ResultsOverflowService`: spills result rows to disk past 5,000 in memory and coalesces them to the latest row per file and destination
 
-### File System Services
+It then calls `performFileOperation`. On return, it:
 
-#### FileSystemService Protocol
-```swift
-protocol FileSystemService {
-    func selectSourceFolder() async -> URL?
-    func selectDestinationFolders() async -> [URL]
-    func validateFileAccess(url: URL) async -> Bool
-    func getFileList(from folderURL: URL) async throws -> [URL]
-    nonisolated func getFileSize(for url: URL) throws -> Int64
-    nonisolated func createDirectory(at url: URL) throws
-    nonisolated func freeSpace(at url: URL) -> Int64
-}
-```
+1. Maps `FileOperation.results` into the authoritative `ResultRow` list.
+2. Runs the optional photographer finalizer.
+3. Writes ASC MHL histories, if enabled.
+4. Exports the report, if enabled.
 
-#### Platform Implementations
-- **IOSFileSystemService**: Handles iOS security-scoped resources and document picker
-- **MacOSFileSystemService**: Handles macOS file dialogs and direct file system access
+The completion is marked successful only if all of these hold:
 
-## Data Models
+- There is at least one result, and every row is a success status.
+- Photographer finalization, if configured, persisted and certified the card as locally safe.
+- No ASC MHL handoff issue occurred.
+- The verification mode is not Quick.
+- A requested report exported without error.
 
-### Core Models (`Shared/Core/Models/`)
+Any failure is appended to the completion message.
 
-#### SharedModels.swift
-- `FolderInfo`: Basic folder metadata
-- `EnhancedFolderInfo`: Extended folder analysis
-- `VerificationResult`: File verification outcomes
-- `AppMode`: Application operation modes
-- `VerificationMode`: Different verification strategies
+### 3. SharedFileOperationsService (`Shared/Core/Services/SharedFileOperationsService.swift`)
 
-#### CameraModels.swift
-- `CameraType`: Supported camera types and detection
-- `CameraCard`: Detected camera card information
-- `CameraLabelSettings`: Folder naming configuration
+This is the only `FileOperationsService` implementation. Both platform managers create one around their `FileSystemService` and `SharedChecksumService.shared`. Only one operation can run at a time.
 
-#### OperationModels.swift
-- `OperationState`: Current operation status
-- `OperationProgress`: Real-time progress tracking
-- `CompletionState`: Operation completion status
- - `PauseInfo`: Codable pause snapshot for persistence
+For each operation, in order:
 
-#### TransferModels.swift
-- `TransferCard`: Individual transfer records
-- `TransferMetadata`: Transfer operation metadata
-- `ResultRow`: Report row data
-- `ReportPrefs`: Report generation settings
+1. **Access.** Starts access scopes, then checks `validateFileAccess` on the source and each destination.
+2. **Manifest.** `FileTreeEnumerator.enumerateRegularFiles` (`Shared/Core/Services/File/FileTreeEnumerator.swift`) walks the source once:
+   - Hidden files are included; symlinks and non-regular files are skipped.
+   - Volume metadata folders at the root are skipped: `.Spotlight-V100`, `.fseventsd`, `.Trashes`, `.TemporaryItems`, and `.DocumentRevisions-V100`.
+   - Any traversal error fails the operation.
+3. **Preflight.** Runs `SafetyValidator` (`Shared/Core/Services/File/SafetyValidator.swift`):
+   - `validateResolvedDestinationRoots`: final output roots (destination plus the camera-label or recipe subfolders) must be unique, must not overlap the source, must not be nested in each other, and must not be a file or a symlink.
+   - `performSafetyChecks`: the source exists and is a folder; the source tree has no unsafe relative paths and no names that collide under case-insensitive or Unicode-normalized comparison; destination folders are unique and valid; there is enough free space.
+   - A final free-space check requires each destination to hold the source size plus 100 MB.
+4. **Per destination, in order:**
+   - **Pin the root.** `PinnedDestinationDirectory.open` pins the output root by file descriptor, walking each component with `O_NOFOLLOW`. A safety-policy error aborts the whole operation. Any other error (for example, a disconnected drive) records every planned file as failed for that destination, and the operation moves on to the next destination.
+   - **Copy.** `FileCopyService.copyAllSafely` copies using a worker count of `min(4, cores/2)`.
+   - **Verify.** Unless the mode is Quick, verification is pipelined by default: each copied file queues a verify task. The concurrency limit is `max(2, cores/2)`, and at most 200 tasks can be queued. Setting the `DisablePipelinedVerify` user default switches to one sequential pass per destination instead.
+5. **Results.** `ResultStore` keeps one current `FileOperationResult` per source/destination pair. The final `FileOperation` carries these results.
 
-## UI Architecture
+`pauseOperation()` / `resumeOperation()` toggle a flag that is checked between file chunks and between files. `cancelOperation()` cancels the running task.
 
-### macOS Interface
-**Primary View**: `BitMatch/App/ContentView.swift`
+### 4. FileCopyService (`Shared/Core/Services/File/FileCopyService.swift`)
 
-Features:
-- Dynamic window sizing based on content
-- Mode-specific layouts
-- Transfer-plan cards show source, destinations, options, and preflight status before transfer
-- Integrated report panel
-- Professional desktop interactions
+- **Writes.** Every destination write happens relative to the pinned directory descriptor, never through a path that is resolved again. Each file:
+  1. Is written to `.bitmatch.tmp.<UUID>`, created with `O_EXCL | O_NOFOLLOW`, in 4 MB chunks.
+  2. Is synced to disk, and its size is checked against the source.
+  3. Is checked for a source change during the copy (size, modification date, file identity).
+  4. Gets the source modification date.
+  5. Is published with `linkat` and then the temp file is removed. Publishing cannot replace a file that already exists.
+- **Existing destination files.** An existing file is reused only if it matches the source size and every checksum for the verification mode. Otherwise the file fails with a conflict and is never overwritten. In Quick mode, any existing file is a conflict.
+- **Verification.** `verifyPinnedDestinationFile` reads the destination through the pinned descriptor. The source is hashed through the injected `ChecksumService` with `useCache: false`. The algorithms come from `VerificationMode.checksumTypes` (`Shared/Core/Models/SharedModels.swift`):
 
-Key Components:
-- `CopyAndVerifyView`: File transfer interface
-- `CompareFoldersView`: Folder comparison interface
-- `MasterReportView`: Report generation interface
-- `ReportSettingsPanel`: Report configuration
+  | Mode | Verification | Existing-file reuse check |
+  |---|---|---|
+  | Quick | none (size only at copy time) | always a conflict |
+  | Standard | SHA-256 | SHA-256 |
+  | Thorough | SHA-256 + MD5 | SHA-256 + MD5 |
+  | Paranoid | byte-by-byte comparison, plus SHA-256 (recorded for ASC MHL) | SHA-256 + MD5 + SHA-1 |
 
-### iPad Interface
-**Primary View**: `BitMatch-iPad/Views/ModularContentView.swift`
+### Checksums
 
-Features:
-- Touch-optimized layouts
-- Collapsible sections
-- Professional card designs
-- Native iOS interactions
-- The same transfer-plan presentation shows setup, readiness, warnings, and blocked states before transfer
+- **`SharedChecksumService`** (`Shared/Core/Services/SharedChecksumService.swift`) does chunked MD5 (CryptoKit `Insecure.MD5`), SHA-1, and SHA-256, plus byte comparison.
+- **`SharedChecksumCache`** (`Shared/Core/Services/ChecksumCache.swift`) is an actor-backed cache stored at `Caches/com.bitmatch.app/checksum_cache.json`. Entries last 1 hour, the cache holds at most 50,000 entries, and each key includes path, algorithm, size, modification time, and inode. The copy/verify path and Compare both bypass it (`useCache: false`).
 
-Key Components:
-- `CopyAndVerifyView`: Enhanced touch interface with collapsible sections
-- `CompareFoldersView`: Side-by-side folder selection
-- `MasterReportView`: Volume scanning and report generation
-- `OperationProgressView`: Real-time progress display
-- `CompletionSummaryView`: Operation completion interface
+## Compare
 
-## Flow Diagrams
+- **Entry point.** `SharedAppCoordinator.compareFolders()` calls `ComparisonCoordinator.compareFolders(left:right:verificationMode:onProgress:)` (`Shared/Core/Services/ComparisonCoordinator.swift`).
+- **Callers.**
+  - On Mac, `BitMatch/Views/CompareFoldersView.swift` starts it through `AppCoordinator.startOperation()`.
+  - On iPhone and iPad, `ModularContentView` and `PhoneContentView` call the shared coordinator directly.
+- **Enumeration.** Both sides go through `FileSystemService.getFileList`, which is `FileTreeEnumerator.enumerateRegularFiles` on both platforms. It uses the same hidden-file, symlink, and volume-metadata rules as the copy manifest. Files are matched by relative path.
+- **Ignored files.**
+  - `isFinderMetadata` ignores `.DS_Store`, `Icon\r`, and `._*` on both sides.
+  - `isOffloadManifest` ignores a top-level `ascmhl/` folder and root-level `*.mhl` / `*.mhl.md5` files, but only when they appear on the destination side alone.
+- **Comparison of common files.**
+  1. Sizes are compared first; a size difference is a mismatch.
+  2. If sizes are equal, content is checked according to the mode:
+     - Quick: size only
+     - Standard: SHA-256
+     - Thorough: SHA-256 + MD5
+     - Paranoid: byte-by-byte comparison
+  - Files are processed one at a time, with `useCache: false`.
+- **Result.** `CompareStats` (defined in `SharedAppCoordinator.swift`) holds counts and sorted path lists: only in source, only in destination, and mismatched. `isClean` is true only when all three are empty. The result is thrown away if the folders or mode change while the compare is running.
+- **Display.** Both apps show the result in `Shared/Views/CompareResultsView.swift`. It lists up to 200 paths per group and exports JSON or CSV through `CompareReportDocument`.
 
-### Copy & Verify (shared operation path)
+## ASC MHL
 
-1. macOS or iPad selection UI sets source and destination URLs; its transfer-plan UI renders setup, readiness, warnings, or blockers.
-2. User taps Start → the coordinator builds `CopyVerifyConfig` and runs readiness checks against the resolved final output roots.
-3. `CopyVerifyExecutor` starts services:
-   - `OperationTimingService.startOperation(...)`
-   - `OperationStateService.startOperation(...)`
-   - `ErrorReportingService.startErrorTracking(...)`
-4. `CopyVerifyExecutor` invokes `PlatformManager.fileOperations.performFileOperation(...)`; both platforms reach `SharedFileOperationsService`.
-5. `SharedFileOperationsService` performs core preflight:
-   - source exists and is a directory
-   - destinations are unique and writable
-   - final destination roots are unique, non-nested, non-symlinked folders
-   - source tree has no unsafe relative paths or portable-name collisions
-6. `FileCopyService.copyAllSafely(...)` copies each file with temp-then-promote semantics and per-file error reporting.
-7. Verification runs inline or in a bounded pipeline, depending on mode.
-8. Progress and per-file rows flow through the executor to timing, state, and platform UI.
-9. On completion, the executor coalesces current result rows, finalizes state, and invokes `SharedReportGenerationService` when reports are enabled.
+`ASCMHLGenerator` (`Shared/Core/Services/ASCMHLGenerator.swift`) writes a first-generation ASC MHL v2.0 history into each destination's resolved output root.
 
-### Compare Folders (basic)
+- **When it runs.** Only from `CopyVerifyExecutor`, after results are authoritative and before the report. All of these must hold:
+  - `generateASCMHL` is on. It is a `SharedAppCoordinator` property stored in the `BitMatchGenerateASCMHL` user default, on by default.
+  - The mode is not Quick.
+  - Every source file has a successful, valid SHA-256-verified row for that destination.
 
-1. UI sets `leftURL` and `rightURL`
-2. Coordinator `compareFolders()` enumerates both via `FileSystemService.getFileList` (includes hidden files, skips symlink entries)
-3. Computes set differences (only in source/destination, common)
-4. Future extension: checksum/path parity for deeper comparisons
+  If a destination fails these checks, it gets no history, and the transfer completes with issues.
+- **Checks before writing.**
+  - Refuses to extend or replace an existing history: an `ascmhl` folder in, above, or below the root is an error.
+  - Rejects unsafe or duplicate paths and symlinks.
+  - Re-reads each file through a pinned descriptor with `O_NOFOLLOW` and requires the SHA-256 to equal the transfer's verified SHA-256.
+  - Refuses to write if the source and destination overlap.
+- **Output.**
+  - `ascmhl/0001_BitMatch_<UTC timestamp>Z.mhl`, with one MD5 hash per file.
+  - `ascmhl/ascmhl_chain.xml`, which references the manifest by its C4 ID.
 
-## Platform Notes
+  Both files are written into a hidden staging folder, which is then renamed to `ascmhl` with `renameatx_np(..., RENAME_EXCL)`.
+- **Reference check.**
+  - `Scripts/ascmhl/validate_reference.sh` builds a fixture with `Scripts/ascmhl/GenerateFixture.swift`.
+  - It then validates the output against the official ascmitc/mhl XSDs and CLI, confirms that CLI can append a second generation, and confirms that a corrupted file fails verification.
 
-### iOS Security‑Scoped URLs
-The iOS file system service acquires a folder‑level security scope for enumeration, and only falls back to per‑file scopes on errors, using `startAccessingSecurityScopedResource()` with `defer` cleanup. See `IOSFileSystemService` for the pattern and delegate retention in the document picker.
+## Reports
 
-### macOS Manager (legacy target)
-The legacy Mac target includes a shim `MacOSPlatformManager` under `BitMatch/Core/Services/Platform` so it can build without the `Platforms/` group; the modern manager lives under `Platforms/macOS` and is used by the shared coordinator in the macOS build. The shim initializes UI‑facing services on the main actor to respect Swift’s actor isolation rules.
+- **`ReportExporter.export`** (`Shared/Core/Services/ReportExporter.swift`): the per-transfer report. `CopyVerifyExecutor` calls it when `ReportPrefs.makeReport` is on.
+  - Location: `<first destination>/Reports/` for Copy & Verify.
+  - Always written: CSV and JSON.
+  - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `BitMatch/Views/ReportView.swift` on macOS only (iOS writes no PDF).
+- **`SharedReportGenerationService`** (`Shared/Core/Services/SharedReportGenerationService.swift`): the Master Report PDF and JSON, built from scanned transfer reports.
+  - Scanning: `BitMatch/Core/Services/DriveScanner.swift` on Mac, `Platforms/iOS/Services/IOSDriverScanner.swift` on iOS.
+  - Saving: through a save panel on Mac, or shared from a temporary file on iOS.
+- **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Views/TransferLibraryView.swift`).
 
-## State Flow
+## Transfer journal and queue
 
-### Typical Operation Flow
-1. **Folder Selection**: User selects source folder
-   - Platform-specific picker presented
-   - `SharedAppCoordinator.sourceURL` updated
-   - UI automatically refreshes via `@Published`
+`LocalTransferJournal` (`Shared/Core/Services/LocalTransferJournal.swift`) is the durable transfer record on every platform.
 
-2. **Folder Analysis**: Selected folder is analyzed
-   - `EnhancedFolderInfo` generated asynchronously
-   - Camera detection performed
-   - UI updates show folder details
+- **Storage.**
+  - A JSON array of `LocalTransferRecord` at `Application Support/BitMatch/transfer-history.json`.
+  - Every change is written atomically before it is published.
+  - An exclusive `flock` on `transfer-history.json.lock` prevents a second app instance from opening the journal.
+- **Records.** Each record stores:
+  - Source and destinations as `LocalTransferResource`: URL, bookmark, volume UUID, and resource ID
+  - Verification mode, camera and report settings, the ASC MHL flag, and an optional project ID
+  - State: `queued`, `running`, `interrupted`, `completed`, `issues`, or `cancelled`
+  - The final `ResultRow`s
+- **Outcomes.** `finish` records `issues` rather than `completed` for Quick mode, for an empty result list, or when any row is not a success.
+- **Recovery.**
+  - On load, any record still `running` becomes `interrupted`.
+  - `requeue` creates a new record for a retry and keeps the old one.
+  - `prepareToRun` resolves bookmarks and requires the same volume and resource identity as the original.
+  - `reauthorize` lets the user reconnect a location, and rejects a different volume or folder.
+- **The queue.** The journal also backs the local queue, driven by `SharedAppCoordinator`:
+  - `startQueue()` / `stopQueueAfterCurrentTransfer()` start and stop it.
+  - `processNextQueuedTransfer()` takes the oldest `queued` record with no project ID, loads its settings, and runs it through the same `executeOperation` path.
+  - The queue stops when a transfer does not complete cleanly, and on cancel.
+  - On iOS it runs only while the app is in the foreground; otherwise it pauses with a message.
+- **UI.** Both apps show `Shared/Views/TransferLibraryView.swift` for queue, history, retry, reconnect, and export. Both shells show an interrupted-transfer banner.
+- **Unrelated view.** `BitMatch/Views/CompactTransfer/TransferQueueView.swift` is not connected to this queue. Its queued and completed lists are local `@State`, filled only by a DEBUG helper.
 
-3. **Destination Setup**: User adds backup destinations
-   - Multiple destinations supported
-   - Each destination validated for access and space
+### Remote backup queue (Mac only)
 
-4. **Operation Configuration**: User configures operation
-   - Verification mode selection
-   - Camera labeling settings
-   - Report generation options
+- **Components.** `RemoteBackupQueue`, `RemoteBackupCoordinator`, and `RemoteBackupProvider` are in `Shared/Core/Services/` but compile only on macOS. The SFTP implementation is `BitMatch/Core/Services/SFTPRemoteBackupProvider.swift`, which runs the system `ssh`, `sftp`, `ssh-keyscan`, and `ssh-keygen`. Credentials are stored in the Keychain (`BitMatch/Utilities/KeychainHelper.swift`).
+- **Queue behavior.** Queue items and manifests persist through the photographer job store. The queue retries network errors with backoff, and never replaces an existing remote file.
+- **Wiring.** `AppCoordinator` builds and schedules the queue.
+- **On iOS.** `SharedAppCoordinator` always uses `UnavailableRemoteProjectCoordinator` (`Shared/Core/Services/ProjectRemoteCoordinator.swift`), which records the destination choice and throws `remoteUploadsRequireMac`.
 
-5. **Operation Execution**: File transfer begins
-   - `OperationState` changes to `.inProgress`
-   - Real-time progress updates via `OperationProgress`
-   - UI switches to progress view
+### Photographer job stores
 
-6. **Completion**: Operation finishes
-   - `OperationState` changes to `.completed`
-   - Results displayed in completion view
-   - Reports generated if configured
+- **Protocol.** `PhotographerJobStore` is defined in `Shared/Core/Services/ProjectStoreProtocol.swift`.
+- **iOS store.** iOS uses `UserDefaultsPhotographerJobStore` (`Shared/Core/Services/UserDefaultsPhotographerJobStore.swift`), which is the `SharedAppCoordinator` default.
+- **Mac store.** Mac's `AppCoordinator` uses `CoreDataPhotographerJobStore` (`BitMatch/Core/Services/Photographer/PhotographerJobStore.swift`) on `BitMatchPersistenceController` (model `BitMatch/BitMatch.xcdatamodeld`).
+- **Mac wiring detail.** The `SharedAppCoordinator` inside Mac's `AppCoordinator` still creates its own UserDefaults-backed `PhotographerJobViewModel`. The Core Data job reaches the transfer only through `photographerReportFinalizer`.
 
-## Error Handling
+## Platform managers
 
-### BitMatchError Enum
-Comprehensive error types for user-friendly error messages:
-- `fileAccessDenied`: Permission issues
-- `fileNotFound`: Missing files during operation
-- `checksumMismatch`: Verification failures
-- `insufficientStorage`: Space limitations
-- `operationCancelled`: User cancellation
+`PlatformManager` (`Shared/Core/Services/ServiceProtocols.swift`) is the only platform seam the engine sees. It exposes:
 
-### Platform-Specific Errors
-- **iOS**: Security-scoped resource access failures
-- **macOS**: File system permission issues
+- `fileSystem: FileSystemService`
+- `checksum: ChecksumService`
+- `fileOperations: FileOperationsService`
+- `cameraDetection: CameraDetectionService`
+- `supportsDragAndDrop`
+- `presentAlert`, `presentError`, and `openURL`
 
-## Performance Considerations
+| | `MacOSPlatformManager` (`Platforms/macOS/Services/`) | `IOSPlatformManager` (`Platforms/iOS/Services/`) |
+|---|---|---|
+| File system | `MacOSFileSystemService` (`BitMatch/Core/Services/Platform/`): `NSOpenPanel` pickers. `startAccessing` returns `true`, and `stopAccessing` does nothing. | `IOSFileSystemService`: `UIDocumentPickerViewController` folder picker (the delegate is retained). Uses security-scoped access at folder level, with per-file scopes for size and directory creation. |
+| Checksum | `SharedChecksumService.shared` | `SharedChecksumService.shared` |
+| File operations | `SharedFileOperationsService` | `SharedFileOperationsService` |
+| Camera detection | `SharedCameraDetectionService` | `SharedCameraDetectionService` |
+| Alerts | `NSAlert` (skipped under XCTest) | `UIAlertController` |
+| Drag and drop | yes | no |
 
-### Async/Await Usage
-All file operations use Swift concurrency to prevent UI blocking. Heavy filesystem work is dispatched off the main actor and parallelized conservatively:
-```swift
-// Example: background folder stats + batched parallel fan‑out
-let info = await Task.detached(priority: .userInitiated) { computeInfo(url) }.value
-await withTaskGroup(of: Result.self) { group in /* cap concurrency */ }
-```
+Both file system services list files through `FileTreeEnumerator`.
 
-### Memory Management
-- Security-scoped resources properly managed with defer blocks
-- Large file lists processed incrementally where possible
-- Final operation results are indexed and retained for accurate completion/reporting; UI result overflow can spill to disk for large transfers
-- Progress updates throttled to prevent UI spam
+### Camera detection
 
-### Background Processing
-- File operations run on background queues; folder enumeration off-main
-- UI updates dispatched to main queue; progress throttled for smoothness
-- Cancellable operations for user responsiveness; pause/resume supported
+- **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator` (`Shared/Core/Services/Camera/`), which tries per-manufacturer and heuristic detectors in order and stops at the first match. It then adds its own folder-structure analysis.
+- **Callers.** `SharedAppCoordinator` calls it when a source is chosen.
+- **Mac-only callers.** `CameraNamingService`, `CameraMemoryService`, and `CameraStructureDetector` are in `Shared/`, but only Mac code calls them: `CameraLabelViewModel`, `FileSelectionViewModel`, and `CameraCardDetectionService`.
 
-## Testing Strategy
+### Other Mac-only services (`BitMatch/Core/Services/`)
 
-### Unit Testing
-- Core business logic in shared services
-- Mock platform managers for testing
-- Isolated component testing
-- Safety regressions for destination conflicts, hidden files, empty folders, source mutation, portable path collisions, paranoid byte comparison, and large result retention
+- `VolumeMonitorService` and `CameraCardDetectionService`: volume mount monitoring and card detection
+- `DriveBenchmarkService`: read and write speed, used for time estimates
+- `DriveScanner`: Master Report scanning
+- `DevModeManager`: DEBUG tools
+- `GlobalErrorHandler`
+- `AppLogger`: forwards to `SharedLogger`
 
-### Integration Testing
-- Full operation flows
-- Platform-specific implementations
-- Error condition handling
+## Tests
 
-### UI Testing
-- User interaction flows
-- State management verification
-- Platform-specific behavior validation
+The `BitMatchTests` unit tests run on macOS against the shared engine through `@testable import BitMatch`. A single fake, `BitMatchTests/TestHelpers/FakeFileSystemService.swift`, stands in for `FileSystemService`.
 
-### Concurrency and Fault Diagnostics
+| Area | Test files |
+|---|---|
+| Pipeline | `SharedFileOperations*Tests`, `CopyVerifyExecutorIntegrityTests`, `SafetyValidatorTests`, `SourceTreeUnchangedTests` |
+| Journal and queue | `LocalTransferJournalTests`, `LocalTransferQueueIntegrationTests` |
+| Compare | `SharedCompareFlowTests`, `CompareIgnoredFilesTests` |
+| ASC MHL | `ASCMHLGeneratorTests` |
+| Verdict parity across platforms | `PlatformVerdictParityTests` |
+| Fault injection and soak | `TransferFaultIntegrationTests`, `TransferSoakTests` |
 
-`BitMatchTests/ConcurrencyTests.swift` targets the shared `AsyncSemaphore`:
-basic permit behavior, bounded concurrent access, stress, and cancellation.
-Transfer integration and soak tests exercise the shared operation path, rather
-than duplicating platform-specific copy logic. The focused APFS image harness
-(`Scripts/run_apfs_fault_tests.sh`) verifies that one inaccessible destination
-reports failure while another can finish. `Scripts/run_soak_tests.sh` runs a
-seeded, repeatable transfer soak test. Physical cable, power, hub, and exFAT
-fault cases require the procedure in `docs/HARDWARE_TESTING.md`.
+- **Scripted harnesses.** `Scripts/run_apfs_fault_tests.sh` and `Scripts/run_soak_tests.sh` drive the fault and soak tests. `docs/HARDWARE_TESTING.md` covers physical-device fault testing.
+- **iOS tests.** `BitMatch-iPadTests` holds a small iOS suite.
