@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.1.7] - 2026-09-25
 
 - Fix: Reports separate verified files from files copied without verification. The CSV summary lists Verified, "Copied, not verified" and Issues instead of one "Matched" count, and the JSON and PDF count only verified files as matches, so a Quick copy no longer reports every file as matched. The CSV's per-file Timestamp column is left empty rather than estimated from the average speed; the measured start and finish are in the summary.
 - Fix (Mac): The live results header showed a verified count that never increased, and "All N files verified" could never appear. Both now come from the results themselves.
@@ -23,7 +23,6 @@ All notable changes to this project will be documented in this file.
 - Setup: One readiness rule on every platform. Start waits until the source has been analysed, and a backup needs more free space than the source plus 1 GB, the margin the copy itself requires, so "Ready" can no longer fail at start. Previously iOS blocked only at 90% of free space and the Mac allowed 100 MB of headroom. The Mac now shows the same readiness messages as iPad and iPhone.
 - iPad and iPhone: Report settings and the camera label are remembered across launches, and the camera label is suggested from the card and remembered per camera, as on the Mac. Choosing no source clears the label. A project card now uses its job's folder layout (only the Mac applied it before), for that transfer only.
 - Queue: Replaying a queued transfer uses its saved report and camera settings for that run only; your current settings are no longer replaced by them.
-- Mac: The estimated time above Start updates when the verification mode changes, and a slow estimate for an earlier selection can no longer replace the current one. A running queue now also locks the mode switcher.
 - Mac Preferences: The "Generate PDF" and "Generate CSV" checkboxes are gone; reports were always written in every format anyway.
 - Mac: A connected card that macOS can see but not read now shows a notice instead of nothing. Sony SxS cards point to Sony's SxS UDF Driver, and Sony AXS cards to Sony's AXS reader software.
 - Fix: Copying to an exFAT backup drive failed every file with "Destination file appeared during copy; refusing to overwrite it" (0.1.4 through 0.1.6). exFAT has no hard links, which BitMatch used to publish each verified file without any chance of replacing an existing one. On exFAT, BitMatch now claims the file name exclusively and moves the verified copy onto that claim; an existing file is still never replaced.
