@@ -309,7 +309,7 @@ struct ResultsTableView: View {
             .frame(width: 120, alignment: .trailing)
 
             // Status text
-            Text(row.status)
+            Text(TransferOutcomePresentation.statusLabel(for: row.status))
                 .font(.system(size: 10))
                 .foregroundColor(status.color.opacity(0.85))
                 .frame(width: 120, alignment: .trailing)
@@ -341,7 +341,7 @@ struct ResultsTableView: View {
                 .foregroundColor(.white.opacity(0.54))
             }
             Spacer(minLength: 8)
-            Text(row.status)
+            Text(TransferOutcomePresentation.statusLabel(for: row.status))
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(status.color.opacity(0.9))
                 .lineLimit(2)
