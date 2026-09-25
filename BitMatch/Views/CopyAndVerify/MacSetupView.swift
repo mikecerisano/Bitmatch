@@ -2,25 +2,23 @@ import SwiftUI
 
 /// The Mac's slots for the shared Setup screen (UI plan step 4.8): drag and
 /// drop with drive discovery for the locations, the unreadable-card banner,
-/// project setup with presets and SFTP, the camera label editor, the project
-/// dashboard, and the drive-benchmark estimate. Everything else, including
-/// readiness and the Start button, is the screen iPad and iPhone show.
+/// project setup with presets and SFTP, the camera label editor and the
+/// project dashboard. Everything else, including readiness and the Start
+/// button, is the screen iPad and iPhone show.
 ///
-/// Environment objects: `MacVolumeAccessModel` (read by `HorizontalFlowView`),
-/// `MacRemoteBackupController` and `TransferEstimateModel`. All three come
-/// from `macCompanions(_:)` on the window root.
+/// Environment objects: `MacVolumeAccessModel` (read by `HorizontalFlowView`)
+/// and `MacRemoteBackupController`. Both come from `macCompanions(_:)` on the
+/// window root.
 struct MacSetupView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @EnvironmentObject var remoteBackups: MacRemoteBackupController
-    @EnvironmentObject var estimate: TransferEstimateModel
     @Binding var optionsExpanded: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         CoordinatorSetupScreen(
             coordinator: coordinator,
-            optionsExpanded: $optionsExpanded,
-            estimateText: estimateText
+            optionsExpanded: $optionsExpanded
         ) { context in
             // The single owner of folder panels, drop validation and
             // discovered drives.
@@ -57,18 +55,6 @@ struct MacSetupView: View {
         .padding(.top, 4)
         .padding(.bottom, 8)
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-    }
-
-    /// The drive-benchmark estimate (Mac only until the engine estimates
-    /// from observed copy speed; thesis, step 5).
-    private var estimateText: String? {
-        if let timeEstimate = estimate.estimate {
-            return "Estimated time: \(timeEstimate.formatted) · \(timeEstimate.speedSummary)"
-        }
-        if estimate.isCalculating {
-            return "Calculating transfer estimate…"
-        }
-        return nil
     }
 }
 

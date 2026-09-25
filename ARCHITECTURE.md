@@ -58,11 +58,10 @@ The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyV
 - **Coordinator.** As on iPhone and iPad, the Mac views bind to `SharedAppCoordinator` directly; it is the only state owner. `ContentView` holds a `MacAppEnvironment` (`BitMatch/App/MacAppEnvironment.swift`) as its one `@StateObject` and renders `MacMainView`. `MacAppEnvironment.make()` builds the Core Data–backed `PhotographerJobViewModel`, a `SharedAppCoordinator` on `MacOSPlatformManager.shared` that uses it, and the Mac companions below. Start and ⌘R call `startCurrentMode()`, the same entry point on every platform.
 - **Mac-only companions.** Each reads from and writes to the shared coordinator and keeps no copy of its state:
   - `MacRemoteBackupController`: the SFTP remote-backup queue, scheduler and host-key prompt (the thesis's named Mac exception).
-  - `TransferEstimateModel`: the drive-benchmark "Estimated time" (to be replaced by observed copy speed).
-  - `MacVolumeAccessModel` (`BitMatch/Core/ViewModels/`): volume monitoring, backup-drive discovery, `/Volumes` bookmarks, recents, last-used backups and drive speed.
+  - `MacVolumeAccessModel` (`BitMatch/Core/ViewModels/`): volume monitoring, backup-drive discovery, `/Volumes` bookmarks, recents and last-used backups.
   - `MacCameraAutoSourceController`: choosing a detected camera card as the source when Preferences allow it.
 
-  `MacRemoteBackupController`, `MacVolumeAccessModel` and `TransferEstimateModel` reach views as environment objects; the Preferences window receives its companions explicitly.
+  `MacRemoteBackupController` and `MacVolumeAccessModel` reach views as environment objects; the Preferences window receives its companions explicitly.
 
 ## Operation state
 
@@ -303,7 +302,6 @@ Both file system services list files through `FileTreeEnumerator`.
 ### Other Mac-only services (`BitMatch/Core/Services/`)
 
 - `VolumeMonitorService` and `CameraCardDetectionService`: volume mount monitoring and card detection
-- `DriveBenchmarkService`: read and write speed, used for time estimates
 - `DevModeManager`: DEBUG tools
 - `GlobalErrorHandler`
 - `AppLogger`: forwards to `SharedLogger`

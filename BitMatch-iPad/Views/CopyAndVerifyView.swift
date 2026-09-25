@@ -14,10 +14,7 @@ struct CopyAndVerifyView: View {
     var body: some View {
         CoordinatorSetupScreen(
             coordinator: coordinator,
-            optionsExpanded: $optionsExpanded,
-            estimateText: coordinator.sourceFolderInfo.map {
-                "Estimated time: \(coordinator.verificationMode.estimatedTime(fileCount: $0.fileCount))"
-            }
+            optionsExpanded: $optionsExpanded
         ) { context in
             EnhancedSourceDestinationView(
                 coordinator: coordinator,

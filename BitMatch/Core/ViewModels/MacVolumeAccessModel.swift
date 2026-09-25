@@ -468,44 +468,7 @@ final class MacVolumeAccessModel: ObservableObject {
         UserDefaults.standard.set(paths, forKey: recentFoldersListKey)
     }
     
-    // MARK: - Smart Drive Detection
-    func detectDriveSpeed(for url: URL) -> DriveSpeed {
-        // Quick detection based on volume characteristics
-        do {
-            let resourceValues = try url.resourceValues(forKeys: [
-                .volumeIsLocalKey,
-                .volumeIsRemovableKey,
-                .volumeSupportsFileCloningKey
-            ])
-            
-            // Network drive detection
-            if !(resourceValues.volumeIsLocal ?? true) {
-                return .network
-            }
-            
-            // Check if it's likely an SSD (supports APFS cloning)
-            if resourceValues.volumeSupportsFileCloning ?? false {
-                // Could be NVMe or regular SSD
-                // For now, assume internal drives with cloning are NVMe
-                if !(resourceValues.volumeIsRemovable ?? true) {
-                    return .nvme
-                }
-                return .ssd
-            }
-            
-            // Removable drives are often HDDs unless proven otherwise
-            if resourceValues.volumeIsRemovable ?? false {
-                return .hdd
-            }
-            
-            // Default to SSD for internal drives
-            return .ssd
-            
-        } catch {
-            return .unknown
-        }
-    }
-    
+    // MARK: - Drive Speed Classes
     enum DriveSpeed: String {
         case nvme = "NVMe"
         case ssd = "SSD"

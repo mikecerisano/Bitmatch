@@ -4,10 +4,11 @@ extension SetupPresentation {
     /// The one adapter from `SharedAppCoordinator`, used by Mac, iPad and
     /// iPhone alike, so every platform shows the same Setup for the same
     /// selection. Readiness is the one shared rule
-    /// (`operationReadinessAssessment`); the estimate is the only
-    /// platform-supplied value.
+    /// (`operationReadinessAssessment`). There is no time estimate before a
+    /// transfer starts: nothing honest can be known until copying is under
+    /// way, and the progress screen shows time left from observed speed.
     @MainActor
-    static func make(coordinator: SharedAppCoordinator, estimateText: String?) -> Self {
+    static func make(coordinator: SharedAppCoordinator) -> Self {
         let readiness = coordinator.operationReadinessAssessment
         let plan = TransferPlanPresentation.make(
             sourceURL: coordinator.sourceURL,
@@ -40,18 +41,16 @@ extension SetupPresentation {
             sourceFileCount: coordinator.sourceFolderInfo?.fileCount,
             sourceBytes: coordinator.sourceFolderInfo?.totalSize,
             destinationCount: coordinator.destinationURLs.count,
-            hasProjectEvidence: !(jobs.dashboardJob?.cardIngests.isEmpty ?? true),
-            estimateText: estimateText
+            hasProjectEvidence: !(jobs.dashboardJob?.cardIngests.isEmpty ?? true)
         )
     }
 }
 
 /// `SetupScreen` wired to `SharedAppCoordinator`. Each platform passes only
-/// its slots (see `SetupScreen`) and its estimate line.
+/// its slots (see `SetupScreen`).
 struct CoordinatorSetupScreen<Locations: View, Problems: View, ProjectSetup: View, LabelContent: View, ProjectEvidence: View>: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @Binding var optionsExpanded: Bool
-    private let estimateText: String?
     private let locations: (SetupLocationsContext) -> Locations
     private let problems: Problems
     private let projectSetup: ProjectSetup
@@ -61,7 +60,6 @@ struct CoordinatorSetupScreen<Locations: View, Problems: View, ProjectSetup: Vie
     init(
         coordinator: SharedAppCoordinator,
         optionsExpanded: Binding<Bool>,
-        estimateText: String?,
         @ViewBuilder locations: @escaping (SetupLocationsContext) -> Locations,
         @ViewBuilder problems: () -> Problems,
         @ViewBuilder projectSetup: () -> ProjectSetup,
@@ -70,7 +68,6 @@ struct CoordinatorSetupScreen<Locations: View, Problems: View, ProjectSetup: Vie
     ) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
         _optionsExpanded = optionsExpanded
-        self.estimateText = estimateText
         self.locations = locations
         self.problems = problems()
         self.projectSetup = projectSetup()
@@ -80,7 +77,7 @@ struct CoordinatorSetupScreen<Locations: View, Problems: View, ProjectSetup: Vie
 
     var body: some View {
         SetupScreen(
-            presentation: .make(coordinator: coordinator, estimateText: estimateText),
+            presentation: .make(coordinator: coordinator),
             options: SetupOptionsBindings(
                 isExpanded: $optionsExpanded,
                 verificationMode: $coordinator.verificationMode,

@@ -145,8 +145,6 @@ struct SetupPresentation: Equatable {
     let isWorkflowLocked: Bool
     let showsProjectSetup: Bool
     let showsProjectEvidence: Bool
-    /// One line above Start, e.g. "Estimated time: 4 min". Platform-supplied.
-    let estimateText: String?
 
     static func make(
         plan: TransferPlanPresentation,
@@ -158,8 +156,7 @@ struct SetupPresentation: Equatable {
         sourceFileCount: Int?,
         sourceBytes: Int64?,
         destinationCount: Int,
-        hasProjectEvidence: Bool,
-        estimateText: String?
+        hasProjectEvidence: Bool
     ) -> Self {
         let isProject = usesProjectWorkflow || hasPreparedCard
         return Self(
@@ -178,8 +175,7 @@ struct SetupPresentation: Equatable {
             workflow: isProject ? .project : .quick,
             isWorkflowLocked: hasPreparedCard,
             showsProjectSetup: isProject,
-            showsProjectEvidence: hasProjectEvidence,
-            estimateText: estimateText
+            showsProjectEvidence: hasProjectEvidence
         )
     }
 }

@@ -120,6 +120,8 @@ struct TransferProgressPresentation: Equatable, Sendable {
     /// backups).
     let countText: String?
     let speed: String?
+    /// From observed copy speed only; `estimatingTimeLeft` until enough
+    /// copying has been measured. There is no estimate before a run starts.
     let timeRemaining: String?
     let elapsed: String?
     let currentFile: String?
@@ -133,6 +135,9 @@ struct TransferProgressPresentation: Equatable, Sendable {
     var accessibilityValue: String {
         [title, percentText, countText].compactMap { $0 }.joined(separator: ", ")
     }
+
+    /// Time left before enough copying has been measured to estimate it.
+    static let estimatingTimeLeft = "Estimating…"
 
     static let cancelConfirmationTitle = "Cancel this transfer?"
     static let cancelConfirmationMessage =
@@ -172,7 +177,7 @@ struct TransferProgressPresentation: Equatable, Sendable {
             countText: Self.countText(progress: progress, phase: phase),
             // Speed and time left mean nothing while paused.
             speed: isPaused ? nil : speed,
-            timeRemaining: isPaused ? nil : timeRemaining,
+            timeRemaining: Self.timeLeft(phase: phase, measured: timeRemaining),
             elapsed: elapsed,
             currentFile: progress?.currentFile.flatMap { $0.isEmpty ? nil : $0 },
             issueLine: Self.issueLine(issueCount),
@@ -183,6 +188,18 @@ struct TransferProgressPresentation: Equatable, Sendable {
     }
 
     // MARK: Rules
+
+    /// Time left as the screen shows it. `measured` comes from observed copy
+    /// speed (`ProgressPresentationModel.formattedTimeRemaining`). Before
+    /// copying starts there is no speed yet, so it says so; once copying is
+    /// done, or while paused, there is nothing honest to show.
+    static func timeLeft(phase: ProgressPhase, measured: String?) -> String? {
+        switch phase {
+        case .preparing: return estimatingTimeLeft
+        case .copying, .verifying: return measured
+        case .paused, .resuming, .writingReports, .finishing: return nil
+        }
+    }
 
     static func phase(state: OperationState, stage: ProgressStage?) -> ProgressPhase {
         switch state {
