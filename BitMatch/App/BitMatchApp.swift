@@ -93,7 +93,8 @@ struct BitMatchApp: App {
             
             OperationCommands()
             
-            CommandMenu("View") {
+            // Into the system View menu: a CommandMenu("View") adds a second one.
+            CommandGroup(before: .toolbar) {
                 Button("Copy & Verify Mode") {
                     NotificationCenter.default.post(name: .switchToCopyMode, object: nil)
                 }
@@ -108,6 +109,7 @@ struct BitMatchApp: App {
                     NotificationCenter.default.post(name: .switchToMasterReportMode, object: nil)
                 }
                 .keyboardShortcut("3", modifiers: .command)
+                Divider()
             }
             
             #if DEBUG
@@ -204,7 +206,9 @@ struct OperationCommands: Commands {
     @FocusedValue(\.canCancelOperation) private var canCancelOperation
 
     var body: some Commands {
-        CommandMenu("File") {
+        // Into the system File menu, so it keeps its place; a
+        // CommandMenu("File") adds a second File menu after View.
+        CommandGroup(after: .newItem) {
             Button("Start Verification") {
                 NotificationCenter.default.post(name: .startVerification, object: nil)
             }

@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+- Mac: The menu bar has one View menu (the mode shortcuts ⌘1–⌘3 are in it) and File is back in its usual place, first after the app menu.
+
 ## [0.1.7] - 2026-09-25
 
 - Fix: Reports separate verified files from files copied without verification. The CSV summary lists Verified, "Copied, not verified" and Issues instead of one "Matched" count, and the JSON and PDF count only verified files as matches, so a Quick copy no longer reports every file as matched. The CSV's per-file Timestamp column is left empty rather than estimated from the average speed; the measured start and finish are in the summary.
