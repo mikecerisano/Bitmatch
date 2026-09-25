@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Fix: On iPad and iPhone, switching apps no longer labels a running transfer "Paused" while it keeps copying. Low battery (under 15%) now actually pauses the copy.
 - Fix: Report totals (data processed, throughput, average file size) come from the files copied, not an estimate that could read 1 GB when the source had not been measured.
 - Presentation: Only rows that were checksum- or byte-verified show a green check; a Quick copy's "Copied" rows are neutral. On iPad and iPhone, a cancelled transfer's guidance now says it was cancelled.
+- Master Report: Mac, iPad and iPhone find reports with one shared scanner. iPad and iPhone now find the reports BitMatch actually writes (`BitMatch_Report_<date>.json`). A Quick (size-only) copy, or a report that does not say how it was verified, is no longer listed as verified. Both platforms list reports written today (iPad and iPhone used to look back two days), skip reports over 64 MB, and group cards by the card's folder name instead of a guess from the backup path. On the Mac, the report no longer prints the settings' notes as the technician, and no longer says it was generated when saving failed.
+- Transfers: Each transfer shows its state as a word and a symbol (Verified, Needs review, Interrupted, Cancelled, Queued, Copying); only verified transfers are green, and interrupted or issue runs are orange instead of grey. The "review in Transfers" banner is shared by all three platforms and counts interrupted transfers. Row buttons are 44 pt tall on iPad and iPhone and wrap at large text sizes.
 
 ## [0.1.6] - 2026-09-25
 

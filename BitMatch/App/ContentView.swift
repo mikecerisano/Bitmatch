@@ -151,10 +151,10 @@ struct ContentView: View {
     private var mainContentArea: some View {
         VStack(spacing: 0) {
             headerView
-            if coordinator.sharedCoordinator.transferJournal.records.contains(where: { $0.state == .interrupted }) {
-                Button("Interrupted transfer — review in Transfers") { showingTransfers = true }
-                    .font(.callout).foregroundStyle(.orange).padding(.bottom, 8)
-            }
+            TransferAttentionBanner(
+                needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.sharedCoordinator.transferJournal.records)
+            ) { showingTransfers = true }
+                .padding(.bottom, 8)
             mainScrollView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

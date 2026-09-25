@@ -136,6 +136,15 @@ private struct JSONReport: Codable {
 // MARK: - Report Exporter Service
 final class ReportExporter {
     
+    /// `BitMatch_Report_<finish time>.<ext>`. The PDF, CSV, JSON and checksum
+    /// files share this name; `ReportScanner` looks for the JSON one.
+    static func reportFileName(finished: Date, pathExtension: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = .withInternetDateTime
+        let dateString = formatter.string(from: finished).replacingOccurrences(of: ":", with: "-")
+        return "BitMatch_Report_\(dateString).\(pathExtension)"
+    }
+
     static func normalizedNotes(_ notes: String) -> String? {
         let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -432,11 +441,7 @@ final class ReportExporter {
                                         generateFullReport: Bool,
                                         photographerContext: PhotographerReportContext?) async throws {
         
-        // Generate default filename
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = .withInternetDateTime
-        let dateString = formatter.string(from: finished).replacingOccurrences(of: ":", with: "-")
-        let fileName = "BitMatch_Report_\(dateString).pdf"
+        let fileName = reportFileName(finished: finished, pathExtension: "pdf")
         
         // Determine save location - auto-save to Reports folder
         let saveDirectory: URL
@@ -542,11 +547,7 @@ final class ReportExporter {
         panel.allowedContentTypes = [.pdf]
         panel.canCreateDirectories = true
         
-        // Generate default filename
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = .withInternetDateTime
-        let dateString = formatter.string(from: finished).replacingOccurrences(of: ":", with: "-")
-        panel.nameFieldStringValue = "BitMatch_Report_\(dateString).pdf"
+        panel.nameFieldStringValue = reportFileName(finished: finished, pathExtension: "pdf")
         
         // Set default location
         if mode == .copyAndVerify, let firstDestination = destinationURLs.first {
@@ -728,11 +729,15 @@ final class ReportExporter {
             prefs: prefs,
             photographerContext: photographerContext
         )
+        try encodeEnhancedJSONReport(report).write(to: url)
+    }
+
+    /// The bytes written for a JSON report. `ReportScanner` reads these back.
+    static func encodeEnhancedJSONReport(_ report: EnhancedJSONReport) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(report)
-        try data.write(to: url)
+        return try encoder.encode(report)
     }
 
     static func makeEnhancedJSONReport(

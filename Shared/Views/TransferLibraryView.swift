@@ -16,12 +16,7 @@ struct TransferLibraryView: View {
     @State private var exportType = UTType.json
 
     private var visibleRecords: [LocalTransferRecord] {
-        journal.records.filter { record in
-            let inSection = showHistory || record.state.showsInQueue
-            let haystack = [record.title, record.summary, record.reportSettings.projectName]
-                + record.destinations.map { $0.url.lastPathComponent }
-            return inSection && (search.isEmpty || haystack.joined(separator: " ").localizedCaseInsensitiveContains(search))
-        }
+        TransferLibraryPresentation.visibleRecords(journal.records, showHistory: showHistory, search: search)
     }
 
     var body: some View {
@@ -85,54 +80,57 @@ struct TransferLibraryView: View {
     }
 
     private func recordView(_ record: LocalTransferRecord) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(record.title).font(.headline).textSelection(.enabled)
-                Spacer()
-                Text(record.state.rawValue.capitalized).font(.subheadline)
-                    .foregroundStyle(record.state == .completed ? Color.green : Color.secondary)
-            }
-            Text(record.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
-            Text(record.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
-            Text(record.destinations.map { $0.url.lastPathComponent }.joined(separator: " · "))
-                .font(.callout).foregroundStyle(.secondary)
-            Text("\(record.verificationMode.rawValue) · \(record.results.count) reported \(record.results.count == 1 ? "file" : "files")")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                if record.state == .queued {
-                    Button("Remove from queue", role: .destructive) {
-                        do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
-                        catch { errorMessage = error.localizedDescription }
+        let state = TransferLibraryPresentation.stateLabel(record.state, verificationMode: record.verificationMode)
+        let actions = TransferLibraryPresentation.actions(for: record)
+        return VStack(alignment: .leading, spacing: 8) {
+            // One VoiceOver stop for the card's facts; the buttons stay separate.
+            VStack(alignment: .leading, spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(record.title).font(.headline).textSelection(.enabled)
+                        Spacer()
+                        stateLabel(state)
                     }
-                    if record.projectID == nil {
-                        Button("Reconnect…") { reauthorizeRecord = record }
-                    }
-                } else if record.canRetry {
-                    Button("Retry") { coordinator.retryTransfer(record.id) }
-                    Button("Reconnect…") { reauthorizeRecord = record }
-                }
-                Spacer()
-                if record.state != .queued && record.state != .running {
-                    Menu("Export") {
-                        Button("JSON report") { export(record, asCSV: false) }
-                        Button("CSV results") { export(record, asCSV: true) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.title).font(.headline).textSelection(.enabled)
+                        stateLabel(state)
                     }
                 }
+                Text(record.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
+                Text(record.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Text(record.destinations.map { $0.url.lastPathComponent }.joined(separator: " · "))
+                    .font(.callout).foregroundStyle(.secondary)
+                Text("\(record.verificationMode.rawValue) · \(record.results.count) reported \(record.results.count == 1 ? "file" : "files")")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            if record.projectID != nil && record.state != .completed {
+            .accessibilityElement(children: .combine)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    recordButtons(record, actions: actions)
+                    Spacer()
+                    exportMenu(record, actions: actions)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    recordButtons(record, actions: actions)
+                    exportMenu(record, actions: actions)
+                }
+            }
+            if actions.showsProjectReviewNote {
                 Text("Review this card in its project before preparing another ingest.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            DisclosureGroup("Details") {
+            DisclosureGroup {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Source: \(record.source.url.path)").textSelection(.enabled)
                     ForEach(record.destinations.indices, id: \.self) { index in
                         Text("Backup: \(record.destinations[index].url.path)").textSelection(.enabled)
                     }
-                    if record.canRetry && record.state != .queued && record.generateASCMHL {
+                    if actions.retryWithoutASCMHL {
                         Button("Retry without ASC MHL") {
                             coordinator.retryTransfer(record.id, generateASCMHL: false)
                         }
+                        .font(.callout)
+                        .modifier(TouchTarget())
                         Text("Rechecks copies and retries unfinished work. Existing ASC MHL histories are preserved; this attempt won’t create new ones.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -142,13 +140,52 @@ struct TransferLibraryView: View {
                             Text(row.fileName)
                             Text("\(row.destination ?? "Backup"): \(row.status)").foregroundStyle(.secondary)
                         }
+                        .accessibilityElement(children: .combine)
                     }
                     if record.results.count > 100 { Text("Showing the first 100 files. Export includes every result.") }
                 }.font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+            } label: {
+                Text("Details").modifier(TouchTarget())
             }
         }
         .padding(14)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func stateLabel(_ state: TransferLibraryPresentation.StateLabel) -> some View {
+        Label(state.title, systemImage: state.systemImage)
+            .font(.subheadline)
+            .foregroundStyle(state.tone.color)
+    }
+
+    @ViewBuilder
+    private func recordButtons(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
+        if actions.removeFromQueue {
+            Button("Remove from queue", role: .destructive) {
+                do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
+                catch { errorMessage = error.localizedDescription }
+            }
+            .modifier(TouchTarget())
+        }
+        if actions.retry {
+            Button("Retry") { coordinator.retryTransfer(record.id) }
+                .modifier(TouchTarget())
+        }
+        if actions.reconnect {
+            Button("Reconnect…") { reauthorizeRecord = record }
+                .modifier(TouchTarget())
+        }
+    }
+
+    @ViewBuilder
+    private func exportMenu(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
+        if actions.export {
+            Menu("Export") {
+                Button("JSON report") { export(record, asCSV: false) }
+                Button("CSV results") { export(record, asCSV: true) }
+            }
+            .modifier(TouchTarget())
+        }
     }
 
     private func export(_ record: LocalTransferRecord, asCSV: Bool) {
@@ -157,6 +194,18 @@ struct TransferLibraryView: View {
             exportType = asCSV ? .commaSeparatedText : .json
             showExport = true
         } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+/// Gives a control a 44 pt touch target on iPhone and iPad. The Mac keeps
+/// its native control size.
+private struct TouchTarget: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.frame(minHeight: 44).contentShape(Rectangle())
+        #else
+        content
+        #endif
     }
 }
 
