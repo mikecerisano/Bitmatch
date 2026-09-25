@@ -607,7 +607,6 @@ private final class RecordingChecksumService: ChecksumService, @unchecked Sendab
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         "hash"
@@ -617,7 +616,6 @@ private final class RecordingChecksumService: ChecksumService, @unchecked Sendab
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         lock.withLock { _verifiedTypes.append(type) }
@@ -662,7 +660,6 @@ private final class CancellingChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         "hash"
@@ -672,7 +669,6 @@ private final class CancellingChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         await onVerify?()
@@ -749,7 +745,6 @@ private final class ScopeTrackingChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         "hash"
@@ -759,7 +754,6 @@ private final class ScopeTrackingChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         VerificationResult(
@@ -823,7 +817,6 @@ private final class BlockingChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         "hash"
@@ -833,7 +826,6 @@ private final class BlockingChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         await gate.enter()

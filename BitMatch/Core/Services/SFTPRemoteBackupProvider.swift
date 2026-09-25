@@ -137,7 +137,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let result = try await run(try sftp(batch: "get \(try sftpQuote(try remote(path))) \(try sftpQuote(temporary.path))\n"))
         guard result.status == 0 else { throw classify(result) }
-        let actual = try await SharedChecksumService.shared.generateChecksum(for: temporary, type: .sha256, useCache: false)
+        let actual = try await SharedChecksumService.shared.generateChecksum(for: temporary, type: .sha256)
         guard actual.caseInsensitiveCompare(expectedSHA256) == .orderedSame else { throw RemoteBackupError.verificationFailed }
         return .readBackSHA256(actual)
     }

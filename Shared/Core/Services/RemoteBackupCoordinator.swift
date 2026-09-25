@@ -422,7 +422,7 @@ private func remoteArtifactFileSize(_ url: URL) throws -> Int64 {
 }
 
 private func remoteArtifactSHA256(_ url: URL) async throws -> String {
-    try await SharedChecksumService.shared.generateChecksum(for: url, type: .sha256, useCache: false)
+    try await SharedChecksumService.shared.generateChecksum(for: url, type: .sha256)
 }
 
 private extension RemoteBackupState {

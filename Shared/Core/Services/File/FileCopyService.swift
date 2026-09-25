@@ -774,7 +774,6 @@ final class FileCopyService {
         let sourceChecksum = try await checksumService.generateChecksum(
             for: source,
             type: type,
-            useCache: false,
             progressCallback: nil
         )
         let destinationChecksum = try await pinnedDestinationChecksum(pinnedDestination, type: type)

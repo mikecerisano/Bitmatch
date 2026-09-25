@@ -20,17 +20,11 @@ class SharedChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback? = nil
     ) async throws -> String {
         // Security 9: warn when using deprecated algorithms
         if type.isDeprecated {
             SharedLogger.warning("Using deprecated checksum algorithm \(type.rawValue) – prefer SHA-256 for security", category: .transfer)
-        }
-        // Use shared cache when possible to avoid recomputation
-        if useCache, let cached = await SharedChecksumCache.shared.get(for: fileURL, algorithm: type.rawValue) {
-            progressCallback?(1.0, "Using cached checksum")
-            return cached
         }
         // iOS: Attempt to start a security scope if one exists.
         // Do not fail if it returns false; sandbox files don't need it.
@@ -56,25 +50,13 @@ class SharedChecksumService: ChecksumService {
                 return try await generateSHA1(for: fileURL, initial: initialSnapshot, progressCallback: progressCallback)
             }
         }()
-        if useCache {
-            await SharedChecksumCache.shared.set(checksum, for: fileURL, algorithm: type.rawValue)
-        }
         return checksum
     }
 
-    func generateChecksum(
-        for fileURL: URL,
-        type: ChecksumAlgorithm,
-        progressCallback: ProgressCallback? = nil
-    ) async throws -> String {
-        try await generateChecksum(for: fileURL, type: type, useCache: true, progressCallback: progressCallback)
-    }
-    
     func verifyFileIntegrity(
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback? = nil
     ) async throws -> VerificationResult {
         // Keep pair-wide snapshots inside the same security scopes as the hashes.
@@ -94,12 +76,12 @@ class SharedChecksumService: ChecksumService {
         
         // Generate checksums for both files
         progressCallback?(0.0, "Calculating source checksum...")
-        let sourceChecksum = try await generateChecksum(for: sourceURL, type: type, useCache: useCache) { progress, _ in
+        let sourceChecksum = try await generateChecksum(for: sourceURL, type: type) { progress, _ in
             progressCallback?(progress * 0.5, "Calculating source checksum...")
         }
         
         progressCallback?(0.5, "Calculating destination checksum...")
-        let destinationChecksum = try await generateChecksum(for: destinationURL, type: type, useCache: useCache) { progress, _ in
+        let destinationChecksum = try await generateChecksum(for: destinationURL, type: type) { progress, _ in
             progressCallback?(0.5 + progress * 0.5, "Calculating destination checksum...")
         }
 
@@ -121,20 +103,6 @@ class SharedChecksumService: ChecksumService {
         )
     }
 
-    func verifyFileIntegrity(
-        sourceURL: URL,
-        destinationURL: URL,
-        type: ChecksumAlgorithm,
-        progressCallback: ProgressCallback? = nil
-    ) async throws -> VerificationResult {
-        try await verifyFileIntegrity(
-            sourceURL: sourceURL,
-            destinationURL: destinationURL,
-            type: type,
-            useCache: true,
-            progressCallback: progressCallback
-        )
-    }
     
     func performByteComparison(
         sourceURL: URL,

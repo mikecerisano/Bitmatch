@@ -137,7 +137,6 @@ final class ComparisonCoordinator {
                 sourceURL: source,
                 destinationURL: destination,
                 type: type,
-                useCache: false,
                 progressCallback: nil
             )
             if !result.matches { return false }

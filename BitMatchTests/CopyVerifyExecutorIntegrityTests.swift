@@ -518,7 +518,6 @@ private final class ExecutorChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String { "" }
 
@@ -526,7 +525,6 @@ private final class ExecutorChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         VerificationResult(

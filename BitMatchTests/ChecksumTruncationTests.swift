@@ -64,8 +64,7 @@ final class ChecksumTruncationTests: XCTestCase {
         do {
             _ = try await SharedChecksumService.shared.generateChecksum(
                 for: file,
-                type: .sha256,
-                useCache: false
+                type: .sha256
             ) { [self] _, _ in
                 if !truncated.getAndSet() {
                     truncate(file, to: 64 * 1024)
@@ -122,8 +121,7 @@ final class ChecksumTruncationTests: XCTestCase {
         do {
             _ = try await SharedChecksumService.shared.generateChecksum(
                 for: file,
-                type: .sha256,
-                useCache: false
+                type: .sha256
             ) { [self] progress, _ in
                 if progress >= 1, !appended.getAndSet() {
                     try? appendByte(to: file)
@@ -180,7 +178,6 @@ final class ChecksumTruncationTests: XCTestCase {
         let checksum = try await SharedChecksumService.shared.generateChecksum(
             for: file,
             type: .sha256,
-            useCache: false,
             progressCallback: nil
         )
         XCTAssertEqual(checksum.count, 64)

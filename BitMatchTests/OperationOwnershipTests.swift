@@ -343,7 +343,6 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         try await blockUntilReleasedOrCancelled()
@@ -353,7 +352,6 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
         return try await SharedChecksumService.shared.generateChecksum(
             for: fileURL,
             type: type,
-            useCache: false,
             progressCallback: nil
         )
     }
@@ -362,7 +360,6 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         try await blockUntilReleasedOrCancelled()
@@ -515,7 +512,6 @@ private final class OwnershipChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String { "hash" }
 
@@ -523,7 +519,6 @@ private final class OwnershipChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         VerificationResult(

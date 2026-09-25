@@ -60,7 +60,6 @@ final class TransferFaultIntegrationTests: XCTestCase {
             let publishedHash = try await SharedChecksumService.shared.generateChecksum(
                 for: targetResult.destinationURL,
                 type: .sha256,
-                useCache: false,
                 progressCallback: nil
             )
             XCTAssertEqual(publishedHash, fixture.manifest[targetRelativePath])
@@ -280,7 +279,6 @@ private func assertSuccessfulOutputHashes(
         let actual = try await SharedChecksumService.shared.generateChecksum(
             for: result.destinationURL,
             type: .sha256,
-            useCache: false,
             progressCallback: nil
         )
         XCTAssertEqual(actual, expected, "Unexpected hash for \(relativePath)", file: file, line: line)
@@ -307,7 +305,6 @@ private func assertOutputHash(
     let actual = try await SharedChecksumService.shared.generateChecksum(
         for: result.destinationURL,
         type: .sha256,
-        useCache: false,
         progressCallback: nil
     )
     XCTAssertEqual(actual, expected, "Unexpected hash for \(relativePath)", file: file, line: line)

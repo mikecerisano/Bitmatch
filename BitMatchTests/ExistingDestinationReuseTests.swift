@@ -149,7 +149,6 @@ private final class RecordingChecksumService: ChecksumService, @unchecked Sendab
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String {
         lock.lock()
@@ -162,7 +161,6 @@ private final class RecordingChecksumService: ChecksumService, @unchecked Sendab
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         Issue.record("Reuse must not verify through destination URLs")

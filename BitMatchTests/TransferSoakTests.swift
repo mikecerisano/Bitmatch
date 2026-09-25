@@ -62,7 +62,6 @@ final class TransferSoakTests: XCTestCase {
                     let actualHash = try await SharedChecksumService.shared.generateChecksum(
                         for: result.destinationURL,
                         type: .sha256,
-                        useCache: false,
                         progressCallback: nil
                     )
                     guard actualHash == expectedHash else {

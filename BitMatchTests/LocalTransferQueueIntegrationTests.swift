@@ -322,7 +322,6 @@ private final class QueueChecksumService: ChecksumService {
     func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> String { "hash" }
 
@@ -330,7 +329,6 @@ private final class QueueChecksumService: ChecksumService {
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
-        useCache: Bool,
         progressCallback: ProgressCallback?
     ) async throws -> VerificationResult {
         VerificationResult(
