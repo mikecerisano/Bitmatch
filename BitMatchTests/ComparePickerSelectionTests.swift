@@ -10,7 +10,7 @@ struct ComparePickerSelectionTests {
     @Test
     func testCancelLeftPickerPreservesExistingSelection() async throws {
         #if os(macOS)
-        let fileSystem = ScriptedPickerFileSystem()
+        let fileSystem = FakeFileSystemService()
         let coordinator = await MainActor.run {
             SharedAppCoordinator(platformManager: PickerTestPlatformManager(fileSystem: fileSystem))
         }
@@ -30,7 +30,7 @@ struct ComparePickerSelectionTests {
     @Test
     func testCancelRightPickerPreservesExistingSelection() async throws {
         #if os(macOS)
-        let fileSystem = ScriptedPickerFileSystem()
+        let fileSystem = FakeFileSystemService()
         let coordinator = await MainActor.run {
             SharedAppCoordinator(platformManager: PickerTestPlatformManager(fileSystem: fileSystem))
         }
@@ -50,7 +50,7 @@ struct ComparePickerSelectionTests {
     @Test
     func testCancelSourcePickerPreservesExistingSelection() async throws {
         #if os(macOS)
-        let fileSystem = ScriptedPickerFileSystem()
+        let fileSystem = FakeFileSystemService()
         let coordinator = await MainActor.run {
             SharedAppCoordinator(platformManager: PickerTestPlatformManager(fileSystem: fileSystem))
         }
@@ -70,7 +70,7 @@ struct ComparePickerSelectionTests {
     @Test
     func testPickSourceFolderSetsSelection() async throws {
         #if os(macOS)
-        let fileSystem = ScriptedPickerFileSystem()
+        let fileSystem = FakeFileSystemService()
         let coordinator = await MainActor.run {
             SharedAppCoordinator(platformManager: PickerTestPlatformManager(fileSystem: fileSystem))
         }
@@ -88,7 +88,7 @@ struct ComparePickerSelectionTests {
     @Test
     func testPickLeftFolderSetsSelection() async throws {
         #if os(macOS)
-        let fileSystem = ScriptedPickerFileSystem()
+        let fileSystem = FakeFileSystemService()
         let coordinator = await MainActor.run {
             SharedAppCoordinator(platformManager: PickerTestPlatformManager(fileSystem: fileSystem))
         }
@@ -102,24 +102,6 @@ struct ComparePickerSelectionTests {
         #expect(true)
         #endif
     }
-}
-
-private final class ScriptedPickerFileSystem: FileSystemService {
-    var leftResult: URL?
-    var rightResult: URL?
-    var sourceResult: URL?
-
-    func selectSourceFolder() async -> URL? { sourceResult }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { leftResult }
-    func selectRightFolder() async -> URL? { rightResult }
-    func validateFileAccess(url: URL) async -> Bool { true }
-    func startAccessing(url: URL) -> Bool { true }
-    func stopAccessing(url: URL) {}
-    func getFileList(from folderURL: URL) async throws -> [URL] { [] }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { 0 }
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { 0 }
 }
 
 private final class PickerTestPlatformManager: PlatformManager {

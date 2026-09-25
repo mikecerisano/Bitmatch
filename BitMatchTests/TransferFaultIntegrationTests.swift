@@ -364,8 +364,7 @@ private final class CapturedSuccessfulResult: @unchecked Sendable {
     }
 }
 
-private final class FaultInjectingFileSystemService: FileSystemService, @unchecked Sendable {
-    private let delegate = MacOSFileSystemService.shared
+private final class FaultInjectingFileSystemService: FakeFileSystemService {
     private let faultDestination: URL
     private let inaccessibleRoot: URL
     private let lock = NSLock()
@@ -374,6 +373,7 @@ private final class FaultInjectingFileSystemService: FileSystemService, @uncheck
     init(faultDestination: URL, inaccessibleRoot: URL) {
         self.faultDestination = faultDestination.standardizedFileURL
         self.inaccessibleRoot = inaccessibleRoot
+        super.init(backing: MacOSFileSystemService.shared)
     }
 
     var didInjectFault: Bool {
@@ -382,21 +382,8 @@ private final class FaultInjectingFileSystemService: FileSystemService, @uncheck
         return injected
     }
 
-    func selectSourceFolder() async -> URL? { await delegate.selectSourceFolder() }
-    func selectDestinationFolders() async -> [URL] { await delegate.selectDestinationFolders() }
-    func selectLeftFolder() async -> URL? { await delegate.selectLeftFolder() }
-    func selectRightFolder() async -> URL? { await delegate.selectRightFolder() }
-    func validateFileAccess(url: URL) async -> Bool { await delegate.validateFileAccess(url: url) }
-    func startAccessing(url: URL) -> Bool { delegate.startAccessing(url: url) }
-    func stopAccessing(url: URL) { delegate.stopAccessing(url: url) }
-    func getFileList(from folderURL: URL) async throws -> [URL] {
-        try await delegate.getFileList(from: folderURL)
-    }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { try delegate.getFileSize(for: url) }
-    nonisolated func createDirectory(at url: URL) throws { try delegate.createDirectory(at: url) }
-
-    nonisolated func freeSpace(at url: URL) -> Int64 {
-        let available = delegate.freeSpace(at: url)
+    override nonisolated func freeSpace(at url: URL) -> Int64 {
+        let available = super.freeSpace(at: url)
         guard url.standardizedFileURL == faultDestination else { return available }
 
         lock.lock()

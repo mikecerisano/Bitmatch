@@ -334,7 +334,7 @@ struct PhotographerDestinationLayoutTests {
 }
 
 #if os(macOS)
-private final class LateSymlinkSubstitutionFileSystem: FileSystemService, @unchecked Sendable {
+private final class LateSymlinkSubstitutionFileSystem: FakeFileSystemService {
     private let component: URL
     private let escapeTarget: URL
     private let lock = NSLock()
@@ -343,37 +343,16 @@ private final class LateSymlinkSubstitutionFileSystem: FileSystemService, @unche
     init(component: URL, escapeTarget: URL) {
         self.component = component
         self.escapeTarget = escapeTarget
+        super.init(backing: MacOSFileSystemService.shared)
     }
 
     var didSubstitute: Bool {
         lock.withLock { hasSubstituted }
     }
 
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { nil }
-    func selectRightFolder() async -> URL? { nil }
-    func validateFileAccess(url: URL) async -> Bool {
-        await MacOSFileSystemService.shared.validateFileAccess(url: url)
-    }
-    func startAccessing(url: URL) -> Bool {
-        MacOSFileSystemService.shared.startAccessing(url: url)
-    }
-    func stopAccessing(url: URL) {
-        MacOSFileSystemService.shared.stopAccessing(url: url)
-    }
-    func getFileList(from folderURL: URL) async throws -> [URL] {
-        try await MacOSFileSystemService.shared.getFileList(from: folderURL)
-    }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 {
-        try MacOSFileSystemService.shared.getFileSize(for: url)
-    }
-    nonisolated func createDirectory(at url: URL) throws {
-        try MacOSFileSystemService.shared.createDirectory(at: url)
-    }
-    nonisolated func freeSpace(at url: URL) -> Int64 {
+    override nonisolated func freeSpace(at url: URL) -> Int64 {
         substituteOnce()
-        return MacOSFileSystemService.shared.freeSpace(at: url)
+        return super.freeSpace(at: url)
     }
 
     private nonisolated func substituteOnce() {
