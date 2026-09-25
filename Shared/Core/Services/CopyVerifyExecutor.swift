@@ -424,7 +424,10 @@ final class CopyVerifyExecutor {
     ) async throws -> String? {
         try checkCancellation()
         let matchCount = results.filter { $0.isSuccessStatus }.count
-        let totalBytesProcessed = config.estimatedBytes
+        // Evidence (Promise 3): bytes actually copied, one row per file per
+        // backup. config.estimatedBytes is a progress estimate that falls
+        // back to a placeholder when the source was not measured.
+        let totalBytesProcessed = results.reduce(Int64(0)) { $0 + $1.size }
         let fileCount = results.count
         let workers = max(1, ProcessInfo.processInfo.activeProcessorCount)
 
