@@ -4,7 +4,6 @@ struct ResultsTableView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @Binding var showOnlyIssues: Bool
     @State private var scrollToBottom = false
-    @State private var showsFileDetails = false
     @State private var availableWidth: CGFloat = ResultTableLayoutPolicy.detailedThreshold
     // Removed caching @State to avoid mutating state during view updates
     
@@ -24,20 +23,6 @@ struct ResultsTableView: View {
         ResultIntegritySummary(rows: results)
     }
 
-    private var completionPresentation: CompletionVerdictPresentation? {
-        guard !coordinator.isOperationInProgress,
-              coordinator.completionState != .idle else {
-            return nil
-        }
-
-        return CompletionVerdictPresentation.make(
-            state: coordinator.operationState,
-            rows: results,
-            hasErrors: coordinator.hasErrors,
-            hasCriticalErrors: coordinator.hasCriticalErrors
-        )
-    }
-    
     private var issueCount: Int {
         resultSummary.issueRows.count
     }
@@ -47,27 +32,13 @@ struct ResultsTableView: View {
         ResultPresentation.visibleRows(results, issuesOnly: showOnlyIssues, limit: 1_000)
     }
     
+    /// Live results while a transfer runs. The finished transfer's verdict,
+    /// backups and file list are on the shared `OutcomeScreen`.
     var body: some View {
         VStack(spacing: 0) {
-            if let completionPresentation {
-                completionVerdict(completionPresentation)
-                Divider()
-                    .overlay(Color.white.opacity(0.1))
-            }
-
-            if completionPresentation != nil {
-                destinationSummaries
-                DisclosureGroup("File details", isExpanded: $showsFileDetails) {
-                    statsHeader
-                    resultsList
-                }
-                .padding(12)
-            } else {
-                statsHeader
-                Divider().overlay(Color.white.opacity(0.1))
-                resultsList
-            }
-
+            statsHeader
+            Divider().overlay(Color.white.opacity(0.1))
+            resultsList
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -78,57 +49,10 @@ struct ResultsTableView: View {
                 )
         )
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .frame(maxHeight: completionPresentation == nil ? 600 : nil)
+        .frame(maxHeight: 600)
         .background(widthReader)
     }
 
-    private var destinationSummaries: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(DestinationResultSummary.make(rows: results, destinations: coordinator.destinationURLs)) { summary in
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: summary.needsAttention ? "exclamationmark.triangle" : "checkmark.circle")
-                        .foregroundColor(summary.needsAttention ? .orange : .green)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(summary.title).font(.system(size: 14, weight: .semibold))
-                        Text(summary.detail).font(.system(size: 12)).foregroundColor(.secondary)
-                    }
-                    Spacer()
-                }
-            }
-        }
-        .padding(14)
-    }
-
-    private func completionVerdict(_ presentation: CompletionVerdictPresentation) -> some View {
-        let tint = completionTint(for: presentation)
-
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: presentation.symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(presentation.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
-                Text(presentation.detail)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.62))
-                if let guidance = presentation.sourceGuidance {
-                    Text(guidance)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(tint.opacity(0.9))
-                        .padding(.top, 1)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(tint.opacity(0.07))
-    }
-    
     @ViewBuilder
     private var statsHeader: some View {
         Group {
@@ -494,14 +418,4 @@ struct ResultsTableView: View {
         }
     }
 
-    private func completionTint(for presentation: CompletionVerdictPresentation) -> Color {
-        switch presentation.symbol {
-        case "checkmark.circle.fill":
-            return .green
-        case "exclamationmark.triangle.fill":
-            return .orange
-        default:
-            return .red
-        }
-    }
 }

@@ -225,10 +225,10 @@ struct MacMainView: View {
     
     @ViewBuilder
     private var resultsArea: some View {
+        // Live results while a transfer runs; the outcome screen lists them after.
         if coordinator.currentMode == .copyAndVerify &&
            !coordinator.lastOperationWasCompare &&
-           (coordinator.isOperationInProgress ||
-            (coordinator.completionState != .idle && (coordinator.currentMode == .copyAndVerify || !coordinator.results.isEmpty))) {
+           coordinator.isOperationInProgress {
             ResultsTableView(
                 coordinator: coordinator,
                 showOnlyIssues: $showOnlyIssues
@@ -316,15 +316,14 @@ struct MacMainView: View {
         }
     }
     
+    /// The shared outcome screen (UI plan step 4.7), with the Mac's project
+    /// dashboard and its SFTP actions in the evidence slot.
     @ViewBuilder
     private var completionView: some View {
-        VStack(spacing: 14) {
-            Button("New transfer", systemImage: "plus") {
-                coordinator.resetForNewOperation()
-                lockHeight = false
-                isOperationActive = false
-            }
-            .buttonStyle(.bordered)
+        CoordinatorOutcomeScreen(coordinator: coordinator, onNewTransfer: {
+            lockHeight = false
+            isOperationActive = false
+        }) {
             if let job = coordinator.photographerJobViewModel.dashboardJob,
                CompletionEvidencePresentation.shouldShowProjectMedia(
                 hasDashboardJob: true,

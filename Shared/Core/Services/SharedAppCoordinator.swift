@@ -1020,6 +1020,21 @@ class SharedAppCoordinator: ObservableObject {
         currentMode = mode
     }
 
+    /// The journal record of the transfer the outcome screen shows: it gives
+    /// Retry, Export and the run's duration. Nil after `resetForNewOperation()`.
+    var outcomeRecord: LocalTransferRecord? {
+        guard let id = activeJournalRecordID else { return nil }
+        return transferJournal.records.first { $0.id == id }
+    }
+
+    /// "New transfer" on the outcome screen, on every platform (decision
+    /// O-1): the next card usually goes to the same backups, and keeping the
+    /// old source risks copying the same card again by accident.
+    func startNewTransfer() {
+        resetForNewOperation()
+        sourceURL = nil
+    }
+
     func resetForNewOperation() {
         results = []
         progress = nil
