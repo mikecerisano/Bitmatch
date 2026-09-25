@@ -190,6 +190,30 @@ struct ReportScannerTests {
         #expect(result.skipped.first?.reason == .unreadable)
     }
 
+    /// A report that exists but cannot be opened (no read permission) is
+    /// named too, not dropped with only a log line (Promise 3).
+    /// Plant: in `ReportScanner.scanReports`, delete the `skip(fileURL, .unreadable)`
+    /// in the branch that handles a failed read.
+    @Test func reportThatCannotBeOpenedIsListedAsSkipped() async throws {
+        let root = try makeTemporaryFolder()
+        defer {
+            let locked = root.appendingPathComponent("Locked/Reports/BitMatch_Report_locked.json")
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeReport(mode: .standard, root: root)
+        let locked = root.appendingPathComponent("Locked/Reports/BitMatch_Report_locked.json")
+        try FileManager.default.createDirectory(at: locked.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: locked)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        try #require(!FileManager.default.isReadableFile(atPath: locked.path), "running as a user that can read mode 000 files")
+
+        let result = await ReportScanner.scanReports(at: root)
+        #expect(result.cards.count == 1)
+        #expect(result.skipped.map(\.displayName) == ["Locked/Reports/BitMatch_Report_locked.json"])
+        #expect(result.skipped.first?.reason == .unreadable)
+    }
+
     /// Another app's `*_report.json` is not a BitMatch report and is not
     /// counted as one that couldn't be read.
     /// Plant: in `ReportScanner.scanReports`, change

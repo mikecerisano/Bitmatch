@@ -47,20 +47,22 @@ struct CameraFolderNameTests {
         }
     }
 
-    /// When the card names a model, the folder is the model, cleaned as before.
-    /// Plant: in `SharedCameraDetectionService.cameraCardName`, change
-    /// `return cleanCameraName(model)` to
-    /// `return cleanCameraName("\(manufacturer) \(model)")` ("SONYFX6").
-    @Test func folderNameUsesTheModelWhenKnown() {
+    /// When the card names a model, iPad and iPhone use the Mac's label for
+    /// it (Promise 5: one name everywhere), so a Sony Alpha card goes into
+    /// "A7SIII" on every platform. Brand-only names above stay as they were.
+    /// Plant: in `SharedCameraDetectionService.cameraCardName`, change the
+    /// model branch back to `return cleanCameraName(model)` ("A7S3").
+    @Test func folderNameForAKnownModelMatchesTheMacLabel() {
         let cases: [(String, String, String)] = [
-            ("Sony", "FX6", "FX6"),         // Sony FX6 XAVC fixture's MEDIAPRO.XML
-            ("Sony", "VENICE", "VENICE"),   // Sony VENICE SxS fixture
-            ("Sony", "A7S III", "A7S3"),    // Sony Alpha fixture; the Mac label is A7SIII
-            ("GoPro", "", "GOPRO"),         // an empty model falls back to the brand
+            ("Sony", "A7S III", "A7SIII"),
+            ("Sony", "FX6", "FX6"),
+            ("Sony", "VENICE", "VENICE"),
         ]
         for (make, model, folder) in cases {
-            #expect(SharedCameraDetectionService.cameraCardName(manufacturer: make, model: model) == folder,
-                    "\(make) \(model)")
+            let name = SharedCameraDetectionService.cameraCardName(manufacturer: make, model: model)
+            #expect(name == CleanCameraNameService.shared.getCleanCameraName(from: "\(make) \(model)"), "\(make) \(model): differs from the Mac label")
+            #expect(name == folder, "\(make) \(model): \(name)")
         }
+        #expect(SharedCameraDetectionService.cameraCardName(manufacturer: "GoPro", model: "") == "GOPRO")
     }
 }

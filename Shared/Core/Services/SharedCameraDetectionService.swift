@@ -188,8 +188,14 @@ class SharedCameraDetectionService: CameraDetectionService {
     /// one, else the brand. iPad and iPhone use it as the default destination
     /// folder label, so it must not change between versions: a card that
     /// went into "GOPRO" yesterday goes there today, not into "GP".
+    /// The default destination folder label for a detected card. A known
+    /// model uses the Mac's label cleaner on "brand model", so the folder is
+    /// the same on every platform ("A7SIII"). A brand alone keeps the
+    /// long-standing folder names ("GOPRO", not the Mac cleaner's "GP").
     static func cameraCardName(manufacturer: String, model: String?) -> String {
-        if let model, !model.isEmpty { return cleanCameraName(model) }
+        if let model, !model.isEmpty {
+            return CleanCameraNameService.shared.getCleanCameraName(from: "\(manufacturer) \(model)")
+        }
         return cleanCameraName(manufacturer)
     }
 
