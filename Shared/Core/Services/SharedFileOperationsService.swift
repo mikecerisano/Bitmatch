@@ -261,8 +261,12 @@ class SharedFileOperationsService: FileOperationsService {
             estimatedTotalBytes: estimatedTotalBytes
         )
         
-        let operationTask = Task {
-            return try await executeOperation(operation, progressCallback: progressCallback, onFileResult: onFileResult)
+        // The run's gate reaches every read below it, including the verify
+        // tasks it starts, and nothing outside it (I9).
+        let operationTask = Task { [pauseGate] in
+            try await PauseGate.$current.withValue(pauseGate) {
+                try await executeOperation(operation, progressCallback: progressCallback, onFileResult: onFileResult)
+            }
         }
         activeOperations.attach(operationTask, to: operationID)
 
@@ -330,16 +334,12 @@ class SharedFileOperationsService: FileOperationsService {
 
         await verifyCounter.reset()
         let pauseGate = self.pauseGate
-        SharedChecksumService.pauseCheck = {
-            try await pauseGate.wait()
-        }
         let didStartSourceScope = fileSystem.startAccessing(url: operation.sourceURL)
         var destinationScopes: [URL: Bool] = [:]
         for destinationURL in operation.destinationURLs {
             destinationScopes[destinationURL] = fileSystem.startAccessing(url: destinationURL)
         }
         defer {
-            SharedChecksumService.pauseCheck = nil
             if didStartSourceScope { fileSystem.stopAccessing(url: operation.sourceURL) }
             for (url, didStart) in destinationScopes where didStart {
                 fileSystem.stopAccessing(url: url)

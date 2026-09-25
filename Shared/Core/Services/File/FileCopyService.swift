@@ -817,7 +817,7 @@ final class FileCopyService {
         var bytesRead: Int64 = 0
         while true {
             try Task.checkCancellation()
-            if let pauseCheck = SharedChecksumService.pauseCheck { try await pauseCheck() }
+            try await PauseGate.waitIfCurrentIsPaused()
             let data = try handle.read(upToCount: 1024 * 1024) ?? Data()
             if data.isEmpty { break }
             consume(data)
@@ -851,7 +851,7 @@ final class FileCopyService {
         var bytesRead: Int64 = 0
         while bytesRead < sourceSize {
             try Task.checkCancellation()
-            if let pauseCheck = SharedChecksumService.pauseCheck { try await pauseCheck() }
+            try await PauseGate.waitIfCurrentIsPaused()
             let sourceData = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
             let destinationData = try destinationHandle.read(upToCount: 64 * 1024) ?? Data()
             guard !sourceData.isEmpty, !destinationData.isEmpty else {

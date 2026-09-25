@@ -5,7 +5,6 @@ import CryptoKit
 /// Shared checksum service that works on both macOS and iOS
 class SharedChecksumService: ChecksumService {
     static let shared = SharedChecksumService()
-    static var pauseCheck: (@Sendable () async throws -> Void)?
 
     private struct FileReadSnapshot: Equatable {
         let size: Int64
@@ -152,9 +151,7 @@ class SharedChecksumService: ChecksumService {
         while bytesProcessed < sourceInitial.size {
             await Task.yield()
             try Task.checkCancellation()
-            if let pauseCheck = Self.pauseCheck {
-                try await pauseCheck()
-            }
+            try await PauseGate.waitIfCurrentIsPaused()
             let sourceData = try sourceHandle.read(upToCount: chunkSize) ?? Data()
             let destinationData = try destinationHandle.read(upToCount: chunkSize) ?? Data()
 
@@ -260,9 +257,7 @@ class SharedChecksumService: ChecksumService {
         while bytesProcessed < initial.size {
             await Task.yield()
             try Task.checkCancellation()
-            if let pauseCheck = Self.pauseCheck {
-                try await pauseCheck()
-            }
+            try await PauseGate.waitIfCurrentIsPaused()
             let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
             autoreleasepool {
@@ -305,9 +300,7 @@ class SharedChecksumService: ChecksumService {
         while bytesProcessed < initial.size {
             await Task.yield()
             try Task.checkCancellation()
-            if let pauseCheck = Self.pauseCheck {
-                try await pauseCheck()
-            }
+            try await PauseGate.waitIfCurrentIsPaused()
             let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
 
@@ -353,9 +346,7 @@ class SharedChecksumService: ChecksumService {
         while bytesProcessed < initial.size {
             await Task.yield()
             try Task.checkCancellation()
-            if let pauseCheck = Self.pauseCheck {
-                try await pauseCheck()
-            }
+            try await PauseGate.waitIfCurrentIsPaused()
             let data = try fileHandle.read(upToCount: chunkSize) ?? Data()
             if data.isEmpty { break }
 

@@ -162,13 +162,37 @@ struct EngineGuardTests {
         }
     }
 
+    // MARK: T8b / I8 (checksum side)
+
+    /// Every checksum a run asks for, including those in its pipelined
+    /// verify tasks, runs under that run's pause gate, so pausing stops
+    /// checksum reads too. Work outside a run sees no gate.
+    /// Plant: in `performFileOperation`, run `executeOperation` without
+    /// `PauseGate.$current.withValue(pauseGate)`.
+    @Test func runsGateReachesEveryChecksumRead() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try DisposableTransferFixture(seed: 82, fileCount: 8, bytesPerFile: 4 * 1024)
+            defer { fixture.cleanup() }
+            let checksum = GateObservingChecksumService()
+            _ = try await makeService(checksum: checksum).performFileOperation(
+                sourceURL: fixture.source, destinationURLs: fixture.destinations,
+                verificationMode: .thorough, settings: CameraLabelSettings(),
+                estimatedTotalBytes: nil, progressCallback: { _ in }, onFileResult: nil
+            )
+            #expect(checksum.calls > 0)
+            #expect(checksum.callsWithoutGate == 0, "\(checksum.callsWithoutGate) of \(checksum.calls) checksums ran outside the run's pause gate")
+            #expect(PauseGate.current == nil)
+        }
+    }
+
     // MARK: T9 / I9
 
-    /// Pausing one run does not pause another. Today one static
-    /// `SharedChecksumService.pauseCheck` serves every run, so B's destination
-    /// reads wait on A's pause. C07 fixes it and removes `withKnownIssue`.
-    /// Plant (after C07): re-add a static hook that `readPinnedDestination`
-    /// reads and `executeOperation` sets.
+    /// Pausing one run does not pause another. Until C07 one static
+    /// `SharedChecksumService.pauseCheck` served every run, so B's destination
+    /// reads waited on A's pause; each run now installs its own
+    /// `PauseGate.current`.
+    /// Plant: make `PauseGate.current` a `static var` that `executeOperation`
+    /// sets, instead of a task-local.
     @Test func pauseIsPerOperation() async throws {
         try await FileOperationsTestLock.shared.run {
             let fixtureA = try DisposableTransferFixture(seed: 91, fileCount: 20, bytesPerFile: 4 * 1024)
@@ -207,9 +231,7 @@ struct EngineGuardTests {
             // B goes on to read its destination; A's pause must not hold it.
             gatedChecksum.release()
             let bFinished = await waitUntil(timeout: .seconds(3)) { bDone.isSet }
-            withKnownIssue("static SharedChecksumService.pauseCheck is shared by every run (fixed in C07)") {
-                #expect(bFinished)
-            }
+            #expect(bFinished, "pausing run A held run B")
 
             await serviceA.resumeOperation()
             _ = try await runA.value
@@ -284,6 +306,29 @@ private actor RowLog {
         count += 1
         lastByKey[row.sourceURL.standardizedFileURL.path + "→" + row.destinationURL.standardizedFileURL.path] = row
         return count
+    }
+}
+
+/// Counts source checksums asked for outside any run's pause gate.
+private final class GateObservingChecksumService: ChecksumService, @unchecked Sendable {
+    private let lock = NSLock()
+    private var total = 0
+    private var ungated = 0
+    var calls: Int { lock.withLock { total } }
+    var callsWithoutGate: Int { lock.withLock { ungated } }
+
+    func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String {
+        let gated = PauseGate.current != nil
+        lock.withLock { total += 1; if !gated { ungated += 1 } }
+        return try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
+    }
+
+    func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult {
+        try await SharedChecksumService.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
+    }
+
+    func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool {
+        try await SharedChecksumService.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
     }
 }
 
