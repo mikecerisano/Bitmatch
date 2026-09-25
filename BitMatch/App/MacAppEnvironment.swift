@@ -18,11 +18,14 @@ final class MacAppEnvironment: ObservableObject {
     init(
         coordinator: SharedAppCoordinator,
         remoteBackups: MacRemoteBackupController,
-        estimate: TransferEstimateModel = TransferEstimateModel(),
+        estimate: TransferEstimateModel? = nil,
         monitorsVolumes: Bool = true
     ) {
         self.coordinator = coordinator
         self.remoteBackups = remoteBackups
+        // Built here, not as a default argument: default arguments are
+        // evaluated outside the main actor.
+        let estimate = estimate ?? TransferEstimateModel()
         self.estimate = estimate
         self.volumeAccess = MacVolumeAccessModel(shared: coordinator, enableVolumeMonitoring: monitorsVolumes)
         self.cameraAutoSource = MacCameraAutoSourceController(shared: coordinator, startMonitoring: monitorsVolumes)

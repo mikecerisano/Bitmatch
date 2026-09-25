@@ -15,11 +15,12 @@ final class MacCameraAutoSourceController: ObservableObject {
 
     init(
         shared: SharedAppCoordinator,
-        detectionService: CameraCardDetectionService = CameraCardDetectionService(),
+        detectionService: CameraCardDetectionService? = nil,
         startMonitoring: Bool = true
     ) {
         self.shared = shared
-        self.detectionService = detectionService
+        // Built here, not as a default argument (evaluated off the main actor).
+        self.detectionService = detectionService ?? CameraCardDetectionService()
 
         NotificationCenter.default.publisher(for: .cameraCardDetected)
             .receive(on: DispatchQueue.main)
@@ -30,7 +31,7 @@ final class MacCameraAutoSourceController: ObservableObject {
             .store(in: &cancellables)
 
         if startMonitoring && shared.reportSettings.enableAutoCameraDetection {
-            detectionService.startMonitoring()
+            self.detectionService.startMonitoring()
         }
     }
 
