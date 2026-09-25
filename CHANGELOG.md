@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Mac: A connected card that macOS can see but not read now shows a notice instead of nothing. Sony SxS cards point to Sony's SxS UDF Driver, and Sony AXS cards to Sony's AXS reader software.
 - Fix: Copying to an exFAT backup drive failed every file with "Destination file appeared during copy; refusing to overwrite it" (0.1.4 through 0.1.6). exFAT has no hard links, which BitMatch used to publish each verified file without any chance of replacing an existing one. On exFAT, BitMatch now claims the file name exclusively and moves the verified copy onto that claim; an existing file is still never replaced.
 - Setup: A source or backup not chosen yet is no longer shown as a red "Resolve before starting" error. The next box to fill glows gently (a steady border with Reduce Motion), and Start says what is next, on Mac, iPad and iPhone. The banner is kept for real problems. The separate "Verified copy · SHA-256" line is gone; Advanced lists any changed settings.
 - Compare: Works like Setup. The empty folder box to fill next glows (Left first, then Right), and the button says what is next ("Choose the left folder to compare"). The line under the button and the "Checks:" line are gone; Advanced is the same section as on Setup and names a non-default mode. Only same or nested folders still get a warning line. The folder boxes look like Setup's source box, and the clear button has a proper label and hit area.

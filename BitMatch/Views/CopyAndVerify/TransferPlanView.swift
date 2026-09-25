@@ -18,6 +18,7 @@ struct TransferPlanView: View {
     var body: some View {
         VStack(spacing: 14) {
             transferLocations
+            UnreadableMediaBanner()
             transferKindControl
             if usesProjectWorkflow || hasPreparedProjectTransfer {
                 PhotographerJobSetupView(coordinator: coordinator)

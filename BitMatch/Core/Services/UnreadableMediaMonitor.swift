@@ -1,0 +1,120 @@
+// UnreadableMediaMonitor.swift - Explains cards macOS can see but not mount
+import DiskArbitration
+import Foundation
+
+/// A connected card whose file system macOS cannot read. Without this,
+/// nothing happened at all: no volume, no source, no explanation. Sony SxS
+/// cards (UDF) need Sony's SxS UDF Driver, and AXS cards Sony's AXS software.
+struct UnreadableMediaNotice: Equatable, Identifiable {
+    enum Kind: Equatable { case sonySxS, sonyAXS, unknownFormat }
+
+    /// What Disk Arbitration reports about one disk.
+    struct Media: Equatable {
+        let bsdName: String
+        let vendor: String?
+        let model: String?
+        let mediaName: String?
+        /// The file system macOS recognised (e.g. "exfat", "udf"), or nil.
+        let volumeKind: String?
+        /// False for a whole disk whose partitions carry the file systems.
+        let isLeaf: Bool
+        let isRemovable: Bool
+        let isInternal: Bool
+    }
+
+    let id: String
+    let kind: Kind
+    let title: String
+    let detail: String
+    let helpURL: URL?
+
+    static func make(for media: Media) -> Self? {
+        guard media.volumeKind == nil, media.isLeaf, media.isRemovable, !media.isInternal else { return nil }
+        let text = [media.vendor, media.model, media.mediaName].compactMap { $0 }.joined(separator: " ").lowercased()
+        let isSony = text.contains("sony")
+        if text.contains("axs") {
+            return Self(
+                id: media.bsdName,
+                kind: .sonyAXS,
+                title: "This Sony AXS card can't be read yet",
+                detail: "macOS can see the card but not its contents. Install Sony's AXS memory card reader software for your AXS reader, then reconnect the card.",
+                helpURL: URL(string: "https://www.sony.com/electronics/support/software/00338195")
+            )
+        }
+        if text.contains("sxs") || (isSony && text.contains("card")) {
+            return Self(
+                id: media.bsdName,
+                kind: .sonySxS,
+                title: "This Sony SxS card can't be read yet",
+                detail: "SxS cards recorded in UDF need Sony's SxS UDF Driver on a Mac. Install it, then reconnect the card.",
+                helpURL: URL(string: "https://support.apple.com/en-us/101826")
+            )
+        }
+        return Self(
+            id: media.bsdName,
+            kind: .unknownFormat,
+            title: "A connected card can't be read",
+            detail: "macOS can see \(media.model.map { "“\($0)”" } ?? "the card") but not its contents. It may need its camera maker's driver, or it may use a format macOS doesn't support.",
+            helpURL: nil
+        )
+    }
+}
+
+extension UnreadableMediaNotice.Media {
+    init?(description: [String: Any]) {
+        guard let bsdName = description[kDADiskDescriptionMediaBSDNameKey as String] as? String else { return nil }
+        self.init(
+            bsdName: bsdName,
+            vendor: description[kDADiskDescriptionDeviceVendorKey as String] as? String,
+            model: description[kDADiskDescriptionDeviceModelKey as String] as? String,
+            mediaName: description[kDADiskDescriptionMediaNameKey as String] as? String,
+            volumeKind: description[kDADiskDescriptionVolumeKindKey as String] as? String,
+            isLeaf: description[kDADiskDescriptionMediaLeafKey as String] as? Bool ?? false,
+            isRemovable: (description[kDADiskDescriptionMediaRemovableKey as String] as? Bool ?? false)
+                || (description[kDADiskDescriptionMediaEjectableKey as String] as? Bool ?? false),
+            isInternal: description[kDADiskDescriptionDeviceInternalKey as String] as? Bool ?? false
+        )
+    }
+}
+
+/// Watches Disk Arbitration for disks that appear without a readable file
+/// system. Disk Arbitration sees them even when nothing mounts.
+@MainActor
+final class UnreadableMediaMonitor: ObservableObject {
+    @Published private(set) var notices: [UnreadableMediaNotice] = []
+    private var session: DASession?
+
+    func start() {
+        guard session == nil, let session = DASessionCreate(kCFAllocatorDefault) else { return }
+        self.session = session
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        DARegisterDiskAppearedCallback(session, nil, { disk, context in
+            guard let context, let description = DADiskCopyDescription(disk) as? [String: Any],
+                  let media = UnreadableMediaNotice.Media(description: description) else { return }
+            let monitor = Unmanaged<UnreadableMediaMonitor>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { monitor.diskAppeared(media) }
+        }, context)
+        DARegisterDiskDisappearedCallback(session, nil, { disk, context in
+            guard let context, let name = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
+            let monitor = Unmanaged<UnreadableMediaMonitor>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { monitor.diskDisappeared(name) }
+        }, context)
+        DASessionScheduleWithRunLoop(session, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+    }
+
+    func stop() {
+        guard let session else { return }
+        DASessionUnscheduleFromRunLoop(session, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        self.session = nil
+        notices = []
+    }
+
+    func diskAppeared(_ media: UnreadableMediaNotice.Media) {
+        notices.removeAll { $0.id == media.bsdName }
+        if let notice = UnreadableMediaNotice.make(for: media) { notices.append(notice) }
+    }
+
+    func diskDisappeared(_ bsdName: String) {
+        notices.removeAll { $0.id == bsdName }
+    }
+}
