@@ -137,7 +137,8 @@ class SharedAppCoordinator: ObservableObject {
     init(
         platformManager: PlatformManager,
         transferJournal: LocalTransferJournal? = nil,
-        projectStore: (any PhotographerJobStore)? = nil
+        projectStore: (any PhotographerJobStore)? = nil,
+        photographerJobViewModel: PhotographerJobViewModel? = nil
     ) {
         self.platformManager = platformManager
         let environment = ProcessInfo.processInfo.environment
@@ -145,11 +146,17 @@ class SharedAppCoordinator: ObservableObject {
         let testJournalURL = isTesting ? FileManager.default.temporaryDirectory
             .appendingPathComponent("BitMatchTestJournal-\(UUID().uuidString).json") : nil
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
-        let selectedProjectStore = projectStore ?? UserDefaultsPhotographerJobStore()
-        self.photographerJobViewModel = PhotographerJobViewModel(
-            store: selectedProjectStore,
-            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore)
-        )
+        // The Mac passes its Core Data-backed, SFTP-capable view model so the
+        // whole app has one; iPad and iPhone build a portable one here.
+        if let photographerJobViewModel {
+            self.photographerJobViewModel = photographerJobViewModel
+        } else {
+            let selectedProjectStore = projectStore ?? UserDefaultsPhotographerJobStore()
+            self.photographerJobViewModel = PhotographerJobViewModel(
+                store: selectedProjectStore,
+                remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore)
+            )
+        }
         setupBindings()
         self.transferJournal.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -182,6 +189,18 @@ class SharedAppCoordinator: ObservableObject {
     #endif
     
     private func setupBindings() {
+        // A prepared project card is tied to its source. `dropFirst()` skips
+        // the replay Combine delivers on subscribing: without it every launch
+        // reports "source changed to nil" and invalidates a card prepared
+        // from the persisted store before anyone touched anything. Called
+        // synchronously so a changed source is refused at once.
+        $sourceURL
+            .dropFirst()
+            .sink { [weak self] url in
+                self?.photographerJobViewModel.sourceDidChange(to: url)
+            }
+            .store(in: &cancellables)
+
         // Monitor source URL changes for camera detection and folder info
         $sourceURL
             .sink { [weak self] url in
@@ -189,7 +208,6 @@ class SharedAppCoordinator: ObservableObject {
                     if let url = url {
                         await self?.detectCameraFromSource(url)
                     }
-                    self?.photographerJobViewModel.sourceDidChange(to: url)
                     await self?.folderInfoService.updateSource(url)
                 }
             }

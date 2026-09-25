@@ -140,18 +140,17 @@ private final class SnapshotFixture {
         isolatedDefaults = try XCTUnwrap(UserDefaults(suiteName: isolatedSuiteName))
         store = UserDefaultsPhotographerJobStore(defaults: isolatedDefaults)
         journal = LocalTransferJournal(fileURL: root.appendingPathComponent("transfer-history.json"))
-        sharedCoordinator = SharedAppCoordinator(
-            platformManager: MacOSPlatformManager.shared,
-            transferJournal: journal,
-            projectStore: store
-        )
         let viewModel = PhotographerJobViewModel(
             store: store,
             remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: store)
         )
+        sharedCoordinator = SharedAppCoordinator(
+            platformManager: MacOSPlatformManager.shared,
+            transferJournal: journal,
+            photographerJobViewModel: viewModel
+        )
         let fileSelectionViewModel = FileSelectionViewModel(enableVolumeMonitoring: false)
         appCoordinator = AppCoordinator(
-            photographerJobViewModel: viewModel,
             fileSelectionViewModel: fileSelectionViewModel,
             startRemoteScheduler: false,
             sharedCoordinator: sharedCoordinator

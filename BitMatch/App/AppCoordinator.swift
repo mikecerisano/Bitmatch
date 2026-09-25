@@ -24,7 +24,8 @@ final class AppCoordinator: ObservableObject {
     @Published var cameraLabelViewModel = CameraLabelViewModel()
     @Published var settingsViewModel = SettingsViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
-    @Published var photographerJobViewModel: PhotographerJobViewModel
+    /// The one job view model, owned by the shared coordinator.
+    var photographerJobViewModel: PhotographerJobViewModel { sharedCoordinator.photographerJobViewModel }
     private var remoteBackupQueue: RemoteBackupQueue?
     private var remoteBackupTimer: Timer?
     private var remoteSchedulerIsRunning = false
@@ -436,17 +437,31 @@ final class AppCoordinator: ObservableObject {
         startRemoteScheduler: Bool = true,
         sharedCoordinator: SharedAppCoordinator? = nil
     ) {
-        self.sharedCoordinator = sharedCoordinator ?? SharedAppCoordinator(platformManager: platformManager)
         self.fileSelectionViewModel = fileSelectionViewModel ?? FileSelectionViewModel()
-        if let photographerJobViewModel {
-            self.photographerJobViewModel = photographerJobViewModel
+        if let sharedCoordinator {
+            // A test that builds the shared coordinator gives it the job view
+            // model itself; there is only one.
+            precondition(
+                photographerJobViewModel == nil || photographerJobViewModel === sharedCoordinator.photographerJobViewModel,
+                "Pass the job view model to SharedAppCoordinator, not to AppCoordinator"
+            )
+            self.sharedCoordinator = sharedCoordinator
+            self.remoteBackupQueue = remoteBackupQueue
+        } else if let photographerJobViewModel {
+            self.sharedCoordinator = SharedAppCoordinator(
+                platformManager: platformManager,
+                photographerJobViewModel: photographerJobViewModel
+            )
             self.remoteBackupQueue = remoteBackupQueue
         } else {
             let store = CoreDataPhotographerJobStore(persistence: BitMatchPersistenceController.shared)
             let remoteBackupCoordinator = RemoteBackupCoordinator(store: store)
-            self.photographerJobViewModel = PhotographerJobViewModel(
-                store: store,
-                remoteBackupCoordinator: remoteBackupCoordinator
+            self.sharedCoordinator = SharedAppCoordinator(
+                platformManager: platformManager,
+                photographerJobViewModel: PhotographerJobViewModel(
+                    store: store,
+                    remoteBackupCoordinator: remoteBackupCoordinator
+                )
             )
             self.remoteBackupQueue = RemoteBackupQueue(
                 persistence: PhotographerJobStoreRemoteBackupQueuePersistence(store: store),

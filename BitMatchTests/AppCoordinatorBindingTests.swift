@@ -114,6 +114,15 @@ final class AppCoordinatorBindingTests: XCTestCase {
         XCTAssertFalse(coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
     }
 
+    /// Plant: in `AppCoordinator.init`, pass no `photographerJobViewModel`
+    /// to `SharedAppCoordinator` (it then builds its own).
+    func testMacHasOneJobViewModel() throws {
+        let (coordinator, _) = try makePreparedPhotographerCoordinator()
+
+        XCTAssertTrue(coordinator.photographerJobViewModel === coordinator.sharedCoordinator.photographerJobViewModel)
+        XCTAssertTrue(coordinator.sharedCoordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart)
+    }
+
     func testPreparedPhotographerCardRequiresPhotographerStartEligibility() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
 

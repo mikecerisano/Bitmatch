@@ -10,6 +10,44 @@ import Testing
 @Suite(.serialized)
 struct SharedCoordinatorMacParityTests {
 
+    /// A card prepared before the coordinator exists (the Mac restores one
+    /// from Core Data) must still be startable afterwards.
+    /// Plant: in `SharedAppCoordinator.setupBindings`, delete the
+    /// `.dropFirst()` before the `sourceDidChange` sink.
+    @Test func preparedCardSurvivesCoordinatorInit() async throws {
+        let folders = try CoordinatorFolders()
+        defer { folders.cleanup() }
+        let jobs = PhotographerJobViewModel(store: InMemoryPhotographerJobStore())
+        jobs.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: Date(timeIntervalSince1970: 100))
+        try jobs.prepareCard(
+            photographerName: "Mike",
+            cameraName: "Sony A7 IV",
+            sourceURL: folders.source,
+            setupSignature: PhotographerSetupSignature(
+                clientName: "Smith", jobName: "Smith Wedding", eventDate: Date(timeIntervalSince1970: 100),
+                photographerName: "Mike", cameraName: "Sony A7 IV", cardNumber: 1, recipe: .wedding
+            ),
+            analysis: CardAnalysis(fingerprint: "preliminary", fileCount: 1, totalBytes: 4,
+                                   companionGroups: [], sourcePaths: [folders.source.appendingPathComponent("A.ARW").path])
+        )
+
+        let coordinator = SharedAppCoordinator(
+            platformManager: RecordingPlatformManager(fileOperations: RecordingFileOperations()),
+            transferJournal: LocalTransferJournal(fileURL: folders.journalURL),
+            photographerJobViewModel: jobs
+        )
+        // Let every launch-time source event arrive.
+        for _ in 0..<5 { await Task.yield() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(coordinator.photographerJobViewModel === jobs)
+        #expect(jobs.startPresentation(
+            preflightReady: true,
+            sourceURL: folders.source,
+            destinationCount: 2
+        ).canStart)
+    }
+
     /// Plant: in `PhotographerJobViewModel.beginIngest`, drop the
     /// `guard presentation.canStart` check.
     @Test func twoCopyJobWithOneBackupIsRefused() async throws {
