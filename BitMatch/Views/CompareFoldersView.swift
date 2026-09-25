@@ -2,26 +2,16 @@
 import SwiftUI
 import AppKit
 
-/// Builds the shared `ComparePresentation` from `AppCoordinator` and hands
+/// Builds the shared `ComparePresentation` from `SharedAppCoordinator` and hands
 /// picking, dropping and starting to the Mac. Readiness, progress and the
 /// outcome are the same rules and screen as on iPad and iPhone.
 struct CompareFoldersView: View {
-    @ObservedObject var coordinator: AppCoordinator
-    // Observed directly: the selection, folder info, progress and compare
-    // outcome all live in the shared coordinator.
-    @ObservedObject private var shared: SharedAppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     @Binding var advancedExpanded: Bool
 
-    init(coordinator: AppCoordinator, advancedExpanded: Binding<Bool>) {
-        _coordinator = ObservedObject(wrappedValue: coordinator)
-        _shared = ObservedObject(wrappedValue: coordinator.sharedCoordinator)
-        _advancedExpanded = advancedExpanded
-    }
-
     /// Also used by ⌘R, so the keyboard path obeys the same readiness rule.
-    static func presentation(for coordinator: AppCoordinator) -> ComparePresentation {
-        let shared = coordinator.sharedCoordinator
-        return ComparePresentation.make(
+    static func presentation(for shared: SharedAppCoordinator) -> ComparePresentation {
+        ComparePresentation.make(
             left: CompareFolderSlot.make(
                 url: shared.leftURL,
                 infoURL: shared.leftFolderInfo?.url,
@@ -52,24 +42,24 @@ struct CompareFoldersView: View {
     }
 
     /// Starts only when the shared readiness rule says so.
-    static func startIfReady(_ coordinator: AppCoordinator) {
+    static func startIfReady(_ coordinator: SharedAppCoordinator) {
         guard presentation(for: coordinator).readiness.canStart else { return }
         coordinator.switchMode(to: .compareFolders)
-        coordinator.startOperation()
+        Task { await coordinator.startCurrentMode() }
     }
 
     var body: some View {
         CompareScreen(
             presentation: Self.presentation(for: coordinator),
-            verificationMode: $shared.verificationMode,
+            verificationMode: $coordinator.verificationMode,
             advancedExpanded: $advancedExpanded,
             actions: CompareActions(
-                pickLeft: { if let url = openFolderPanel() { shared.leftURL = url } },
-                pickRight: { if let url = openFolderPanel() { shared.rightURL = url } },
-                clearLeft: { shared.leftURL = nil },
-                clearRight: { shared.rightURL = nil },
-                dropLeft: { url in acceptDrop(url) { shared.leftURL = $0 } },
-                dropRight: { url in acceptDrop(url) { shared.rightURL = $0 } },
+                pickLeft: { if let url = openFolderPanel() { coordinator.leftURL = url } },
+                pickRight: { if let url = openFolderPanel() { coordinator.rightURL = url } },
+                clearLeft: { coordinator.leftURL = nil },
+                clearRight: { coordinator.rightURL = nil },
+                dropLeft: { url in acceptDrop(url) { coordinator.leftURL = $0 } },
+                dropRight: { url in acceptDrop(url) { coordinator.rightURL = $0 } },
                 compare: { Self.startIfReady(coordinator) },
                 cancel: { coordinator.cancelOperation() }
             )

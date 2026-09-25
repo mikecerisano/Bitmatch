@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct TransferQueueView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     /// Observed directly: the coordinator does not forward its ticks.
     @ObservedObject private var progressModel: ProgressPresentationModel
     @State private var queuedTransfers: [QueuedTransfer] = []
@@ -31,7 +31,7 @@ struct TransferQueueView: View {
         var createdAt: Date = Date()
     }
 
-    init(coordinator: AppCoordinator) {
+    init(coordinator: SharedAppCoordinator) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
         _progressModel = ObservedObject(wrappedValue: coordinator.progressPresentation)
     }

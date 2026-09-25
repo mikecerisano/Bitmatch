@@ -3,7 +3,9 @@ import SwiftUI
 import AppKit
 
 struct PreferencesWindow: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
+    let cameraAutoSource: MacCameraAutoSourceController
+    let remoteBackups: MacRemoteBackupController
     @Environment(\.dismiss) private var dismiss
     
     // Tab selection
@@ -121,7 +123,7 @@ struct PreferencesWindow: View {
                                 Label("File contents are not verified in Quick mode.", systemImage: "exclamationmark.triangle.fill")
                                     .foregroundColor(.orange)
                             }
-                            ASCMHLPreferenceToggle(shared: coordinator.sharedCoordinator)
+                            ASCMHLPreferenceToggle(shared: coordinator)
                         }
 
                     }
@@ -147,7 +149,7 @@ struct PreferencesWindow: View {
                 .foregroundColor(.secondary)
             RemoteBackupDestinationManager(
                 viewModel: coordinator.photographerJobViewModel,
-                coordinator: coordinator,
+                remoteBackups: remoteBackups,
                 showsDoneButton: false
             )
         }
@@ -228,7 +230,7 @@ struct PreferencesWindow: View {
                 Toggle("Enable automatic camera card detection", isOn: $coordinator.reportSettings.enableAutoCameraDetection)
                     .toggleStyle(.checkbox)
                     .onChange(of: coordinator.reportSettings.enableAutoCameraDetection) { oldValue, newValue in
-                        coordinator.toggleCameraDetection(newValue)
+                        cameraAutoSource.toggleCameraDetection(newValue)
                     }
                 
                 if coordinator.reportSettings.enableAutoCameraDetection {
@@ -253,7 +255,7 @@ struct PreferencesWindow: View {
                         // Manual controls
                         HStack {
                             Button {
-                                coordinator.rescanForCameras()
+                                cameraAutoSource.rescanForCameras()
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "arrow.clockwise")
@@ -325,7 +327,7 @@ private extension PreferencesWindow {
 }
 
 class PreferencesWindowController: NSWindowController {
-    convenience init(coordinator: AppCoordinator) {
+    convenience init(environment: MacAppEnvironment) {
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -348,7 +350,11 @@ class PreferencesWindowController: NSWindowController {
         )
         window.center()
         window.setFrameAutosaveName("PreferencesWindow")
-        window.contentView = NSHostingView(rootView: PreferencesWindow(coordinator: coordinator))
+        window.contentView = NSHostingView(rootView: PreferencesWindow(
+            coordinator: environment.coordinator,
+            cameraAutoSource: environment.cameraAutoSource,
+            remoteBackups: environment.remoteBackups
+        ))
         
         self.init(window: window)
     }
@@ -360,18 +366,20 @@ struct PreferencesWindow_Previews: PreviewProvider {
     static var previews: some View {
         let persistence = BitMatchPersistenceController(inMemory: true)
         let store = CoreDataPhotographerJobStore(persistence: persistence)
+        let environment = MacAppEnvironment.makeForTesting(coordinator: SharedAppCoordinator(
+            platformManager: MacOSPlatformManager.shared,
+            photographerJobViewModel: PhotographerJobViewModel(store: store)
+        ))
         return PreferencesWindow(
-            coordinator: AppCoordinator(
-                photographerJobViewModel: PhotographerJobViewModel(store: store)
-            )
+            coordinator: environment.coordinator,
+            cameraAutoSource: environment.cameraAutoSource,
+            remoteBackups: environment.remoteBackups
         )
     }
 }
 #endif
 
 /// The same ASC MHL setting iOS Settings shows, bound to the shared coordinator.
-/// It observes `SharedAppCoordinator` directly because `AppCoordinator` does not
-/// forward `generateASCMHL` changes.
 private struct ASCMHLPreferenceToggle: View {
     @ObservedObject var shared: SharedAppCoordinator
 

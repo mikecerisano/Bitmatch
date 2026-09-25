@@ -2,7 +2,9 @@ import SwiftUI
 
 /// The macOS transfer setup: select the locations, review preflight, then start.
 struct TransferPlanView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @EnvironmentObject var remoteBackups: MacRemoteBackupController
+    @EnvironmentObject var estimate: TransferEstimateModel
     let plan: TransferPlanPresentation
     @Binding var optionsExpanded: Bool
     let selectionView: (AdaptiveWorkbenchPresentation) -> AnyView
@@ -32,9 +34,9 @@ struct TransferPlanView: View {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
                     job: job,
-                    queueRemoteBackup: coordinator.queueRemoteBackup,
-                    retryRemoteBackup: coordinator.retryRemoteBackup,
-                    cancelRemoteBackup: coordinator.cancelRemoteBackup
+                    queueRemoteBackup: remoteBackups.queueRemoteBackup,
+                    retryRemoteBackup: remoteBackups.retryRemoteBackup,
+                    cancelRemoteBackup: remoteBackups.cancelRemoteBackup
                 )
             }
         }
@@ -159,10 +161,10 @@ struct TransferPlanView: View {
             : nil
         let canStart = photographerStart?.canStart ?? plan.canStart
         return VStack(alignment: .leading, spacing: 8) {
-            if let estimate = coordinator.timeEstimate {
-                Text("Estimated time: \(estimate.formatted) · \(estimate.speedSummary)")
+            if let timeEstimate = estimate.estimate {
+                Text("Estimated time: \(timeEstimate.formatted) · \(timeEstimate.speedSummary)")
                     .font(.system(size: 12)).foregroundColor(.white.opacity(0.6))
-            } else if coordinator.isCalculatingEstimate {
+            } else if estimate.isCalculating {
                 Label("Calculating transfer estimate…", systemImage: "clock")
                     .font(.system(size: 12)).foregroundColor(.blue)
             }
@@ -257,14 +259,12 @@ struct TransferPlanPreflightCard: View {
 /// The Mac adapter for the shared Advanced options. The bindings are the ones
 /// this view has always used; only the layout and wording come from Shared.
 struct TransferOptionsView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     @Binding var isExpanded: Bool
     var body: some View {
-        // AppCoordinator does not forward changes from these nested objects,
-        // so the adapter observes them directly to keep the label note current.
+        // The label model is observed directly, so the label note stays current.
         MacTransferOptionsAdapter(
             coordinator: coordinator,
-            shared: coordinator.sharedCoordinator,
             cameraLabels: coordinator.cameraLabels,
             isExpanded: $isExpanded
         )
@@ -272,8 +272,7 @@ struct TransferOptionsView: View {
 }
 
 private struct MacTransferOptionsAdapter: View {
-    @ObservedObject var coordinator: AppCoordinator
-    @ObservedObject var shared: SharedAppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     @ObservedObject var cameraLabels: CameraLabelModel
     @Binding var isExpanded: Bool
 
@@ -281,17 +280,14 @@ private struct MacTransferOptionsAdapter: View {
         TransferOptionsSection(
             isExpanded: $isExpanded,
             verificationMode: $coordinator.verificationMode,
-            generateASCMHL: Binding(
-                get: { coordinator.sharedCoordinator.generateASCMHL },
-                set: { coordinator.sharedCoordinator.generateASCMHL = $0 }
-            ),
-            makeReport: $shared.reportSettings.makeReport,
+            generateASCMHL: $coordinator.generateASCMHL,
+            makeReport: $coordinator.reportSettings.makeReport,
             cameraLabel: cameraLabels.settings.label
         ) {
             CameraLabelView(settings: $cameraLabels.settings,
                             detectedCamera: cameraLabels.detectedCamera,
                             fingerprint: cameraLabels.currentFingerprint,
-                            sourceURL: shared.sourceURL)
+                            sourceURL: coordinator.sourceURL)
         }
         .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
         .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))

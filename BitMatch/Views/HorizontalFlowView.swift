@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 typealias DriveSpeed = MacVolumeAccessModel.DriveSpeed
 
 struct HorizontalFlowView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @EnvironmentObject var volumeAccess: MacVolumeAccessModel
     let presentation: AdaptiveWorkbenchPresentation
     /// The step to highlight, from `TransferPlanPresentation.nextStep`.
     var nextStep: TransferPlanPresentation.NextStep? = nil
@@ -39,10 +40,10 @@ struct HorizontalFlowView: View {
         }
         .padding(.vertical, 4)
         .id(refreshID) // Force refresh when needed
-        .onReceive(coordinator.sharedCoordinator.$sourceURL) { _ in
+        .onReceive(coordinator.$sourceURL) { _ in
             refreshID = UUID()
         }
-        .onReceive(coordinator.sharedCoordinator.$destinationURLs) { _ in
+        .onReceive(coordinator.$destinationURLs) { _ in
             refreshID = UUID()
         }
     }
@@ -338,7 +339,7 @@ struct HorizontalFlowView: View {
                     .foregroundColor(.white.opacity(0.65))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let free = coordinator.volumeAccess.formattedAvailableSpace(for: url) {
+                if let free = volumeAccess.formattedAvailableSpace(for: url) {
                     Text("\(free) available")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.75))
@@ -347,7 +348,7 @@ struct HorizontalFlowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if !isOperationActive {
                 Button {
-                    coordinator.volumeAccess.removeDestination(url)
+                    volumeAccess.removeDestination(url)
                     refreshID = UUID()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -477,7 +478,7 @@ struct HorizontalFlowView: View {
 
     private func addDestinationURLs(_ urls: [URL]) {
         for url in urls where validateDestination(url, replacingIndex: nil) {
-            coordinator.volumeAccess.addDestination(url)
+            volumeAccess.addDestination(url)
         }
         refreshID = UUID()
     }
@@ -571,7 +572,7 @@ struct HorizontalFlowView: View {
 
         // Get all destination speeds to determine ranking
         let destinationsWithSpeeds = coordinator.destinationURLs.map { dest in
-            (url: dest, speed: coordinator.volumeAccess.detectDriveSpeed(for: dest))
+            (url: dest, speed: volumeAccess.detectDriveSpeed(for: dest))
         }
         let sortedBySpeed = destinationsWithSpeeds.sorted { $0.speed.estimatedSpeed > $1.speed.estimatedSpeed }
 

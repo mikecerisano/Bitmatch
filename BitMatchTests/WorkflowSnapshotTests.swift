@@ -18,15 +18,15 @@ final class WorkflowSnapshotTests: XCTestCase {
 
         fixture.seedSetup()
         await settle()
-        try capture(ContentView(coordinator: fixture.appCoordinator), size: CGSize(width: 680, height: 900), name: "mac-setup")
+        try capture(ContentView(environment: fixture.environment), size: CGSize(width: 680, height: 900), name: "mac-setup")
 
         fixture.seedComparisonDifferences()
         await settle()
-        try capture(ContentView(coordinator: fixture.appCoordinator), size: CGSize(width: 680, height: 900), name: "mac-comparison-differences")
+        try capture(ContentView(environment: fixture.environment), size: CGSize(width: 680, height: 900), name: "mac-comparison-differences")
 
         fixture.seedCompletion()
         await settle()
-        try capture(ContentView(coordinator: fixture.appCoordinator), size: CGSize(width: 680, height: 900), name: "mac-completion")
+        try capture(ContentView(environment: fixture.environment), size: CGSize(width: 680, height: 900), name: "mac-completion")
 
 
     }
@@ -105,7 +105,7 @@ private final class SnapshotFixture {
     let journal: LocalTransferJournal
     let store: UserDefaultsPhotographerJobStore
     let sharedCoordinator: SharedAppCoordinator
-    let appCoordinator: AppCoordinator
+    let environment: MacAppEnvironment
     private let defaults: UserDefaults
     private let isolatedDefaults: UserDefaults
     private let isolatedSuiteName: String
@@ -149,17 +149,12 @@ private final class SnapshotFixture {
             transferJournal: journal,
             photographerJobViewModel: viewModel
         )
-        appCoordinator = AppCoordinator(
-            monitorsVolumes: false,
-            startRemoteScheduler: false,
-            sharedCoordinator: sharedCoordinator
-        )
+        environment = MacAppEnvironment.makeForTesting(coordinator: sharedCoordinator)
     }
 
     func seedSetup() {
-        appCoordinator.currentMode = .copyAndVerify
-        appCoordinator.verificationMode = .standard
         sharedCoordinator.currentMode = .copyAndVerify
+        sharedCoordinator.verificationMode = .standard
         sharedCoordinator.sourceURL = source
         sharedCoordinator.destinationURLs = [backup, secondBackup]
         sharedCoordinator.operationState = .notStarted
@@ -167,8 +162,6 @@ private final class SnapshotFixture {
     }
 
     func seedComparisonDifferences() {
-        appCoordinator.currentMode = .compareFolders
-        appCoordinator.verificationMode = .standard
         sharedCoordinator.currentMode = .compareFolders
         sharedCoordinator.verificationMode = .standard
         sharedCoordinator.leftURL = source
@@ -186,7 +179,6 @@ private final class SnapshotFixture {
     }
 
     func seedCompletion() {
-        appCoordinator.currentMode = .copyAndVerify
         sharedCoordinator.currentMode = .copyAndVerify
         sharedCoordinator.sourceURL = source
         sharedCoordinator.destinationURLs = [backup, secondBackup]

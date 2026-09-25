@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PhotographerJobSetupView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
 
     @State private var clientName = ""
     @State private var jobName = ""

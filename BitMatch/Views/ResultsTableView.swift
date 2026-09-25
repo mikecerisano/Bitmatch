@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ResultsTableView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     @Binding var showOnlyIssues: Bool
     @State private var scrollToBottom = false
     @State private var showsFileDetails = false
@@ -11,7 +11,7 @@ struct ResultsTableView: View {
     /// Observed directly: the coordinator does not forward its ticks.
     @ObservedObject private var progress: ProgressPresentationModel
 
-    init(coordinator: AppCoordinator, showOnlyIssues: Binding<Bool>) {
+    init(coordinator: SharedAppCoordinator, showOnlyIssues: Binding<Bool>) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
         _showOnlyIssues = showOnlyIssues
         _progress = ObservedObject(wrappedValue: coordinator.progressPresentation)
@@ -33,8 +33,8 @@ struct ResultsTableView: View {
         return CompletionVerdictPresentation.make(
             state: coordinator.operationState,
             rows: results,
-            hasErrors: coordinator.sharedCoordinator.hasErrors,
-            hasCriticalErrors: coordinator.sharedCoordinator.hasCriticalErrors
+            hasErrors: coordinator.hasErrors,
+            hasCriticalErrors: coordinator.hasCriticalErrors
         )
     }
     

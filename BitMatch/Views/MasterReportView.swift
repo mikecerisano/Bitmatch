@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 
 struct MasterReportView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
     @State private var scanningDrive = false
     @State private var foundTransfers: [TransferCard] = []
     @State private var selectedTransfers = Set<UUID>()

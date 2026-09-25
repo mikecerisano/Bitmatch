@@ -1,9 +1,30 @@
-// App/ContentView.swift - Updated to use new architecture
+// App/ContentView.swift - the Mac window
 import SwiftUI
 import AppKit
 
+/// Owns the Mac app's state for the window's lifetime and hands it to
+/// `MacMainView`, which observes each object directly.
 struct ContentView: View {
-    @StateObject private var coordinator: AppCoordinator
+    @StateObject private var environment: MacAppEnvironment
+
+    init(environment: MacAppEnvironment? = nil) {
+        _environment = StateObject(wrappedValue: environment ?? MacAppEnvironment.make())
+    }
+
+    var body: some View {
+        MacMainView(
+            environment: environment,
+            coordinator: environment.coordinator,
+            remoteBackups: environment.remoteBackups
+        )
+        .macCompanions(environment)
+    }
+}
+
+struct MacMainView: View {
+    let environment: MacAppEnvironment
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @ObservedObject var remoteBackups: MacRemoteBackupController
     @ObservedObject private var errorHandler = GlobalErrorHandler.shared
 #if DEBUG
     @ObservedObject private var devModeManager = DevModeManager.shared
@@ -27,9 +48,6 @@ struct ContentView: View {
     @State private var dropRejectionMessage = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(coordinator: AppCoordinator? = nil) {
-        _coordinator = StateObject(wrappedValue: coordinator ?? AppCoordinator())
-    }
     
     // Calculate ideal window height based on content and current mode
     private var idealWindowHeight: CGFloat {
@@ -85,7 +103,7 @@ struct ContentView: View {
     private var configuredMainContentView: some View {
         keyboardShortcutsView
             .sheet(isPresented: $showingTransfers) {
-                TransferLibraryView(coordinator: coordinator.sharedCoordinator, journal: coordinator.sharedCoordinator.transferJournal)
+                TransferLibraryView(coordinator: coordinator, journal: coordinator.transferJournal)
             }
             .onAppear {
                 restoreWindowFrame()
@@ -110,11 +128,11 @@ struct ContentView: View {
                     Text(description)
                 }
             }
-            .alert("Confirm SFTP Host Key", isPresented: Binding(get: { coordinator.hostTrustPrompt != nil }, set: { if !$0 { coordinator.confirmHostTrust(false) } })) {
-                Button("Trust Host Key") { coordinator.confirmHostTrust(true) }
-                Button("Cancel", role: .cancel) { coordinator.confirmHostTrust(false) }
+            .alert("Confirm SFTP Host Key", isPresented: Binding(get: { remoteBackups.hostTrustPrompt != nil }, set: { if !$0 { remoteBackups.confirmHostTrust(false) } })) {
+                Button("Trust Host Key") { remoteBackups.confirmHostTrust(true) }
+                Button("Cancel", role: .cancel) { remoteBackups.confirmHostTrust(false) }
             } message: {
-                if let prompt = coordinator.hostTrustPrompt {
+                if let prompt = remoteBackups.hostTrustPrompt {
                     Text("Verify this SHA-256 fingerprint for \(prompt.request.host):\(prompt.request.port) before continuing with SSH-agent authentication:\n\n\(prompt.request.sha256Fingerprint)")
                 }
             }
@@ -158,7 +176,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             headerView
             TransferAttentionBanner(
-                needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.sharedCoordinator.transferJournal.records)
+                needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.transferJournal.records)
             ) { showingTransfers = true }
                 .padding(.bottom, 8)
             mainScrollView
@@ -184,7 +202,7 @@ struct ContentView: View {
     private var mainContentSwitch: some View {
         // Compare shows its own progress and outcome inside CompareScreen, and
         // a finished compare is never shown as the transfer completion.
-        if coordinator.currentMode == .compareFolders || coordinator.sharedCoordinator.lastOperationWasCompare {
+        if coordinator.currentMode == .compareFolders || coordinator.lastOperationWasCompare {
             modeSpecificView
                 .padding(.top, 16)
         } else {
@@ -208,7 +226,7 @@ struct ContentView: View {
     @ViewBuilder
     private var resultsArea: some View {
         if coordinator.currentMode == .copyAndVerify &&
-           !coordinator.sharedCoordinator.lastOperationWasCompare &&
+           !coordinator.lastOperationWasCompare &&
            (coordinator.isOperationInProgress ||
             (coordinator.completionState != .idle && (coordinator.currentMode == .copyAndVerify || !coordinator.results.isEmpty))) {
             ResultsTableView(
@@ -315,9 +333,9 @@ struct ContentView: View {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
                     job: job,
-                    queueRemoteBackup: coordinator.queueRemoteBackup,
-                    retryRemoteBackup: coordinator.retryRemoteBackup,
-                    cancelRemoteBackup: coordinator.cancelRemoteBackup
+                    queueRemoteBackup: remoteBackups.queueRemoteBackup,
+                    retryRemoteBackup: remoteBackups.retryRemoteBackup,
+                    cancelRemoteBackup: remoteBackups.cancelRemoteBackup
                 )
             }
         }
@@ -346,7 +364,7 @@ struct ContentView: View {
     
     private func openPreferences() {
         if preferencesWindowController == nil {
-            preferencesWindowController = PreferencesWindowController(coordinator: coordinator)
+            preferencesWindowController = PreferencesWindowController(environment: environment)
         }
         
         preferencesWindowController?.showWindow(nil)
@@ -359,7 +377,7 @@ struct ContentView: View {
     private var isModeSwitchLocked: Bool {
         ModeSwitchPolicy.isLocked(
             isOperationInProgress: coordinator.isOperationInProgress,
-            queueIsRunning: coordinator.sharedCoordinator.queueIsRunning
+            queueIsRunning: coordinator.queueIsRunning
         )
     }
 
@@ -531,7 +549,8 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .startVerification)) { _ in
                 switch coordinator.currentMode {
                 case .copyAndVerify:
-                    coordinator.startOperation()
+                    // The shared Start: refuses what the Start button would.
+                    Task { await coordinator.startCurrentMode() }
                 case .compareFolders:
                     // ⌘R obeys the same readiness rule as the Compare button.
                     CompareFoldersView.startIfReady(coordinator)
@@ -601,7 +620,7 @@ extension Notification.Name {
 }
 
 // MARK: - Helpers
-private extension ContentView {
+private extension MacMainView {
     func showUserCancelToast() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             showCancelNotice = true

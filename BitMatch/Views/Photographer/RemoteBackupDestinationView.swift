@@ -3,7 +3,8 @@ import SwiftUI
 /// A deliberately small optional stage. It exposes saved destination metadata
 /// but never credentials, private-key paths, passphrases, or host-key data.
 struct RemoteBackupDestinationView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @EnvironmentObject var remoteBackups: MacRemoteBackupController
     @State private var isStageEnabled = false
     @State private var showingDestinations = false
 
@@ -39,7 +40,7 @@ struct RemoteBackupDestinationView: View {
                     Button("Manage destinations") { showingDestinations = true }
                         .font(DesignSystem.Typography.caption)
                 } else {
-                    Picker("Destination", selection: Binding(get: { configuration?.destinationProfileID }, set: coordinator.selectRemoteProfile)) {
+                    Picker("Destination", selection: Binding(get: { configuration?.destinationProfileID }, set: remoteBackups.selectRemoteProfile)) {
                         Text("Select saved destination").tag(UUID?.none)
                         ForEach(viewModel.remoteProfiles) { profile in
                             Text(profile.name).tag(Optional(profile.id))
@@ -68,23 +69,25 @@ struct RemoteBackupDestinationView: View {
         .background(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium).fill(DesignSystem.Colors.background.opacity(0.35)))
         .onAppear { isStageEnabled = configuration?.isEnabled == true }
         .sheet(isPresented: $showingDestinations) {
-            RemoteBackupDestinationManager(viewModel: viewModel, coordinator: coordinator)
+            RemoteBackupDestinationManager(viewModel: viewModel, remoteBackups: remoteBackups)
         }
     }
 
     private func setEnabled(_ enabled: Bool) {
         isStageEnabled = enabled
         if enabled {
-            if let profileID = viewModel.remoteProfiles.first?.id { coordinator.selectRemoteProfile(profileID) }
+            if let profileID = viewModel.remoteProfiles.first?.id { remoteBackups.selectRemoteProfile(profileID) }
         } else {
-            coordinator.selectRemoteProfile(nil)
+            remoteBackups.selectRemoteProfile(nil)
         }
     }
 }
 
 struct RemoteBackupDestinationManager: View {
     @ObservedObject var viewModel: PhotographerJobViewModel
-    let coordinator: AppCoordinator
+    /// Passed explicitly (not from the environment): this view is shown in
+    /// a sheet and in the Preferences window.
+    let remoteBackups: MacRemoteBackupController
     var showsDoneButton = true
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -219,7 +222,7 @@ struct RemoteBackupDestinationManager: View {
             }
             Spacer(minLength: 8)
             Menu {
-                Button("Test connection") { coordinator.testRemoteProfile(profile) }
+                Button("Test connection") { remoteBackups.testRemoteProfile(profile) }
                 Button("Edit") { load(profile) }
                 Divider()
                 Button("Delete", role: .destructive) {

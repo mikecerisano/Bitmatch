@@ -109,7 +109,7 @@ class DevModeManager: ObservableObject {
     enum StressPreset { case small, medium, large }
 
     @MainActor
-    func runStressTest(coordinator: AppCoordinator, preset: StressPreset, verify: Bool = false, cleanupAfter: Bool = true) {
+    func runStressTest(coordinator: SharedAppCoordinator, preset: StressPreset, verify: Bool = false, cleanupAfter: Bool = true) {
         guard isDevModeEnabled else {
             SharedLogger.debug("Stress test skipped: Dev Mode disabled")
             return
@@ -186,7 +186,7 @@ class DevModeManager: ObservableObject {
                 
                 // Subscribe for cleanup on completion/cancel
                 self.stressCancellables.removeAll()
-                coordinator.sharedCoordinator.operationStatePublisher
+                coordinator.operationStatePublisher
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] state in
                         guard let self = self else { return }
@@ -218,14 +218,14 @@ class DevModeManager: ObservableObject {
                     .store(in: &self.stressCancellables)
                 
                 // Start the transfer
-                coordinator.startOperation()
+                Task { await coordinator.startCurrentMode() }
             }
         }
     }
 
     // Backwards compatibility shim for prior call sites
     @MainActor
-    func runStressTest(coordinator: AppCoordinator, smallFootprint: Bool = true) {
+    func runStressTest(coordinator: SharedAppCoordinator, smallFootprint: Bool = true) {
         let preset: StressPreset = smallFootprint ? .small : .medium
         runStressTest(coordinator: coordinator, preset: preset, verify: false, cleanupAfter: true)
     }
@@ -239,7 +239,7 @@ class DevModeManager: ObservableObject {
         SharedLogger.info("Cleanup complete.")
     }
     
-    @MainActor func fillTestDataOnly(coordinator: AppCoordinator) {
+    @MainActor func fillTestDataOnly(coordinator: SharedAppCoordinator) {
         SharedLogger.debug("Fill Test Data called - Dev Mode: \(isDevModeEnabled)")
         
         let (sourceURL, sourceInfo) = generateFakeSource()
@@ -336,7 +336,7 @@ class DevModeManager: ObservableObject {
     // MARK: - Fake Transfer Simulation (for manual testing)
     
     #if os(macOS)
-    @MainActor func startFakeTransfer(coordinator: AppCoordinator) {
+    @MainActor func startFakeTransfer(coordinator: SharedAppCoordinator) {
         SharedLogger.info("Starting fake transfer simulation")
         
         let (sourceURL, sourceInfo) = generateFakeSource()
@@ -361,11 +361,11 @@ class DevModeManager: ObservableObject {
         // Start the actual transfer after a brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             coordinator.switchMode(to: .copyAndVerify)
-            coordinator.startOperation()
+            Task { await coordinator.startCurrentMode() }
         }
     }
     
-    @MainActor func addFakeQueueItem(coordinator: AppCoordinator) {
+    @MainActor func addFakeQueueItem(coordinator: SharedAppCoordinator) {
         SharedLogger.debug("Add Fake Queue Item called - Dev Mode: \(isDevModeEnabled)")
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
@@ -387,7 +387,7 @@ class DevModeManager: ObservableObject {
         )
     }
     
-    @MainActor func simulateQueueProgression(coordinator: AppCoordinator) {
+    @MainActor func simulateQueueProgression(coordinator: SharedAppCoordinator) {
         // Simulate moving queued transfers to active and completed states
         guard coordinator.isOperationInProgress else { return }
 
@@ -407,7 +407,7 @@ class DevModeManager: ObservableObject {
 extension DevModeManager {
     
     #if os(macOS)
-    @MainActor func simulateRealisticTransferProgress(coordinator: AppCoordinator) {
+    @MainActor func simulateRealisticTransferProgress(coordinator: SharedAppCoordinator) {
         // This will be called during fake transfers to provide realistic progress updates
         // The actual FileOperationsService will handle the fake progress in dev mode
         

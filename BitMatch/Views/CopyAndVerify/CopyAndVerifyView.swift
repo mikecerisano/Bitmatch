@@ -2,7 +2,8 @@
 import SwiftUI
 
 struct CopyAndVerifyView: View {
-    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @EnvironmentObject var remoteBackups: MacRemoteBackupController
     @Binding var showReportSettings: Bool
     @Binding var optionsExpanded: Bool
 
@@ -12,7 +13,7 @@ struct CopyAndVerifyView: View {
         // The shared readiness rule (the same strings on every platform). A
         // source or backup not chosen yet is the next step, not an error;
         // TransferPlanPresentation.nextStep highlights it instead.
-        let readiness = coordinator.sharedCoordinator.operationReadinessAssessment
+        let readiness = coordinator.operationReadinessAssessment
         return TransferPlanPresentation.make(
             sourceURL: coordinator.sourceURL,
             sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
@@ -71,7 +72,7 @@ struct CopyAndVerifyView: View {
                 }
                 Spacer()
                 if coordinator.canPause || coordinator.canResume {
-                    Button { coordinator.togglePause() } label: {
+                    Button { Task { await coordinator.togglePause() } } label: {
                         Label(presentation.controlTitle, systemImage: presentation.controlSymbol)
                     }
                     .buttonStyle(CustomButtonStyle())
@@ -93,9 +94,9 @@ struct CopyAndVerifyView: View {
                 PhotographerSessionDashboard(
                     viewModel: coordinator.photographerJobViewModel,
                     job: job,
-                    queueRemoteBackup: coordinator.queueRemoteBackup,
-                    retryRemoteBackup: coordinator.retryRemoteBackup,
-                    cancelRemoteBackup: coordinator.cancelRemoteBackup
+                    queueRemoteBackup: remoteBackups.queueRemoteBackup,
+                    retryRemoteBackup: remoteBackups.retryRemoteBackup,
+                    cancelRemoteBackup: remoteBackups.cancelRemoteBackup
                 )
                 .padding(.horizontal, DesignSystem.Spacing.lg)
                 .padding(.bottom, DesignSystem.Spacing.sm)
@@ -105,6 +106,6 @@ struct CopyAndVerifyView: View {
 
     private func start() {
         coordinator.switchMode(to: .copyAndVerify)
-        coordinator.startOperation()
+        Task { await coordinator.startCurrentMode() }
     }
 }
