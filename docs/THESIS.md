@@ -29,11 +29,11 @@ A read-only audit of the whole codebase against these promises found the safety 
 
 Each step ships on its own.
 
-1. Delete dead code; correct stale docs and comments.
+1. Delete dead code; correct stale docs and comments. **Done 2026-09-25**: `OperationStateManager` and `MHLGenerator` are gone and the tests share one file-system fake. `ARCHITECTURE.md`, `README.md` and `DEVELOPMENT.md` describe `main` after steps 2–4.
 2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, including the typed `ResultOutcome`.
-3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Done 2026-09-25.** **Carried out 2026-09-25 on branch `cloud/retire-appcoordinator`** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, the drive estimate, volume access and camera auto-source. Written without Xcode; done once a Mac build and test run confirm it.
-4. Merge the two UI shells one screen at a time, starting with Compare. **Screens done 2026-09-25** (Compare, History, Advanced, Master Report, Outcome, Setup, Progress). The source and backup boxes are shared too (step 4.5, branch `cloud/shared-selection-boxes`, not compiled): one component with per-platform pickers, over one `TransferReadiness` rule and one `DestinationSelectionPolicy`.
-5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
+3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Done 2026-09-25** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, volume access and camera auto-source (the drive estimate went with `DriveBenchmarkService`).
+4. Merge the two UI shells one screen at a time, starting with Compare. **Wave 1 done 2026-09-25** ([plan](superpowers/plans/2026-09-25-ui-unification.md)): one Setup, Progress, Outcome, Compare, Master Report and History (Transfers) screen on every platform; one source and backup box component over one `TransferReadiness` rule, one `DestinationSelectionPolicy` and one `BackupTargetPolicy`; live progress and per-file results in `LiveProgressFeed` and `LiveResultsFeed`; time left from observed copy speed. **Wave 2, still to do:** shared project presets (the Mac keeps its preset picker in its project slot), the remaining items of the [accessibility audit](audits/2026-09-25-accessibility.md), and the per-transfer PDF on iPad and iPhone.
+5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency. **Planned, not started** ([plan](superpowers/plans/2026-09-25-engine-package.md)).
 
 Target shape: an engine package (`CardSource`, `DestinationWriter`, `ChecksumEngine`, `TransferPipeline`, `TransferJournal`, `EvidenceWriter`) tested against real folders, one `@Observable` app model whose verdict is computed from results, and one adaptive SwiftUI UI. Roughly 40k lines down to 20–24k, almost all of it from removing duplication rather than safety logic.
 

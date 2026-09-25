@@ -28,56 +28,97 @@ Test targets reach app code through `@testable import`. `test.sh` wraps the `xco
 
 | Folder | Role | Built into |
 |---|---|---|
-| `Shared/Core/Models/` | Value types: operation state, progress, results, verification modes, camera, photographer and remote-backup models, and view-ready `*Presentation` types | Both apps |
-| `Shared/Core/Services/` | The engine: copy, verify, safety, checksums, compare, ASC MHL, reports, journal/queue, camera detection, timing, errors, and `SharedAppCoordinator` | Both apps |
-| `Shared/Core/ViewModels/` | `PhotographerJobViewModel`, `CameraLabelModel` (label suggestion, per-card memory, saved settings), `ProgressPresentationModel` (smoothed progress for display) | Both apps |
-| `Shared/Views/` | SwiftUI views used by both apps: `CompareResultsView`, `TransferLibraryView` | Both apps |
-| `Platforms/iOS/Services/` | `IOSPlatformManager`, `IOSFileSystemService`, `IOSDriverScanner` | iOS app |
+| `Shared/Core/Models/` | Value types (operation state, progress, results and `ResultOutcome`, verification modes, camera, photographer and remote-backup models), the pure rules `TransferReadiness` and `DestinationSelectionPolicy`, and the view-ready `*Presentation` types each shared screen draws | Both apps |
+| `Shared/Core/Services/` | The engine: copy, verify and safety (`File/`, including `BackupTargetPolicy`), checksums, compare, ASC MHL, reports, journal and queue, camera detection (`Camera/`), timing, errors, and `SharedAppCoordinator` | Both apps |
+| `Shared/Core/ViewModels/` | `PhotographerJobViewModel`, `CameraLabelModel` (label suggestion, per-card memory, saved settings), `ProgressPresentationModel` (smoothed progress, speed and time left), `LiveProgressFeed` and `LiveResultsFeed` (live progress and per-file rows, observed apart from the coordinator) | Both apps |
+| `Shared/Views/` | The SwiftUI screens both apps show: `Setup/`, `Progress/`, `Outcome/`, `Compare/`, `MasterReport/`, plus `TransferLibraryView` (queue and history), `CompareResultsView`, `TransferAttentionBanner` and `SkippedReportsNotice` | Both apps |
+| `Platforms/iOS/Services/` | `IOSPlatformManager`, `IOSFileSystemService`, `IOSDriverScanner` (the Files folder picker for Master Report) | iOS app |
 | `Platforms/macOS/Services/` | `MacOSPlatformManager` | Mac app (via the exception above) |
-| `BitMatch/` | Mac app shell: `App/` (entry point, `ContentView`, `MacAppEnvironment`), `MacVolumeAccessModel`, Mac-only services, and all Mac views | Mac app |
-| `BitMatch-iPad/` | iPhone/iPad app shell: entry point, `ContentView`, and views | iOS app |
+| `BitMatch/` | Mac app shell: `App/` (entry point, `ContentView`, `MacAppEnvironment`), `Core/ViewModels/MacVolumeAccessModel.swift`, Mac-only services, and the Mac adapters and slots for the shared screens | Mac app |
+| `BitMatch-iPad/` | iPhone/iPad app shell: entry point, `ContentView`, the two layouts, and the iOS adapters and slots for the shared screens | iOS app |
 
-Some files under `Shared/` are wrapped in `#if os(...)` and so exist on only one platform. `RemoteBackupQueue.swift`, `RemoteBackupCoordinator.swift`, and `RemoteBackupProvider.swift` are macOS-only. `IOSBackgroundTaskService.swift` is real on iOS and a no-op stub on macOS.
+Some files under `Shared/` are wrapped in `#if os(...)` and so exist on only one platform. `RemoteBackupQueue.swift`, `RemoteBackupCoordinator.swift`, and `RemoteBackupProvider.swift` are macOS-only. `IOSBackgroundTaskService.swift` is real on iOS and a no-op stub on macOS. `TransferSleepPreventer.swift` takes an idle-sleep assertion on macOS and does nothing on iOS.
+
+## Screens
+
+Every flow is one shared screen in `Shared/Views/`. Each screen draws a pure presentation value from `Shared/Core/Models/` and decides nothing itself. Layout follows the screen's own width through `AdaptiveNavigationPolicy` (`Shared/Core/Models/AdaptiveNavigationPresentation.swift`: compact under 600 pt, toolbar under 960 pt, sidebar above), not the device.
+
+| Flow | Screen (`Shared/Views/`) | Presentation (`Shared/Core/Models/`) | Adapter from `SharedAppCoordinator` | What each platform adds |
+|---|---|---|---|---|
+| Setup | `Setup/SetupScreen.swift` | `SetupPresentation`, `StartButtonPresentation`, `TransferPlanPresentation` | `Setup/CoordinatorSetupScreen.swift`, one for all platforms | Slots for the location pickers, problem banners, project setup, camera label editor and project evidence. Mac: `BitMatch/Views/CopyAndVerify/MacSetupView.swift`. iOS: `BitMatch-iPad/Views/CopyAndVerifyView.swift` |
+| Source and backup boxes | `Setup/SetupLocationsView.swift` | `SetupLocationsPresentation` | `Setup/CoordinatorSetupLocations.swift`, one for all platforms | A `SetupLocationsPlatform`. Mac: `MacSetupLocations.swift` (open panel, drag and drop, drop toast). iOS: `IOSSetupLocations` in `CopyAndVerifyView.swift` (Files picker, alert) |
+| Advanced options | `Setup/TransferOptionsSection.swift` | `TransferOptionsPresentation` | takes bindings | Nothing. Compare uses the form with only the verification picker |
+| Progress | `Progress/ProgressScreen.swift` | `TransferProgressPresentation` | `Progress/CoordinatorProgressScreen.swift`, one for all platforms | Mac: `BitMatch/Views/Progress/MacTransferProgressView.swift` adds the project dashboard. iOS: `BitMatch-iPad/Views/OperationProgressView.swift` wraps the adapter |
+| Outcome | `Outcome/OutcomeScreen.swift` | `TransferOutcomePresentation` | `Outcome/CoordinatorOutcomeScreen.swift`, one for all platforms | Mac: the project dashboard in the evidence slot (`ContentView.swift`, `completionView`). iOS: `BitMatch-iPad/Views/CompletionSummaryView.swift` wraps the adapter |
+| Compare | `Compare/CompareScreen.swift`, `CompareResultsView.swift` | `ComparePresentation` | one per platform: `BitMatch/Views/CompareFoldersView.swift`; `CompareFoldersView` in `BitMatch-iPad/Views/ModularContentView.swift` | Folder picking; dropping on the Mac |
+| Master Report | `MasterReport/MasterReportScreen.swift` | `MasterReportModel`, `MasterReportPresentation` | one per platform, both named `MasterReportView` (`BitMatch/Views/`, `BitMatch-iPad/Views/`) | A `MasterReportPlatform`: open and save panels and Show in Finder on the Mac; the Files picker and share sheet on iOS |
+| Transfers (queue and history) | `TransferLibraryView.swift` | `TransferLibraryPresentation` | none: it takes the coordinator and journal | Opened as a sheet from a toolbar button on every platform |
+
+The Mac also shows `BitMatch/Views/ResultsTableView.swift`, a live per-file results table below the progress screen while a transfer runs.
 
 ## App shells
-
-The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyView` is still implemented separately in each shell. Compare (`CompareScreen`) and Master Report (`MasterReportScreen`) are single screens under `Shared/Views/`, each with a thin per-shell adapter (`CompareFoldersView`, `MasterReportView`) that supplies the platform parts.
 
 ### iPhone and iPad
 
 - **Entry point.** `BitMatch-iPad/BitMatch_iPadApp.swift` registers the `com.bitmatch.app.transferprocessing` background-task handler and shows `ContentView`.
 - **Coordinator.** `BitMatch-iPad/ContentView.swift` owns a `SharedAppCoordinator()` directly. Its iOS convenience initializer passes in `IOSPlatformManager.shared`.
-- **Layout.** The layout is chosen by window width, not device idiom. `AdaptiveNavigationPolicy` in `Shared/Core/Models/AdaptiveNavigationPresentation.swift` returns one of:
-  - `.compact` (under 600 pt): `BitMatch-iPad/Views/PhoneContentView.swift`
-  - `.toolbar` (under 960 pt) or `.sidebar`: `BitMatch-iPad/Views/ModularContentView.swift`
-- **Modes.** Both layouts switch on `coordinator.currentMode` (`AppMode`: Copy & Verify, Compare Folders, Master Report). They show `OperationProgressView` or `CompletionSummaryView` while an operation is running or finished.
+- **Layout.** The layout is chosen by window width, not device idiom:
+  - `.compact`: `BitMatch-iPad/Views/PhoneContentView.swift`
+  - `.toolbar` or `.sidebar`: `BitMatch-iPad/Views/ModularContentView.swift`. The mode switcher is `AdaptiveModeNavigation` (`BitMatch-iPad/Views/HeaderTabsView.swift`).
+- **Modes.** Both layouts switch on `coordinator.currentMode` (`AppMode`: Copy & Verify, Compare Folders, Master Report). In Copy & Verify they show `OperationProgressView` while a transfer runs, `CompletionSummaryView` when `showsOutcomeSummary` is true, and `CopyAndVerifyView` otherwise. Compare shows its own progress and outcome inside `CompareScreen`.
+- **Settings.** `SettingsSheetView` in `ModularContentView.swift`: report and camera settings, the project's remote destination (kept for the Mac to upload), and screen dimming.
 
 ### macOS
 
-- **Entry point.** `BitMatch/App/BitMatchApp.swift` shows `BitMatch/App/ContentView.swift`. Menu commands (mode switching, Start, Cancel) are posted as `NotificationCenter` events.
+- **Entry point.** `BitMatch/App/BitMatchApp.swift` shows `BitMatch/App/ContentView.swift`. Menu commands are posted as `NotificationCenter` events and handled in `ContentView`: Settings (⌘,), View → the three modes (⌘1–3), and File → Start (⌘R) and Cancel (⌘., disabled while nothing runs).
 - **Coordinator.** As on iPhone and iPad, the Mac views bind to `SharedAppCoordinator` directly; it is the only state owner. `ContentView` holds a `MacAppEnvironment` (`BitMatch/App/MacAppEnvironment.swift`) as its one `@StateObject` and renders `MacMainView`. `MacAppEnvironment.make()` builds the Core Data–backed `PhotographerJobViewModel`, a `SharedAppCoordinator` on `MacOSPlatformManager.shared` that uses it, and the Mac companions below. Start and ⌘R call `startCurrentMode()`, the same entry point on every platform.
+- **Routing.** `MacMainView.mainContentSwitch` shows the mode view in Compare mode or after a compare, `MacTransferProgressView` while a transfer runs, and `CoordinatorOutcomeScreen` once `completionState` is past idle and in progress.
 - **Mac-only companions.** Each reads from and writes to the shared coordinator and keeps no copy of its state:
-  - `MacRemoteBackupController`: the SFTP remote-backup queue, scheduler and host-key prompt (the thesis's named Mac exception).
-  - `MacVolumeAccessModel` (`BitMatch/Core/ViewModels/`): volume monitoring, backup-drive discovery, `/Volumes` bookmarks, recents and last-used backups.
-  - `MacCameraAutoSourceController`: choosing a detected camera card as the source when Preferences allow it.
+  - `MacRemoteBackupController` (`BitMatch/Core/Services/`): the SFTP remote-backup queue, scheduler and host-key prompt (the thesis's named Mac exception).
+  - `MacVolumeAccessModel` (`BitMatch/Core/ViewModels/`): volume monitoring, backup-drive discovery, `/Volumes` bookmarks, recents, and last-used backups. At launch it restores last-used backups only when every one of them can be restored (`LastBackupsRestorePolicy`, `Shared/Core/Models/SetupPresentation.swift`).
+  - `MacCameraAutoSourceController` (`BitMatch/Core/Services/`): choosing a detected camera card as the source when Preferences allow it.
 
-  `MacRemoteBackupController` and `MacVolumeAccessModel` reach views as environment objects; the Preferences window receives its companions explicitly.
+  `MacRemoteBackupController` and `MacVolumeAccessModel` reach views as environment objects (`macCompanions(_:)`); the Preferences window (`BitMatch/Views/PreferencesWindow.swift`) receives its companions explicitly.
+- **Debug builds.** A Developer menu (DEBUG only, `BitMatchApp.swift`) opens the Interface Lab (`BitMatch/Views/InterfaceLab/`, a separate app instance started with `--interface-lab`), toggles Dev Mode, and, with Dev Mode on, fills test data, runs small/medium/large stress tests, toggles verbose logs, and resets the last operation (Clear All Data). `DevModeManager` (`BitMatch/Core/Services/DevModeManager.swift`) implements them.
 
 ## Operation state
 
-**Being consolidated (see the [docs/THESIS.md](docs/THESIS.md) plan).** Today, state is tracked in two places:
+State is stored once. `OperationStateService.currentState` (`Shared/Core/Services/OperationStateService.swift`) is the only stored `OperationState` (`Shared/Core/Models/OperationModels.swift`). `SharedAppCoordinator.operationState` is a computed property over it: reading returns `stateService.currentState`, and writing calls `stateService.adopt(_:)`, which records the state as reported and logs, rather than rejects, a transition that `OperationStateMachine` does not list. The service's own lifecycle calls (start, pause, resume, complete, fail, cancel) go through `OperationStateMachine.transition(to:)`, which can reject them. The coordinator forwards the service's `objectWillChange`, so views observing the coordinator see every change. `pauseOperation()` and `resumeOperation()` pause or resume the engine first, then update the service.
 
-- `SharedAppCoordinator.operationState` (`OperationState`, `Shared/Core/Models/OperationModels.swift`) is what the UI displays. The executor's `onStateChange` callback sets it.
-- `OperationStateService` (`Shared/Core/Services/OperationStateService.swift`) tracks pause/resume capability and saved pause data. It routes transitions through `OperationStateMachine` (`Shared/Core/Services/OperationStateMachine.swift`), which can reject a transition.
+The verdict is derived from results. Each file result's `outcome` (`FileOperationResult`, `Shared/Core/Services/ServiceProtocols.swift`) is a `ResultOutcome` (`Shared/Core/Models/TransferModels.swift`): `verified`, `copiedUnverified`, `checksumMismatch` or `failed`. The engine writes `ResultOutcome.statusText` into `ResultRow.status`, and `ResultRow.isSuccessStatus` reads it back through `ResultOutcome(statusText:)`. Text that is none of the four (older saved history) falls back to a fail-safe rule: it must contain "✅" and no failure marker. `copiedUnverified` counts as a success but never as verified.
 
-`CopyVerifyExecutor` updates both, and `SharedAppCoordinator.pauseOperation()` / `resumeOperation()` read from `OperationStateService`.
+## Choosing the source and backups
+
+Three shared rules decide what may be chosen and when Start is allowed, on every platform.
+
+- **`DestinationSelectionPolicy`** (`Shared/Core/Models/DestinationSelectionPolicy.swift`) runs the moment the user picks or drops a location. A backup must be a folder, not already chosen, not the source or inside or around it, and allowed by `BackupTargetPolicy`. The source must be a folder that does not overlap a chosen backup. The macOS system-folder check applies on the Mac only. `CoordinatorSetupLocations` runs it, then the platform's add, and shows any refusal (the Mac drop toast, an iOS alert).
+- **`BackupTargetPolicy`** (`Shared/Core/Services/File/BackupTargetPolicy.swift`) is the one rule for what may become a backup, keyed by who is adding it (`Origin`: `userChoice`, `restored`, `discovered`). It guards every add path: `SharedAppCoordinator.addDestination` and `replaceDestinations`, Mac drive discovery and the launch restore in `MacVolumeAccessModel`, queue replay, the readiness check, and the engine's own preflight (`SafetyValidator`).
+  - Always refused: the startup disk root, anything under `/System`, the root of an internal volume with a system name (Recovery, "Recovery 2", Preboot, any letter case), the source's own volume root, and any folder on a removable source volume. When volume facts cannot be read, a target that looks to be on the source's volume is refused (fail closed).
+  - A folder the user picks on the startup disk is allowed.
+  - Launch restore also refuses temp folders and internal volume roots, but restores a network share's root. Discovery adds only whole external or removable volumes, never a system-named one or a network share.
+  - `BackupTargetPolicyTests` and `BackupTargetPolicyRealVolumeTests` cover it.
+- **`TransferReadiness`** (`Shared/Core/Models/TransferReadiness.swift`) says whether a copy may start and why not. It is pure: free space and writability are injected. `SharedAppCoordinator.transferReadiness` builds it from the selection, and `operationReadinessAssessment` is a view of it, used by `canStartOperation` (and so `startCurrentMode()`), `startProjectOperation()` and the Setup screen. A missing source or backup is a next step, not a blocker. Duplicate, protected, overlapping, unwritable or too-small backups block. A backup needs more than the source size plus `SafetyValidator.requiredHeadroomBytes` (1 GB) free, the margin the copy's own preflight uses.
+
+With Project chosen on Setup (`SharedAppCoordinator.usesProjectWorkflow`), `startCurrentMode()` starts nothing until a project card is prepared.
+
+`SafetyValidator.isProtectedSystemPath` (`Shared/Core/Services/File/SafetyValidator.swift`) refuses `/System`, `/Library`, `/usr`, `/bin`, `/sbin`, `/private`, `/var` and `/etc`, except the temp folder and, on iOS, `/var/mobile` and `/private/var/mobile`, where every Files-picker location lives.
+
+## Live progress and results
+
+Progress ticks and per-file rows are observed apart from the coordinator, so they never redraw a whole shell.
+
+- **`LiveProgressFeed`** (`Shared/Core/ViewModels/LiveProgressFeed.swift`) holds the engine's latest `OperationProgress`. `SharedAppCoordinator.progress` reads and writes it and is not `@Published`. `CoordinatorProgressScreen` and the two Compare adapters observe it.
+- **`LiveResultsFeed`** (`Shared/Core/ViewModels/LiveResultsFeed.swift`) holds the run's `ResultRow`s, one per file and backup. `SharedAppCoordinator.results` reads and writes it; a whole-list write (clear, or the engine's authoritative list) also announces itself on the coordinator. A live row arrives through `receiveLiveResult(_:)`, which updates only the feed. `ResultsTableView` (Mac) and `CoordinatorOutcomeScreen` observe it. The outcome, journal and export read the same rows.
+- **`ProgressPresentationModel`** (`Shared/Core/ViewModels/ProgressPresentationModel.swift`) smooths progress for display. `SharedAppCoordinator.setupProgressPresentation()` feeds it at most every 120 ms and starts, pauses, resumes and stops its tracking from the operation state. Speed is an EMA over active time; paused time is left out.
+- **Time left** comes only from observed copy speed: the copy bytes still to go (scanned source size times the number of backups, minus bytes copied) over the rate measured across a 10-second rolling window of active copying. Until two seconds of copying have been measured it reads "Estimating…" (`TransferProgressPresentation.estimatingTimeLeft`). With the planned work unknown or already copied, it shows nothing. There is no drive benchmark and no estimate before a transfer starts.
 
 ## Copy → verify pipeline
 
 The copy and verify path is the same on every platform:
 
 ```
-SharedAppCoordinator.startOperation()
+SharedAppCoordinator.startCurrentMode()  // Start and ⌘R on every platform; checks TransferReadiness
+  → startOperation() / startProjectOperation()
   → CopyVerifyExecutor.execute(config:callbacks:)
     → platformManager.fileOperations.performFileOperation(...)   // SharedFileOperationsService on both platforms
       → FileTreeEnumerator.enumerateRegularFiles                   // source manifest
@@ -99,13 +140,14 @@ SharedAppCoordinator.startOperation()
 5. Builds a `CopyVerifyConfig` and calls the executor.
 6. Afterwards, records the outcome in the journal with `finish`, `interrupt`, or `cancel`.
 
-The executor's `onResult` and `onAuthoritativeResults` callbacks fill `results`. The final list replaces any rows streamed during the run.
+The executor's `onResult` callback streams live rows into `liveResults` through `receiveLiveResult(_:)`; `onAuthoritativeResults` then replaces them with the final list through `results`. `onStateChange` sets `operationState`.
 
 ### 2. CopyVerifyExecutor (`Shared/Core/Services/CopyVerifyExecutor.swift`)
 
 `@MainActor`. It starts the services that run alongside the copy:
 
 - `IOSBackgroundTaskService`: background task, idle timer, and Live Activity on iOS; a no-op stub on macOS
+- `TransferKeepAwake` over `ProcessInfoSleepPreventer` (`Shared/Core/Services/TransferSleepPreventer.swift`): keeps the Mac from idle-sleeping until the operation ends
 - `OperationTimingService`
 - `ErrorReportingService`
 - `OperationStateService`
@@ -120,7 +162,7 @@ It then calls `performFileOperation`. On return, it:
 
 The completion is marked successful only if all of these hold:
 
-- There is at least one result, and every row is a success status.
+- There is at least one result, and every row is a success status (`ResultRow.isSuccessStatus`, read through `ResultOutcome`).
 - Photographer finalization, if configured, persisted and certified the card as locally safe.
 - No ASC MHL handoff issue occurred.
 - The verification mode is not Quick.
@@ -141,11 +183,11 @@ For each operation, in order:
    - Any traversal error fails the operation.
 3. **Preflight.** Runs `SafetyValidator` (`Shared/Core/Services/File/SafetyValidator.swift`):
    - `validateResolvedDestinationRoots`: final output roots (destination plus the camera-label or recipe subfolders) must be unique, must not overlap the source, must not be nested in each other, and must not be a file or a symlink.
-   - `performSafetyChecks`: the source exists and is a folder; the source tree has no unsafe relative paths and no names that collide under case-insensitive or Unicode-normalized comparison; destination folders are unique and valid; there is enough free space.
-   - A final free-space check requires each destination to hold the source size plus 100 MB.
+   - `performSafetyChecks`: the source exists and is a folder; the source tree has no unsafe relative paths and no names that collide under case-insensitive or Unicode-normalized comparison; each destination is unique, allowed by `BackupTargetPolicy`, not a protected system path, writable and free of symlinks; and each has more free space than the manifest size plus `requiredHeadroomBytes` (1 GB, the margin `TransferReadiness` uses).
+   - A second free-space check, against the planned byte total, requires the size plus 100 MB.
 4. **Per destination, in order:**
    - **Pin the root.** `PinnedDestinationDirectory.open` pins the output root by file descriptor, walking each component with `O_NOFOLLOW`. A safety-policy error aborts the whole operation. Any other error (for example, a disconnected drive) records every planned file as failed for that destination, and the operation moves on to the next destination.
-   - **Copy.** `FileCopyService.copyAllSafely` copies using a worker count of `min(4, cores/2)`.
+   - **Copy.** `FileCopyService.copyAllSafely` copies using a worker count of `min(4, max(1, cores/2))`.
    - **Verify.** Unless the mode is Quick, verification is pipelined by default: each copied file queues a verify task. The concurrency limit is `max(2, cores/2)`, and at most 200 tasks can be queued. Setting the `DisablePipelinedVerify` user default switches to one sequential pass per destination instead.
 5. **Results.** `ResultStore` keeps one current `FileOperationResult` per source/destination pair. The final `FileOperation` carries these results.
 
@@ -158,7 +200,7 @@ For each operation, in order:
   2. Is synced to disk, and its size is checked against the source.
   3. Is checked for a source change during the copy (size, modification date, file identity).
   4. Gets the source modification date.
-  5. Is published with `linkat` and then the temp file is removed. Publishing cannot replace a file that already exists.
+  5. Is published without replacing anything (`PinnedDestinationDirectory.publishTemporaryFile`): `linkat` to the final name, then the temp file is removed. On exFAT and FAT, which have no hard links (`linkat` fails with `ENOTSUP`/`EOPNOTSUPP`), `publishByClaimingName` instead claims the final name with an exclusive create, checks the claim is still the empty file it made, and renames the verified temp file over it. Any other failure, including an existing file, fails the file. `ExFATDestinationTests` covers this.
 - **Existing destination files.** An existing file is reused only if it matches the source size and every check for the verification mode (in Paranoid, the byte-by-byte comparison as well as SHA-256). Otherwise the file fails with a conflict and is never overwritten. In Quick mode, any existing file is a conflict.
 - **Verification.** `verifyPinnedDestinationFile` reads the destination through the pinned descriptor. The source is hashed through the injected `ChecksumService` with `useCache: false`. The algorithms come from `VerificationMode.checksumTypes` (`Shared/Core/Models/SharedModels.swift`):
 
@@ -179,7 +221,7 @@ For each operation, in order:
 - **Entry point.** `SharedAppCoordinator.compareFolders()` calls `ComparisonCoordinator.compareFolders(left:right:verificationMode:onProgress:)` (`Shared/Core/Services/ComparisonCoordinator.swift`).
 - **Callers.**
   - On Mac, `BitMatch/Views/CompareFoldersView.swift` starts it through `SharedAppCoordinator.startCurrentMode()`.
-  - On iPhone and iPad, `ModularContentView` and `PhoneContentView` call the shared coordinator directly.
+  - On iPhone and iPad, the `CompareFoldersView` adapter in `BitMatch-iPad/Views/ModularContentView.swift` (used by both layouts) calls `compareFolders()` directly.
 - **Enumeration.** Both sides go through `FileSystemService.getFileList`, which is `FileTreeEnumerator.enumerateRegularFiles` on both platforms. It uses the same hidden-file, symlink, and volume-metadata rules as the copy manifest. Files are matched by relative path.
 - **Ignored files.**
   - `isFinderMetadata` ignores `.DS_Store`, `Icon\r`, and `._*` on both sides.
@@ -190,8 +232,8 @@ For each operation, in order:
      - Quick: size only
      - Standard: SHA-256
      - Thorough: SHA-256 + MD5
-     - Paranoid: byte-by-byte comparison
-  - Files are processed one at a time, with `useCache: false`.
+     - Paranoid: byte-by-byte comparison plus SHA-256
+  - The checks per mode are `CompareCheckPlan` (`Shared/Core/Models/ComparePresentation.swift`), which both `ComparisonCoordinator` and the screen's wording read. Files are processed one at a time, with `useCache: false`.
 - **Result.** `CompareStats` (defined in `SharedAppCoordinator.swift`) holds counts and sorted path lists: only in source, only in destination, and mismatched. `isClean` is true only when all three are empty. The result is thrown away if the folders or mode change while the compare is running.
 - **Display.** Both apps show the result in `Shared/Views/CompareResultsView.swift`. It lists up to 200 paths per group and exports JSON or CSV through `CompareReportDocument`.
 
@@ -229,7 +271,7 @@ For each operation, in order:
   - Screen: `Shared/Views/MasterReport/MasterReportScreen.swift` over `MasterReportModel` and `MasterReportPresentation` (`Shared/Core/Models/`): choose a drive or folder and a day (today by default), include transfers grouped by camera, then save or share.
   - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). Each platform picks the folder its own way: an open panel on the Mac, the Files document picker (`IOSDriverScanner.chooseFolder`) on iOS. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform; a long list scrolls.
   - Saving: through a save panel on Mac (PDF plus a sibling JSON), or shared from a temporary folder on iOS. Success shows only after the write or share finished.
-- **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Core/Services/TransferHistoryDocument.swift`).
+- **Other exports.** Transfers (history) and the outcome screen's Export, on every platform, write JSON or CSV through `TransferHistoryDocument` (`Shared/Core/Services/TransferHistoryDocument.swift`).
 
 ## Transfer journal and queue
 
@@ -302,17 +344,24 @@ Both file system services list files through `FileTreeEnumerator`.
 ### Other Mac-only services (`BitMatch/Core/Services/`)
 
 - `VolumeMonitorService` and `CameraCardDetectionService`: volume mount monitoring and card detection
-- `DevModeManager`: DEBUG tools
-- `GlobalErrorHandler`
-- `AppLogger`: forwards to `SharedLogger`
+- `UnreadableMediaMonitor`: watches Disk Arbitration for removable disks that appear with no file system macOS can read, and builds an `UnreadableMediaNotice` (Sony SxS cards: Sony's SxS UDF Driver; Sony AXS cards: Sony's AXS reader software; anything else: a generic notice). The Mac Setup screen shows it through `UnreadableMediaBanner` (`BitMatch/Views/CopyAndVerify/`). iOS has no equivalent: the Files app shows only what it can read.
+- `DevModeManager`: the DEBUG tools behind the Developer menu
+- `ErrorHandling/GlobalErrorHandler`
+- `Logging/AppLogger`: forwards to `SharedLogger`
 
 ## Tests
 
-The `BitMatchTests` unit tests run on macOS against the shared engine through `@testable import BitMatch`. A single fake, `BitMatchTests/TestHelpers/FakeFileSystemService.swift`, stands in for `FileSystemService`.
+The `BitMatchTests` unit tests run on macOS against the shared engine through `@testable import BitMatch`. One fake, `BitMatchTests/TestHelpers/FakeFileSystemService.swift`, stands in for `FileSystemService`; `TestHelpers/` also holds disposable real-folder fixtures and camera card layouts.
 
 | Area | Test files |
 |---|---|
-| Pipeline | `SharedFileOperations*Tests`, `CopyVerifyExecutorIntegrityTests`, `SafetyValidatorTests`, `SourceTreeUnchangedTests` |
+| Pipeline | `SharedFileOperations*Tests`, `CopyVerifyExecutorIntegrityTests`, `SafetyValidatorTests`, `SourceTreeUnchangedTests`, `ExFATDestinationTests`, `ExistingDestinationReuseTests` |
+| Operation state and verdict | `OperationStateSingleSourceTests`, `OperationStateMachineTests`, `ResultOutcomeTests`, `ResultStatusClassificationTests` |
+| Choosing locations and readiness | `BackupTargetPolicyTests`, `BackupTargetPolicyRealVolumeTests`, `DestinationSelectionPolicyTests`, `TransferReadinessTests`, `ReadinessRuleTests` |
+| Screen presentations | `SetupPresentationTests`, `SetupLocationsPresentationTests`, `TransferProgressPresentationTests`, `TransferOutcomePresentationTests`, `ComparePresentationTests`, `MasterReportModelTests`, `TransferLibraryPresentationTests` |
+| Live progress and results | `ProgressPresentationFeedTests`, `LiveResultsFeedTests` |
+| Mac shell | `MacAppEnvironmentTests`, `SharedCoordinatorMacParityTests`, `MacCameraAutoSourceTests`, `UnreadableMediaMonitorTests`, `UnreadableMediaNoticeTests` |
+| Camera detection | `CameraCardLayoutDetectionTests`, `CameraDetectionServiceTests`, `CameraFolderNameTests` |
 | Journal and queue | `LocalTransferJournalTests`, `LocalTransferQueueIntegrationTests` |
 | Compare | `SharedCompareFlowTests`, `CompareIgnoredFilesTests` |
 | ASC MHL | `ASCMHLGeneratorTests` |
@@ -320,4 +369,5 @@ The `BitMatchTests` unit tests run on macOS against the shared engine through `@
 | Fault injection and soak | `TransferFaultIntegrationTests`, `TransferSoakTests` |
 
 - **Scripted harnesses.** `Scripts/run_apfs_fault_tests.sh` and `Scripts/run_soak_tests.sh` drive the fault and soak tests. `docs/HARDWARE_TESTING.md` covers physical-device fault testing.
-- **iOS tests.** `BitMatch-iPadTests` holds a small iOS suite.
+- **iOS tests.** `BitMatch-iPadTests` holds a small iOS suite: the iOS storage-path rule (`IOSStoragePathTests`), and the iOS side of the progress, outcome and options presentations.
+- **Workflow snapshots.** `WorkflowSnapshotTests` (both test targets) render the production `ContentView` at phone, iPad and Mac sizes with seeded data. They are skipped unless `BITMATCH_CAPTURE_WORKFLOW_SNAPSHOTS=1` is set.

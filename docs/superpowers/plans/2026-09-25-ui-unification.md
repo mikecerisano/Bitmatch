@@ -1,5 +1,14 @@
 # UI Unification Implementation Plan (thesis step 4)
 
+> **Status summary (2026-09-25, `main` at `31bc940`).** Wave 1 is merged. Done: 4.1–4.2 Compare, 4.3–4.4 completion guidance and History, 4.5 one readiness rule (`TransferReadiness`, `DestinationSelectionPolicy`) with one source and backup box component, 4.6 Advanced options (Compare uses the picker-only form), 4.7 Outcome, 4.8 Setup, 4.9 Progress (with `LiveProgressFeed` and `LiveResultsFeed`), and 4.10 Master Report. Alongside them: `BackupTargetPolicy` guards every backup add path, and time left comes from observed copy speed (`DriveBenchmarkService` is deleted, so Setup shows no estimate). `ARCHITECTURE.md` describes the result.
+>
+> Still to do:
+> - **Wave 2:** shared project presets (4.8: the Mac keeps its preset picker in its project slot; iPad and iPhone have none), the remaining items of the [accessibility audit](../../audits/2026-09-25-accessibility.md), and a per-transfer PDF on iPad and iPhone (thesis decision, low priority).
+> - From this plan: 4.0 was not done (no `MainScreen`; each shell routes by mode). The outcome screen does not show where the report was saved (4.7). Compare and Master Report still have one adapter per platform rather than one in `Shared/Views/` (the final merge after the dependency summary), and the Mac keeps `ResultsTableView` for live rows. `startOperation()` itself checks only that a source and backups exist; Start, ⌘R and project starts go through the readiness rule (4.5).
+> - Still open in the step notes: the width checks each step lists (iPhone, iPad split view, Mac from 580 pt) and picking real removable media in Files on a physical device.
+>
+> Everything below is the plan as written, with each step's status notes. Line numbers in it refer to older revisions.
+
 > **For agentic workers:** Use superpowers:executing-plans (or subagent-driven-development) to carry this out task by task. Steps use checkbox (`- [ ]`) syntax. Each task must build the `BitMatch` (macOS) and `BitMatch-iPad` schemes and pass `BitMatchTests` and `BitMatch-iPadTests` before it is committed. Every UI task also needs a check at iPhone width (<600 pt), iPad split view (600–959 pt), and a resizable Mac window from its 580 pt minimum to wide.
 
 **Goal:** Replace each pair of Mac and iPad/iPhone screens with one SwiftUI screen in `Shared/`, so the Compare, Setup, Progress, Completion and History flows *behave* the same on every device and only their layout adapts. This is step 4 of [docs/THESIS.md](../../THESIS.md). It serves promise 5 ("layout adapts; behavior does not") and, through the readiness and verdict fixes, promises 1–4.
