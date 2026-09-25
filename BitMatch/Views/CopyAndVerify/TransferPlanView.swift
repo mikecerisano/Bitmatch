@@ -261,39 +261,48 @@ struct TransferPlanPreflightCard: View {
     }
 }
 
+/// The Mac adapter for the shared Advanced options. The bindings are the ones
+/// this view has always used; only the layout and wording come from Shared.
 struct TransferOptionsView: View {
     @ObservedObject var coordinator: AppCoordinator
     @Binding var isExpanded: Bool
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 12) {
-                CameraLabelView(settings: $coordinator.cameraLabelViewModel.destinationLabelSettings,
-                                detectedCamera: coordinator.cameraLabelViewModel.detectedCamera,
-                                fingerprint: coordinator.cameraLabelViewModel.currentFingerprint,
-                                sourceURL: coordinator.fileSelectionViewModel.sourceURL)
-                Divider().overlay(Color.white.opacity(0.12))
-                Picker("Verification", selection: $coordinator.verificationMode) {
-                    ForEach(VerificationMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
-                Toggle("ASC MHL handoff record", isOn: Binding(
-                    get: { coordinator.sharedCoordinator.generateASCMHL },
-                    set: { coordinator.sharedCoordinator.generateASCMHL = $0 }
-                ))
-                    .disabled(coordinator.verificationMode == .quick)
-                Text("Creates an interoperable checksum record for verified copies.")
-                    .font(.system(size: 12)).foregroundColor(.secondary)
-                Toggle("Create PDF & CSV Report", isOn: $coordinator.settingsViewModel.prefs.makeReport).tint(.green)
-            }.padding(.top, 10)
-        } label: {
-            HStack {
-                Label("Advanced", systemImage: "slider.horizontal.3")
-                Spacer()
-                Text("\(coordinator.verificationMode.rawValue) · \(coordinator.settingsViewModel.prefs.makeReport ? "Reports on" : "Reports off")")
-                    .font(.system(size: 12)).foregroundColor(.white.opacity(0.55))
-            }.font(.system(size: 12, weight: .medium)).foregroundColor(.white.opacity(0.9))
+        // AppCoordinator does not forward changes from these nested objects,
+        // so the adapter observes them directly to keep the label note current.
+        MacTransferOptionsAdapter(
+            coordinator: coordinator,
+            shared: coordinator.sharedCoordinator,
+            cameraLabels: coordinator.cameraLabelViewModel,
+            settings: coordinator.settingsViewModel,
+            isExpanded: $isExpanded
+        )
+    }
+}
+
+private struct MacTransferOptionsAdapter: View {
+    @ObservedObject var coordinator: AppCoordinator
+    @ObservedObject var shared: SharedAppCoordinator
+    @ObservedObject var cameraLabels: CameraLabelViewModel
+    @ObservedObject var settings: SettingsViewModel
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        TransferOptionsSection(
+            isExpanded: $isExpanded,
+            verificationMode: $coordinator.verificationMode,
+            generateASCMHL: Binding(
+                get: { coordinator.sharedCoordinator.generateASCMHL },
+                set: { coordinator.sharedCoordinator.generateASCMHL = $0 }
+            ),
+            makeReport: $coordinator.settingsViewModel.prefs.makeReport,
+            cameraLabel: cameraLabels.destinationLabelSettings.label
+        ) {
+            CameraLabelView(settings: $coordinator.cameraLabelViewModel.destinationLabelSettings,
+                            detectedCamera: coordinator.cameraLabelViewModel.detectedCamera,
+                            fingerprint: coordinator.cameraLabelViewModel.currentFingerprint,
+                            sourceURL: coordinator.fileSelectionViewModel.sourceURL)
         }
+        .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
         .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))
-        .accessibilityHint("Shows camera labels, verification, and report settings")
     }
 }

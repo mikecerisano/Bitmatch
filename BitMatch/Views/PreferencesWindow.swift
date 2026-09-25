@@ -121,6 +121,7 @@ struct PreferencesWindow: View {
                                 Label("File contents are not verified in Quick mode.", systemImage: "exclamationmark.triangle.fill")
                                     .foregroundColor(.orange)
                             }
+                            ASCMHLPreferenceToggle(shared: coordinator.sharedCoordinator)
                         }
 
                     }
@@ -160,7 +161,7 @@ struct PreferencesWindow: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Toggle("Generate PDF & CSV reports automatically", isOn: $coordinator.settingsViewModel.prefs.makeReport)
+            Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.settingsViewModel.prefs.makeReport)
                 .toggleStyle(.checkbox)
 
             if coordinator.settingsViewModel.prefs.makeReport {
@@ -371,3 +372,21 @@ struct PreferencesWindow_Previews: PreviewProvider {
     }
 }
 #endif
+
+/// The same ASC MHL setting iOS Settings shows, bound to the shared coordinator.
+/// It observes `SharedAppCoordinator` directly because `AppCoordinator` does not
+/// forward `generateASCMHL` changes.
+private struct ASCMHLPreferenceToggle: View {
+    @ObservedObject var shared: SharedAppCoordinator
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle("ASC MHL handoff record", isOn: $shared.generateASCMHL)
+                .toggleStyle(.checkbox)
+                .disabled(!TransferOptionsPresentation.ascMHLEnabled(for: shared.verificationMode))
+            Text(TransferOptionsPresentation.ascMHLFootnote(for: shared.verificationMode))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+    }
+}

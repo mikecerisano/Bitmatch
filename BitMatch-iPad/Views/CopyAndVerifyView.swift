@@ -4,7 +4,6 @@ import SwiftUI
 struct CopyAndVerifyView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var cameraLabelExpanded = false
-    @State private var verificationModeExpanded = false
     @State private var optionsExpanded = false
     @State private var usesProjectWorkflow = false
 
@@ -62,42 +61,26 @@ struct CopyAndVerifyView: View {
                     .foregroundColor(coordinator.verificationMode == .quick ? .orange : .white.opacity(0.75))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                DisclosureGroup(isExpanded: $optionsExpanded) {
-                    VStack(spacing: 14) {
-                        CollapsibleLabelingSection(
-                            coordinator: coordinator,
-                            isExpanded: $cameraLabelExpanded
-                        )
-                        CollapsibleVerificationSection(
-                            coordinator: coordinator,
-                            isExpanded: $verificationModeExpanded
-                        )
-                        Toggle("ASC MHL handoff record", isOn: $coordinator.generateASCMHL)
-                            .disabled(coordinator.verificationMode == .quick)
-                        Text("Creates an interoperable checksum record for verified copies.")
-                            .font(.footnote).foregroundColor(.secondary)
-                        ReportToggleCard(coordinator: coordinator)
+                TransferOptionsSection(
+                    isExpanded: $optionsExpanded,
+                    verificationMode: $coordinator.verificationMode,
+                    generateASCMHL: $coordinator.generateASCMHL,
+                    makeReport: $coordinator.reportSettings.makeReport,
+                    cameraLabel: coordinator.cameraLabelSettings.label,
+                    estimateText: coordinator.sourceFolderInfo.map {
+                        "Estimated time: \(coordinator.verificationMode.estimatedTime(fileCount: $0.fileCount))"
                     }
-                    .padding(.top, 12)
-                } label: {
-                    HStack {
-                        Label("Advanced", systemImage: "slider.horizontal.3")
-                        Spacer()
-                        Text("\(coordinator.verificationMode.rawValue) · \(coordinator.reportSettings.makeReport ? "Reports on" : "Reports off")")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.55))
-                    }
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.9))
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                ) {
+                    CollapsibleLabelingSection(
+                        coordinator: coordinator,
+                        isExpanded: $cameraLabelExpanded
+                    )
                 }
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.white.opacity(0.035))
                 )
-                .accessibilityHint("Shows camera labels, verification, and report settings")
 
                 StartTransferButtonView(
                     coordinator: coordinator,
@@ -117,7 +100,6 @@ struct CopyAndVerifyView: View {
         }
         .padding(.horizontal, 20)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: cameraLabelExpanded)
-        .animation(.spring(response: 0.3, dampingFraction: 0.9), value: verificationModeExpanded)
     }
 }
 
@@ -964,6 +946,7 @@ struct CollapsibleLabelingSection: View {
                 .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             
             // Expanded content
             if isExpanded {
@@ -1131,153 +1114,6 @@ struct CollapsibleLabelingSection: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(selected ? Color.orange : Color.white.opacity(0.06))
                 )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct CollapsibleVerificationSection: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    @Binding var isExpanded: Bool
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header (always visible)
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    Image(systemName: "checkmark.shield")
-                        .font(.system(size: 16))
-                        .foregroundColor(.green)
-                    
-                    Text("Verification")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
-                        .tracking(0.5)
-                    
-                    Spacer()
-                    
-                    // Preview when collapsed
-                    if !isExpanded {
-                        HStack(spacing: 6) {
-                            Text(coordinator.verificationMode.rawValue)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.green.opacity(0.8))
-                            
-                            if coordinator.verificationMode.requiresMHL {
-                                Text("MHL")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.orange)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        Capsule().fill(Color.orange.opacity(0.15))
-                                    )
-                            }
-                        }
-                    }
-                    
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.6))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-            
-            // Expanded content
-            if isExpanded {
-                VStack(spacing: 16) {
-                    Divider()
-                        .overlay(Color.white.opacity(0.1))
-                    
-                    VStack(spacing: 8) {
-                        ForEach(VerificationMode.allCases, id: \.self) { mode in
-                            VerificationModeRow(coordinator: coordinator, mode: mode)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
-                }
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .top)),
-                    removal: .opacity.combined(with: .scale(scale: 1.05, anchor: .top))
-                ))
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.green.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.green.opacity(0.1), lineWidth: 1)
-                )
-        )
-    }
-}
-
-struct VerificationModeRow: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    let mode: VerificationMode
-    
-    var body: some View {
-        let isSelected = coordinator.verificationMode == mode
-        return Button {
-            coordinator.verificationMode = mode
-            coordinator.saveVerificationMode()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundColor(isSelected ? .green : .white.opacity(0.3))
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(mode.rawValue)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                        
-                        if mode.requiresMHL {
-                            Text("MHL")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.orange)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule().fill(Color.orange.opacity(0.15))
-                                )
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    Text(mode.description)
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.7))
-                        .multilineTextAlignment(.leading)
-                    
-                    // Estimated time
-                    if let sourceInfo = coordinator.sourceFolderInfo {
-                        Text("Estimated time: \(mode.estimatedTime(fileCount: sourceInfo.fileCount))")
-                            .font(.system(size: 11))
-                            .foregroundColor(.green.opacity(0.8))
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.green.opacity(0.08) : Color.white.opacity(0.02))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(isSelected ? Color.green.opacity(0.2) : Color.white.opacity(0.05), lineWidth: 1)
-                    )
-            )
         }
         .buttonStyle(.plain)
     }
@@ -1469,41 +1305,5 @@ struct ReadinessBannerView: View {
                 }
             }
         }
-    }
-}
-
-struct ReportToggleCard: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "doc.text")
-                .font(.system(size: 16))
-                .foregroundColor(.blue)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Generate Reports")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                
-                Text("Create PDF & CSV reports after transfer")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-            
-            Spacer()
-            
-            Toggle("", isOn: $coordinator.reportSettings.makeReport)
-                .toggleStyle(SwitchToggleStyle(tint: .blue))
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(coordinator.reportSettings.makeReport ? Color.blue.opacity(0.05) : Color.white.opacity(0.02))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(coordinator.reportSettings.makeReport ? Color.blue.opacity(0.15) : Color.white.opacity(0.05), lineWidth: 1)
-                )
-        )
     }
 }
