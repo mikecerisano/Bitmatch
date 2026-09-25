@@ -36,3 +36,31 @@ Each step ships on its own.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
 
 Target shape: an engine package (`CardSource`, `DestinationWriter`, `ChecksumEngine`, `TransferPipeline`, `TransferJournal`, `EvidenceWriter`) tested against real folders, one `@Observable` app model whose verdict is computed from results, and one adaptive SwiftUI UI. Roughly 40k lines down to 20–24k, almost all of it from removing duplication rather than safety logic.
+
+## Decisions, 2026-09-25
+
+Mike delegated these to the recommendations; the plans in `docs/superpowers/plans/` should follow them.
+
+**Verification (P2)**
+- The overall verdict for a Quick transfer stays amber (already the case). Per-file rows say "Copied, not verified" without a green check, and a Quick Compare says "Sizes match, not verified" in amber.
+- Paranoid means byte-by-byte comparison plus SHA-256, everywhere (copy, reuse check, and Compare), as the README says.
+- Success is decided from a typed status, not by finding "✅" in a status string.
+
+**Engine (step 5)**
+- iPad and iPhone get a PDF report too (P3, P5); later, low priority.
+- Delete `DriveBenchmarkService`; estimate time from observed copy speed.
+
+**UI (step 4)**
+- Compare blocks a same-folder or nested compare, and the mode switcher is disabled during any running operation on every platform.
+- New transfer clears the source and keeps the backups. Retry and Export appear on the Mac completion screen.
+- Cancel asks for one confirmation. The Mac prevents sleep while copying.
+- Master Report uses a date picker, defaulting to today.
+- One free-space rule everywhere: source size plus 1 GB.
+- Choosing Project blocks Start until a card is prepared (the iPad rule).
+- The Mac restores last-used backups at launch only when all of them are mounted.
+
+**App state (step 3)**
+- iPad and iPhone remember report and camera settings across launches, and use per-card camera-label memory, as the Mac does.
+- The Mac's stricter readiness check applies on every platform.
+
+**Step 2 scope additions** (found in the UI plan, section 8): clear `.resuming`; automatic pauses must pause the engine or not claim to; never report an estimated byte count as evidence (the 1,000,000,000 fallback).
