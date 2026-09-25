@@ -31,7 +31,7 @@ Each step ships on its own.
 
 1. Delete dead code; correct stale docs and comments.
 2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, including the typed `ResultOutcome`.
-3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Carried out 2026-09-25 on branch `cloud/retire-appcoordinator`** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, the drive estimate, volume access and camera auto-source. Written without Xcode; done once a Mac build and test run confirm it.
+3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Done 2026-09-25.** **Carried out 2026-09-25 on branch `cloud/retire-appcoordinator`** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, the drive estimate, volume access and camera auto-source. Written without Xcode; done once a Mac build and test run confirm it.
 4. Merge the two UI shells one screen at a time, starting with Compare.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
 
