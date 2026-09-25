@@ -237,8 +237,9 @@ struct ReportScannerTests {
     }
 
     /// Plant: in `SkippedReportsPresentation.scrolls`, return `false`.
-    /// A long list must scroll on the Mac instead of pushing the transfers
-    /// off screen; a short one shows in full.
+    /// A long list must scroll instead of pushing the transfers off screen,
+    /// on every platform (`MasterReportScreen.skippedNotice`); a short one
+    /// shows in full.
     @Test func longSkippedListScrolls() {
         let limit = SkippedReportsPresentation.maxRowsBeforeScrolling
         #expect(!SkippedReportsPresentation.scrolls(count: 0))

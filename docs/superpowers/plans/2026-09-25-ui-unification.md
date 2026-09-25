@@ -660,11 +660,24 @@ Written on branch `cloud/history-screen` without Xcode: reviewed, not compiled o
 
 ### Step 4.10: `MasterReportScreen` (after R4 for shared `ReportPrefs`; the scanner is already done in 4.4)
 
-- [ ] Add `MasterReportModel` + `MasterReportScreen` (§5.3 B), with platform adapters for choosing a location and saving/sharing. Delete iOS `ModularContentView.swift:486-1042` and Mac `MasterReportView.swift` + `MasterReport/Components/*`, keeping any pieces that move into the shared screen.
-- [ ] Decide H-1 first.
-- [ ] Tests:
+Written on branch `cloud/master-report-screen` without Xcode: reviewed, not compiled or run.
+
+- [x] Add `MasterReportModel` + `MasterReportScreen` (§5.3 B), with platform adapters for choosing a location and saving/sharing. Delete iOS `ModularContentView.swift:486-1042` and Mac `MasterReportView.swift` + `MasterReport/Components/*`, keeping any pieces that move into the shared screen.
+  - `Shared/Core/Models/MasterReportPresentation.swift` (grouping, totals, button title and next step) and `MasterReportModel.swift` (folder, day, scan with a stale-scan token, selection, generation). `Shared/Views/MasterReport/MasterReportScreen.swift` draws them.
+  - Adapters keep the name `MasterReportView(coordinator:)`, so no shell routing changed. Mac (`BitMatch/Views/MasterReportView.swift`): open panel, save panel writing the PDF and a sibling JSON, Show in Finder. iOS (`BitMatch-iPad/Views/MasterReportView.swift`): the Files document picker (`IOSDriverScanner.chooseFolder`, the only way iOS reads removable media) and the share sheet.
+  - Success shows inline, and only after the save panel's write or a completed share. A cancelled save or share shows nothing; a failure shows an orange line. The Mac success alert and the iOS "Report Generated" alert on top of the share sheet are gone.
+  - Production, client and company are edited under "Report details" and are the saved `ReportPrefs` (the same fields as Mac Preferences). Notes are per report. The iOS per-session technician field is gone, because `ReportConfiguration.make` leaves technician empty.
+  - The skipped-reports notice and its scroll rule (`SkippedReportsPresentation.scrolls`) now apply on every platform, not only the Mac.
+  - Layout: `.compact` and `.sidebar` show totals as a 2×2 grid, `.toolbar` in one row. `.sidebar` puts location, day, totals, details and the button in a leading column and the camera groups in a trailing one. No nested fixed-height list `ScrollView`.
+  - `MasterReportLayoutPolicy` and its test are deleted; the screen uses `AdaptiveNavigationPolicy`. `IOSDriverScanner` keeps only the picker. `TransferHistoryDocument` moved to `Shared/Core/Services/` (left over from 4.4).
+- [x] Decide H-1 first: a date picker defaulting to today (THESIS decisions). Changing the day scans the chosen folder again.
+- [x] Tests (`BitMatchTests/MasterReportModelTests.swift`, scanner and renderer injected):
   - `groupsByCamera`. **Plant:** return one flat group.
-  - `successOnlyAfterWrite`. **Plant:** set `didGenerate = true` before `try write`.
+  - `successOnlyAfterWrite`. **Plant:** replace `guard let delivery = try await deliver(...)` with `let delivery = (try? await deliver(...)) ?? .shared`.
+  - `generateNeedsASelection`. **Plant:** delete the `selectedCount == 0` branch of `MasterReportPresentation.make`.
+  - `noLocationNamesTheStep`. **Plant:** return `nextStep: nil` when there is no location.
+  - `staleScanIsIgnored`. **Plant:** drop the `activeScanID == scanID` check in `MasterReportModel.scan`.
+- [ ] Mac build and test run; check the screen at iPhone width, an iPad split view and a Mac window from 580 pt to wide; on a device, pick a USB drive or SD card in Files and scan it.
 
 ### Dependency summary
 

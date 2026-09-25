@@ -41,7 +41,7 @@ Some files under `Shared/` are wrapped in `#if os(...)` and so exist on only one
 
 ## App shells
 
-The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyView`, `MasterReportView`, and the Compare screen are implemented separately in each shell.
+The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyView` is still implemented separately in each shell. Compare (`CompareScreen`) and Master Report (`MasterReportScreen`) are single screens under `Shared/Views/`, each with a thin per-shell adapter (`CompareFoldersView`, `MasterReportView`) that supplies the platform parts.
 
 ### iPhone and iPad
 
@@ -227,9 +227,10 @@ For each operation, in order:
   - Always written: CSV and JSON.
   - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `BitMatch/Views/ReportView.swift` on macOS only (iOS writes no PDF).
 - **`SharedReportGenerationService`** (`Shared/Core/Services/SharedReportGenerationService.swift`): the Master Report PDF and JSON, built from scanned transfer reports.
-  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). The Mac's `MasterReportView` calls it directly and `IOSDriverScanner` (iOS) is a thin entry point; each platform picks the folder its own way. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform.
-  - Saving: through a save panel on Mac, or shared from a temporary file on iOS.
-- **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Views/TransferLibraryView.swift`).
+  - Screen: `Shared/Views/MasterReport/MasterReportScreen.swift` over `MasterReportModel` and `MasterReportPresentation` (`Shared/Core/Models/`): choose a drive or folder and a day (today by default), include transfers grouped by camera, then save or share.
+  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). Each platform picks the folder its own way: an open panel on the Mac, the Files document picker (`IOSDriverScanner.chooseFolder`) on iOS. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform; a long list scrolls.
+  - Saving: through a save panel on Mac (PDF plus a sibling JSON), or shared from a temporary folder on iOS. Success shows only after the write or share finished.
+- **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Core/Services/TransferHistoryDocument.swift`).
 
 ## Transfer journal and queue
 
