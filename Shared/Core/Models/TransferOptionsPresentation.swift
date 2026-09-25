@@ -67,15 +67,10 @@ struct TransferOptionsPresentation: Equatable, Sendable {
 
     // MARK: - Report formats
 
-    /// Only the Mac renders the PDF report (`ReportExporter` builds it under
-    /// `#if os(macOS)`). Every platform writes the CSV and JSON.
-    static var platformWritesPDF: Bool {
-        #if os(macOS)
-        return true
-        #else
-        return false
-        #endif
-    }
+    /// Every platform renders the PDF report through `ReportPDFRenderer`, plus
+    /// the CSV and JSON (THESIS decision, 2026-09-25: "iPad and iPhone get a
+    /// PDF report too").
+    static var platformWritesPDF: Bool { true }
 
     /// The formats a report run writes, named the same way in Setup, iOS
     /// Settings and Mac Preferences.

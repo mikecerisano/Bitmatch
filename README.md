@@ -64,7 +64,7 @@ One card to dump? Use **One-time transfer**. A whole shoot with several cards an
 - **RAW/JPEG and sidecar reporting.** The little files count too. So do failures.
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM.
 - **Folder compare** for stuff you already copied.
-- **PDF, CSV, and JSON reports** for producers who want documentation, or you when you want to check what happened. The per-transfer PDF is Mac-only for now; iPad and iPhone write CSV and JSON. The Master Report (one PDF for a day's transfers) works everywhere.
+- **PDF, CSV, and JSON reports** for producers who want documentation, or you when you want to check what happened. The per-transfer PDF is written the same way on Mac, iPad, and iPhone. The Master Report (one PDF for a day's transfers) works everywhere.
 - **Transfer preflight on Mac, iPad, and iPhone** shows the source, backups, options, and anything that needs fixing before Start.
 - **ASC MHL handoff records** after verified copies, with the details tucked under Advanced. This first version creates new inventories; it preserves existing histories and flags them for review. [Scope and validation](docs/validation/ascmhl/README.md).
 - **Transfer queue and history** on Mac, iPad, and iPhone. Queue cards with their own settings, review interrupted attempts, retry, and export the results.

@@ -78,8 +78,8 @@ struct TransferOptionsPresentationTests {
         #expect(paranoid.advancedNote == "Paranoid mode")
     }
 
-    // The Mac writes a PDF (ReportExporter builds it under `#if os(macOS)`), so its label names it.
-    // Plant: in `platformWritesPDF`, change the macOS branch's `true` to `false`.
+    // Every platform now writes a PDF (`ReportPDFRenderer`), so the label names it everywhere.
+    // Plant: in `platformWritesPDF`, return `false`.
     @Test
     func macReportLabelNamesEveryFormatWritten() {
         #expect(TransferOptionsPresentation.reportToggleTitle() == "Create PDF, CSV and JSON reports")
