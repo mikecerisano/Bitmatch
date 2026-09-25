@@ -1168,76 +1168,19 @@ class SharedAppCoordinator: ObservableObject {
         return sourceFolderInfo?.topFileTypes ?? []
     }
     
-    /// Get operation readiness assessment
+    /// Whether a transfer may start, and why not. One rule on every platform
+    /// (thesis decision): the Mac's stricter check, with the runtime's space
+    /// margin. See `OperationReadinessAssessment.assess`.
     var operationReadinessAssessment: OperationReadinessAssessment {
-        guard let sourceURL else {
-            return OperationReadinessAssessment(
-                isReady: false,
-                issues: ["No source folder selected"],
-                warnings: [],
-                estimatedDuration: nil
-            )
-        }
-        
-        var issues: [String] = []
-        var warnings: [String] = []
-        
-        // Check destinations
-        if destinationURLs.isEmpty {
-            issues.append("No destination folders selected")
-        }
-
-        let uniqueDestinationPaths = Set(destinationURLs.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        if uniqueDestinationPaths.count != destinationURLs.count {
-            issues.append("Destination folders must be unique")
-        }
-
-        for destinationURL in destinationURLs {
-            if SafetyValidator.isProtectedSystemPath(destinationURL) {
-                issues.append("\(destinationURL.lastPathComponent): System folders cannot be used as destinations")
-            } else if let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destinationURL) {
-                issues.append("\(destinationURL.lastPathComponent): \(issue)")
-            }
-        }
-
-        do {
-            try SafetyValidator.validateResolvedDestinationRoots(
-                source: sourceURL,
-                destinations: destinationURLs,
-                settings: cameraLabelSettings
-            )
-        } catch {
-            issues.append(error.localizedDescription)
-        }
-
-        if verificationMode == .quick {
-            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
-        }
-        
-        // Check available space
-        if let sourceInfo = sourceFolderInfo {
-            for destinationURL in destinationURLs {
-                if let _ = destinationFolderInfos[destinationURL],
-                   let available = getDriveCapacity(for: destinationURL),
-                   available > 0 {
-                    let ratio = Double(sourceInfo.totalSize) / Double(available)
-                    if ratio > 0.9 {
-                        issues.append("Insufficient space on \(destinationURL.lastPathComponent)")
-                    } else if ratio > 0.7 {
-                        warnings.append("Limited space on \(destinationURL.lastPathComponent)")
-                    }
-                }
-            }
-        }
-        
-        // Estimate duration
-        let estimatedMinutes = sourceFolderInfo.map { verificationMode.estimatedTime(fileCount: $0.fileCount) }
-        
-        return OperationReadinessAssessment(
-            isReady: issues.isEmpty,
-            issues: issues,
-            warnings: warnings,
-            estimatedDuration: estimatedMinutes
+        OperationReadinessAssessment.assess(
+            source: sourceURL,
+            sourceBytes: sourceFolderInfo?.totalSize,
+            sourceFileCount: sourceFolderInfo?.fileCount,
+            isAnalysingSource: isAnalysingSource,
+            destinations: destinationURLs,
+            settings: cameraLabelSettings,
+            verificationMode: verificationMode,
+            availableBytes: { self.getDriveCapacity(for: $0) }
         )
     }
     
@@ -1298,9 +1241,16 @@ struct CompareStats: Equatable {
 
 struct OperationReadinessAssessment {
     let isReady: Bool
+    /// Everything in the way, including "not chosen yet".
     let issues: [String]
     let warnings: [String]
     let estimatedDuration: String?
+    /// Only real findings: `issues` without the two "not chosen yet" lines,
+    /// which the setup screens show as the next step instead.
+    var blockingIssues: [String] = []
+    /// The source scan has not finished. Not an issue (nothing is wrong),
+    /// but Start waits for it.
+    var isAnalysing = false
     
     var hasIssues: Bool { !issues.isEmpty }
     var hasWarnings: Bool { !warnings.isEmpty }
@@ -1318,6 +1268,9 @@ struct OperationReadinessAssessment {
     }
     
     var statusMessage: String {
+        if !isReady && issues.isEmpty && isAnalysing {
+            return "Analyzing source…"
+        }
         if !isReady {
             return "Cannot start: \(issues.joined(separator: ", "))"
         }
@@ -1325,6 +1278,99 @@ struct OperationReadinessAssessment {
             return "Ready with warnings: \(warnings.joined(separator: ", "))"
         }
         return "Ready to start"
+    }
+}
+
+extension OperationReadinessAssessment {
+    static let noSourceIssue = "No source folder selected"
+    static let noDestinationIssue = "No destination folders selected"
+
+    /// The one readiness rule. Pure: free space comes from `availableBytes`
+    /// (nil when a destination's capacity cannot be read).
+    ///
+    /// - Blocks until a source and a backup are chosen, while the source is
+    ///   still being analysed, on duplicate, protected or unsafe backups, on
+    ///   resolved-folder conflicts, and when a backup's free space is not more
+    ///   than the source size plus `SafetyValidator.requiredHeadroomBytes`
+    ///   (exactly what the copy itself refuses, so "Ready" cannot fail at
+    ///   start). Space is checked for every backup whose capacity is readable.
+    /// - Warns in Quick mode and when the source needs more than 70% of a
+    ///   backup's free space.
+    static func assess(
+        source: URL?,
+        sourceBytes: Int64?,
+        sourceFileCount: Int?,
+        isAnalysingSource: Bool,
+        destinations: [URL],
+        settings: CameraLabelSettings,
+        verificationMode: VerificationMode,
+        availableBytes: (URL) -> Int64?
+    ) -> OperationReadinessAssessment {
+        guard let source else {
+            return OperationReadinessAssessment(
+                isReady: false,
+                issues: [noSourceIssue],
+                warnings: [],
+                estimatedDuration: nil
+            )
+        }
+
+        var setupIssues: [String] = []
+        var blocking: [String] = []
+        var warnings: [String] = []
+
+        if destinations.isEmpty {
+            setupIssues.append(noDestinationIssue)
+        }
+
+        let uniqueDestinationPaths = Set(destinations.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+        if uniqueDestinationPaths.count != destinations.count {
+            blocking.append("Destination folders must be unique")
+        }
+
+        for destination in destinations {
+            if SafetyValidator.isProtectedSystemPath(destination) {
+                blocking.append("\(destination.lastPathComponent): System folders cannot be used as destinations")
+            } else if let issue = SafetyValidator.destinationSafetyIssue(source: source, destination: destination) {
+                blocking.append("\(destination.lastPathComponent): \(issue)")
+            }
+        }
+
+        do {
+            try SafetyValidator.validateResolvedDestinationRoots(
+                source: source,
+                destinations: destinations,
+                settings: settings
+            )
+        } catch {
+            blocking.append(error.localizedDescription)
+        }
+
+        if verificationMode == .quick {
+            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
+        }
+
+        if let sourceBytes {
+            for destination in destinations {
+                guard let available = availableBytes(destination) else { continue }
+                // The copy needs more than source + headroom free.
+                if available - SafetyValidator.requiredHeadroomBytes <= sourceBytes {
+                    blocking.append("Insufficient space on \(destination.lastPathComponent)")
+                } else if available > 0, Double(sourceBytes) / Double(available) > 0.7 {
+                    warnings.append("Limited space on \(destination.lastPathComponent)")
+                }
+            }
+        }
+
+        let issues = setupIssues + blocking
+        return OperationReadinessAssessment(
+            isReady: issues.isEmpty && !isAnalysingSource,
+            issues: issues,
+            warnings: warnings,
+            estimatedDuration: sourceFileCount.map { verificationMode.estimatedTime(fileCount: $0) },
+            blockingIssues: blocking,
+            isAnalysing: isAnalysingSource
+        )
     }
 }
 

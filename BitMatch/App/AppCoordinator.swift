@@ -37,11 +37,17 @@ final class AppCoordinator: ObservableObject {
     var isOperationInProgress: Bool { sharedCoordinator.isOperationInProgress }
     var completionState: CompletionState { sharedCoordinator.completionState }
     var results: [ResultRow] { sharedCoordinator.results }
+    /// The shared readiness rules, for this object's mode (Task 8 makes the
+    /// mode shared too).
     var canStartOperation: Bool {
         switch currentMode {
-        case .copyAndVerify: return sourceURL != nil && !destinationURLs.isEmpty
-        case .compareFolders: return leftURL != nil && rightURL != nil
-        case .masterReport: return false
+        case .copyAndVerify:
+            return sharedCoordinator.operationReadinessAssessment.isReady && !isOperationInProgress
+        case .compareFolders:
+            guard let leftURL, let rightURL, !isOperationInProgress else { return false }
+            return CompareBlock.check(left: leftURL, right: rightURL) == nil
+        case .masterReport:
+            return false
         }
     }
     // The selection lives in the shared coordinator.
@@ -90,7 +96,7 @@ final class AppCoordinator: ObservableObject {
     // MARK: - Actions (delegated)
     func startOperation() {
         if currentMode == .copyAndVerify {
-            let preflightReady = copyAndVerifyPreflightIsReady
+            let preflightReady = sharedCoordinator.operationReadinessAssessment.isReady
             guard preflightReady else { return }
             if photographerJobViewModel.hasPreparedIngestAwaitingStart {
                 guard photographerJobViewModel.isStartEligible(
@@ -131,37 +137,6 @@ final class AppCoordinator: ObservableObject {
             case .masterReport: break
             }
         }
-    }
-
-    private var copyAndVerifyPreflightIsReady: Bool {
-        guard let sourceURL,
-              !destinationURLs.isEmpty,
-              !isAnalysingSource else { return false }
-        let destinations = destinationURLs
-        let uniquePaths = Set(destinations.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        guard uniquePaths.count == destinations.count,
-              destinations.allSatisfy({ destination in
-                  !SafetyValidator.isProtectedSystemPath(destination)
-                      && SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destination) == nil
-              }) else { return false }
-        do {
-            try SafetyValidator.validateResolvedDestinationRoots(
-                source: sourceURL,
-                destinations: destinations,
-                settings: sharedCoordinator.cameraLabelSettings
-            )
-        } catch {
-            return false
-        }
-        if let sourceSize = sourceFolderInfo?.totalSize {
-            for destination in destinations {
-                if let available = (try? destination.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity,
-                   Int64(available) < sourceSize + Int64(100 * 1024 * 1024) {
-                    return false
-                }
-            }
-        }
-        return true
     }
 
     private func makePhotographerReportContext() -> PhotographerReportContext? {

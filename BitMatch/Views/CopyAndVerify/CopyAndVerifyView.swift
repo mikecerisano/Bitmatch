@@ -9,7 +9,11 @@ struct CopyAndVerifyView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var plan: TransferPlanPresentation {
-        TransferPlanPresentation.make(
+        // The shared readiness rule (the same strings on every platform). A
+        // source or backup not chosen yet is the next step, not an error;
+        // TransferPlanPresentation.nextStep highlights it instead.
+        let readiness = coordinator.sharedCoordinator.operationReadinessAssessment
+        return TransferPlanPresentation.make(
             sourceURL: coordinator.sourceURL,
             sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
             destinationURLs: coordinator.destinationURLs,
@@ -17,64 +21,9 @@ struct CopyAndVerifyView: View {
             cameraSettings: coordinator.cameraLabelSettings,
             reportSettings: coordinator.reportSettings,
             isAnalyzing: coordinator.isAnalysingSource,
-            blockingIssues: readinessIssues,
-            warnings: readinessWarnings
+            blockingIssues: readiness.blockingIssues,
+            warnings: readiness.warnings
         )
-    }
-
-    /// Keeps validation policy in the existing validator while supplying its results
-    /// to the presentation model.
-    private var readinessIssues: [String] {
-        // A source or backup not chosen yet is the next step, not an error;
-        // TransferPlanPresentation.nextStep highlights it instead.
-        guard let sourceURL = coordinator.sourceURL else { return [] }
-
-        var issues: [String] = []
-
-        let uniquePaths = Set(coordinator.destinationURLs.map {
-            $0.standardizedFileURL.resolvingSymlinksInPath().path
-        })
-        if uniquePaths.count != coordinator.destinationURLs.count {
-            issues.append("Remove duplicate destinations")
-        }
-
-        for destination in coordinator.destinationURLs {
-            if SafetyValidator.isProtectedSystemPath(destination) {
-                issues.append("\(destination.lastPathComponent) is a system folder")
-            } else if let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destination) {
-                issues.append("\(destination.lastPathComponent): \(issue)")
-            } else if let sourceSize = coordinator.sourceFolderInfo?.totalSize,
-                      let available = availableSpace(for: destination),
-                      available < sourceSize + Int64(100 * 1024 * 1024) {
-                issues.append("Not enough space on \(destination.lastPathComponent)")
-            }
-        }
-
-        do {
-            try SafetyValidator.validateResolvedDestinationRoots(
-                source: sourceURL,
-                destinations: coordinator.destinationURLs,
-                settings: coordinator.cameraLabelSettings
-            )
-        } catch {
-            issues.append(error.localizedDescription)
-        }
-        return issues
-    }
-
-    private var readinessWarnings: [String] {
-        var warnings: [String] = []
-        if coordinator.verificationMode == .quick {
-            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
-        }
-        if let sourceSize = coordinator.sourceFolderInfo?.totalSize {
-            warnings.append(contentsOf: coordinator.destinationURLs.compactMap { destination in
-                guard let available = availableSpace(for: destination), available > 0 else { return nil }
-                return Double(sourceSize) / Double(available) > 0.7
-                    ? "Limited space on \(destination.lastPathComponent)" : nil
-            })
-        }
-        return warnings
     }
 
     var body: some View {
@@ -157,9 +106,5 @@ struct CopyAndVerifyView: View {
     private func start() {
         coordinator.switchMode(to: .copyAndVerify)
         coordinator.startOperation()
-    }
-
-    private func availableSpace(for url: URL) -> Int64? {
-        (try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity.map(Int64.init)
     }
 }

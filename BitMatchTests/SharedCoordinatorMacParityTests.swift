@@ -138,7 +138,9 @@ struct SharedCoordinatorMacParityTests {
     }
 
     /// The Mac refused to start while the source was still being scanned;
-    /// shared does not yet (Task 6b).
+    /// now every platform does.
+    /// Plant: in `OperationReadinessAssessment.assess`, set
+    /// `isReady: issues.isEmpty`.
     @Test func startIsRefusedWhileTheSourceIsAnalysing() async throws {
         let fixture = try await SharedProjectFixture.make(prepareCard: false)
         defer { fixture.folders.cleanup() }
@@ -149,9 +151,10 @@ struct SharedCoordinatorMacParityTests {
         // cannot have finished.
         fixture.coordinator.sourceURL = other
 
-        withKnownIssue("Readiness ignores an unfinished source scan until Task 6b") {
-            #expect(!fixture.coordinator.canStartOperation)
-        }
+        #expect(!fixture.coordinator.canStartOperation)
+        #expect(fixture.coordinator.operationReadinessAssessment.isAnalysing)
+        // Once the scan finishes, the same selection is ready.
+        #expect(await waitUntil(timeout: .seconds(5)) { fixture.coordinator.canStartOperation })
     }
 
     /// The Mac applied the job's folder recipe to the run; shared does not

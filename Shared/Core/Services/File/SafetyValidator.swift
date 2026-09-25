@@ -5,6 +5,10 @@ import Foundation
 /// Validates file operations for safety before execution
 /// Used by both macOS and iOS to prevent dangerous operations
 final class SafetyValidator {
+    /// Free space a backup needs beyond the source size. The copy refuses to
+    /// start without it, and the preflight uses the same number.
+    static let requiredHeadroomBytes: Int64 = 1_000_000_000
+
 
     // MARK: - Pre-Operation Safety Checks
 
@@ -113,7 +117,7 @@ final class SafetyValidator {
     private static func validateAvailableSpace(sourceSizeBytes: Int64, destinations: [URL]) async throws {
         let requiredSpace = try checkedRequiredSpace(
             sourceBytes: sourceSizeBytes,
-            headroomBytes: 1_000_000_000
+            headroomBytes: requiredHeadroomBytes
         )
 
         for destination in destinations {
