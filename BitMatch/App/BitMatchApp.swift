@@ -132,11 +132,6 @@ struct BitMatchApp: App {
                 .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(!devModeManager.isDevModeEnabled)
                 
-                Button("Add Fake Queue Item") {
-                    NotificationCenter.default.post(name: .addFakeQueueItem, object: nil)
-                }
-                .keyboardShortcut("q", modifiers: [.command, .option])
-                .disabled(!devModeManager.isDevModeEnabled)
 
                 Divider()
                 Button("Stress Test (Small)") { NotificationCenter.default.post(name: .runStressTestSmall, object: nil) }

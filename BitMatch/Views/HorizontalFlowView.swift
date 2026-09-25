@@ -557,35 +557,4 @@ struct HorizontalFlowView: View {
         // In a real implementation, this would check if this specific destination is being processed
         return isOperationActive
     }
-
-    // MARK: - Fast Lane Priority Helper
-
-    struct FastLanePriorityInfo {
-        let label: String
-        let icon: String
-        let color: Color
-    }
-
-    private func getFastLanePriority(for url: URL, at index: Int) -> FastLanePriorityInfo? {
-        // Only show priority indicators when we have multiple destinations
-        guard coordinator.destinationURLs.count > 1 else { return nil }
-
-        // Get all destination speeds to determine ranking
-        let destinationsWithSpeeds = coordinator.destinationURLs.map { dest in
-            (url: dest, speed: volumeAccess.detectDriveSpeed(for: dest))
-        }
-        let sortedBySpeed = destinationsWithSpeeds.sorted { $0.speed.estimatedSpeed > $1.speed.estimatedSpeed }
-
-        // Find this URL's position in the speed ranking
-        guard let urlIndex = sortedBySpeed.firstIndex(where: { $0.url == url }) else { return nil }
-
-        switch urlIndex {
-        case 0:
-            return FastLanePriorityInfo(label: "PRIORITY", icon: "bolt.fill", color: .green)
-        case 1 where sortedBySpeed.count > 2:
-            return FastLanePriorityInfo(label: "NEXT", icon: "clock.fill", color: .orange)
-        default:
-            return FastLanePriorityInfo(label: "QUEUED", icon: "pause.fill", color: .gray)
-        }
-    }
 }

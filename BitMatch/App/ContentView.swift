@@ -222,8 +222,8 @@ struct MacMainView: View {
     private var transferContentSwitch: some View {
         switch coordinator.completionState {
         case .idle, .inProgress:
-            // While in progress, keep showing the active mode's view.
-            // Copy & Verify view renders its compact progress UI when in progress.
+            // A running transfer never reaches here: `mainContentSwitch` shows
+            // `MacTransferProgressView` first.
             modeSpecificView
                 .padding(.top, 16)
         default:
@@ -595,9 +595,6 @@ struct MacMainView: View {
             .onReceive(NotificationCenter.default.publisher(for: .fillTestData)) { _ in
                 DevModeManager.shared.fillTestDataOnly(coordinator: coordinator)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .addFakeQueueItem)) { _ in
-                DevModeManager.shared.addFakeQueueItem(coordinator: coordinator)
-            }
             // Legacy stress notification removed; use preset-specific hooks below
             .onReceive(NotificationCenter.default.publisher(for: .runStressTestSmall)) { _ in
                 DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .small)
@@ -622,13 +619,12 @@ extension Notification.Name {
     static let switchToCopyMode = Notification.Name("switchToCopyMode")
     static let switchToCompareMode = Notification.Name("switchToCompareMode")
     static let switchToMasterReportMode = Notification.Name("switchToMasterReportMode")
-    // NOTE: showPreferences, fakeTransferQueued, and simulateTransferCompletion are now in SharedModels.swift
+    // NOTE: showPreferences is in SharedModels.swift
     static let cameraLabelExpandedChanged = Notification.Name("cameraLabelExpandedChanged")
     static let verificationModeExpandedChanged = Notification.Name("verificationModeExpandedChanged")
     
     // Developer mode notifications
     static let fillTestData = Notification.Name("fillTestData")
-    static let addFakeQueueItem = Notification.Name("addFakeQueueItem")
     static let clearTestData = Notification.Name("clearTestData")
     static let runStressTestSmall = Notification.Name("runStressTestSmall")
     static let runStressTestMedium = Notification.Name("runStressTestMedium")

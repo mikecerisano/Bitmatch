@@ -257,7 +257,6 @@ For each operation, in order:
   - The queue stops when a transfer does not complete cleanly, and on cancel.
   - On iOS it runs only while the app is in the foreground; otherwise it pauses with a message.
 - **UI.** Both apps show `Shared/Views/TransferLibraryView.swift` for queue, history, retry, reconnect, and export. Both shells show an interrupted-transfer banner.
-- **Unrelated view.** `BitMatch/Views/CompactTransfer/TransferQueueView.swift` is not connected to this queue. Its queued and completed lists are local `@State`, filled only by a DEBUG helper.
 
 ### Remote backup queue (Mac only)
 
