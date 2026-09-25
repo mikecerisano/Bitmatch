@@ -338,49 +338,19 @@ struct SharedCompareFlowTests {
     }
 }
 
-private final class CancellingCompareFileSystem: FileSystemService {
-    private let left: URL
-    private let right: URL
-    private let lock = NSLock()
-    private var activeScopes: [String: Int] = [:]
-
+private final class CancellingCompareFileSystem: FakeFileSystemService {
     init(left: URL, right: URL) {
-        self.left = left
-        self.right = right
+        super.init()
+        leftResult = left
+        rightResult = right
+        freeSpaceResult = 1_000_000_000
     }
 
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { left }
-    func selectRightFolder() async -> URL? { right }
-    func validateFileAccess(url: URL) async -> Bool { true }
-
-    func startAccessing(url: URL) -> Bool {
-        lock.lock()
-        activeScopes[url.path, default: 0] += 1
-        lock.unlock()
-        return true
-    }
-
-    func stopAccessing(url: URL) {
-        lock.lock()
-        activeScopes[url.path, default: 0] = max(0, activeScopes[url.path, default: 0] - 1)
-        lock.unlock()
-    }
-
-    func getFileList(from folderURL: URL) async throws -> [URL] {
+    override func getFileList(from folderURL: URL) async throws -> [URL] {
         [folderURL.appendingPathComponent("clip.mov")]
     }
 
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { 10 }
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { 1_000_000_000 }
-
-    nonisolated func activeScopeCount(for url: URL) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return activeScopes[url.path, default: 0]
-    }
+    override nonisolated func getFileSize(for url: URL) throws -> Int64 { 10 }
 }
 
 private final class CancellingChecksumService: ChecksumService {
@@ -427,13 +397,12 @@ private enum ScopeTrackingError: Error {
     case missingScope(String)
 }
 
-private final class ScopeTrackingFileSystem: FileSystemService {
+private final class ScopeTrackingFileSystem: FakeFileSystemService {
     private let left: URL
     private let right: URL
     private let leftFile: URL
     private let rightFile: URL
     private let lock = NSLock()
-    private var activeScopes: [String: Int] = [:]
     private(set) var didReadSizesWhileScoped = false
 
     init(left: URL, right: URL) {
@@ -441,28 +410,13 @@ private final class ScopeTrackingFileSystem: FileSystemService {
         self.right = right
         self.leftFile = left.appendingPathComponent("clip.mov")
         self.rightFile = right.appendingPathComponent("clip.mov")
+        super.init()
+        leftResult = left
+        rightResult = right
+        freeSpaceResult = 1_000_000_000
     }
 
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { left }
-    func selectRightFolder() async -> URL? { right }
-    func validateFileAccess(url: URL) async -> Bool { true }
-
-    func startAccessing(url: URL) -> Bool {
-        lock.lock()
-        activeScopes[url.path, default: 0] += 1
-        lock.unlock()
-        return true
-    }
-
-    func stopAccessing(url: URL) {
-        lock.lock()
-        activeScopes[url.path, default: 0] = max(0, activeScopes[url.path, default: 0] - 1)
-        lock.unlock()
-    }
-
-    func getFileList(from folderURL: URL) async throws -> [URL] {
+    override func getFileList(from folderURL: URL) async throws -> [URL] {
         guard activeScopeCount(for: folderURL) > 0 else {
             throw ScopeTrackingError.missingScope("enumerating \(folderURL.path)")
         }
@@ -471,7 +425,7 @@ private final class ScopeTrackingFileSystem: FileSystemService {
         return []
     }
 
-    nonisolated func getFileSize(for url: URL) throws -> Int64 {
+    override nonisolated func getFileSize(for url: URL) throws -> Int64 {
         guard let base = baseURL(containing: url), activeScopeCount(for: base) > 0 else {
             throw ScopeTrackingError.missingScope("sizing \(url.path)")
         }
@@ -479,15 +433,6 @@ private final class ScopeTrackingFileSystem: FileSystemService {
         didReadSizesWhileScoped = true
         lock.unlock()
         return 10
-    }
-
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { 1_000_000_000 }
-
-    nonisolated func activeScopeCount(for url: URL) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return activeScopes[url.path, default: 0]
     }
 
     private nonisolated func baseURL(containing url: URL) -> URL? {

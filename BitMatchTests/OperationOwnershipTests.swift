@@ -207,7 +207,7 @@ final class OperationOwnershipTests: XCTestCase {
             let fixture = try OwnershipTransferFixture(destinationCount: 2)
             defer { fixture.cleanup() }
             let service = SharedFileOperationsService(
-                fileSystem: OwnershipFileSystem(),
+                fileSystem: FakeFileSystemService(),
                 checksum: SharedChecksumService.shared,
                 destinationSetupHook: { _ in throw CancellationError() }
             )
@@ -390,7 +390,7 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
     }
 }
 
-private final class BlockingFailureFileSystem: FileSystemService, @unchecked Sendable {
+private final class BlockingFailureFileSystem: FakeFileSystemService {
     private let base = MacOSFileSystemService.shared
     private let failingPath: String
     private let condition = NSCondition()
@@ -399,6 +399,7 @@ private final class BlockingFailureFileSystem: FileSystemService, @unchecked Sen
 
     init(failingDirectory: URL) {
         failingPath = failingDirectory.standardizedFileURL.path
+        super.init()
     }
 
     var didEnterFailingDirectory: Bool {
@@ -414,17 +415,10 @@ private final class BlockingFailureFileSystem: FileSystemService, @unchecked Sen
         condition.unlock()
     }
 
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { nil }
-    func selectRightFolder() async -> URL? { nil }
-    func validateFileAccess(url: URL) async -> Bool { true }
-    func startAccessing(url: URL) -> Bool { true }
-    func stopAccessing(url: URL) {}
-    func getFileList(from folderURL: URL) async throws -> [URL] { try await base.getFileList(from: folderURL) }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { try base.getFileSize(for: url) }
+    override func getFileList(from folderURL: URL) async throws -> [URL] { try await base.getFileList(from: folderURL) }
+    override nonisolated func getFileSize(for url: URL) throws -> Int64 { try base.getFileSize(for: url) }
 
-    nonisolated func createDirectory(at url: URL) throws {
+    override nonisolated func createDirectory(at url: URL) throws {
         try base.createDirectory(at: url)
     }
 
@@ -438,8 +432,6 @@ private final class BlockingFailureFileSystem: FileSystemService, @unchecked Sen
         condition.unlock()
         throw NSError(domain: "OperationOwnershipTests", code: 41)
     }
-
-    nonisolated func freeSpace(at url: URL) -> Int64 { .max }
 }
 
 private actor AsyncFlag {
@@ -509,7 +501,7 @@ private final class BlockingFileOperationsService: FileOperationsService, @unche
 }
 
 private final class OwnershipPlatformManager: PlatformManager {
-    nonisolated let fileSystem: FileSystemService = OwnershipFileSystem()
+    nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
     nonisolated let checksum: ChecksumService = OwnershipChecksumService()
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = OwnershipCameraDetectionService()
@@ -522,20 +514,6 @@ private final class OwnershipPlatformManager: PlatformManager {
     func presentAlert(title: String, message: String) async {}
     func presentError(_ error: Error) async {}
     func openURL(_ url: URL) async -> Bool { false }
-}
-
-private final class OwnershipFileSystem: FileSystemService {
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { nil }
-    func selectRightFolder() async -> URL? { nil }
-    func validateFileAccess(url: URL) async -> Bool { true }
-    func startAccessing(url: URL) -> Bool { true }
-    func stopAccessing(url: URL) {}
-    func getFileList(from folderURL: URL) async throws -> [URL] { [] }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { 0 }
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { .max }
 }
 
 private final class OwnershipChecksumService: ChecksumService {

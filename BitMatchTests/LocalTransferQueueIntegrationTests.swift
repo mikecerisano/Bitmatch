@@ -303,7 +303,7 @@ private final class QueueRecordingOperations: FileOperationsService, @unchecked 
 }
 
 private final class QueuePlatformManager: PlatformManager {
-    nonisolated let fileSystem: FileSystemService = QueueFileSystem()
+    nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
     nonisolated let checksum: ChecksumService = QueueChecksumService()
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = QueueCameraDetectionService()
@@ -316,20 +316,6 @@ private final class QueuePlatformManager: PlatformManager {
     func presentAlert(title: String, message: String) async {}
     func presentError(_ error: Error) async {}
     func openURL(_ url: URL) async -> Bool { false }
-}
-
-private final class QueueFileSystem: FileSystemService {
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { nil }
-    func selectRightFolder() async -> URL? { nil }
-    func validateFileAccess(url: URL) async -> Bool { true }
-    func startAccessing(url: URL) -> Bool { true }
-    func stopAccessing(url: URL) {}
-    func getFileList(from folderURL: URL) async throws -> [URL] { [] }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { 0 }
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { .max }
 }
 
 private final class QueueChecksumService: ChecksumService {

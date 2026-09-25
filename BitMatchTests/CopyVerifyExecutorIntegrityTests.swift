@@ -375,7 +375,7 @@ private final class ExecutorFileOperationsService: FileOperationsService {
 }
 
 private final class ExecutorPlatformManager: PlatformManager {
-    nonisolated let fileSystem: FileSystemService = ExecutorFileSystemService()
+    nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
     nonisolated let checksum: ChecksumService = ExecutorChecksumService()
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = ExecutorCameraDetectionService()
@@ -388,20 +388,6 @@ private final class ExecutorPlatformManager: PlatformManager {
     func presentAlert(title: String, message: String) async {}
     func presentError(_ error: Error) async {}
     func openURL(_ url: URL) async -> Bool { false }
-}
-
-private final class ExecutorFileSystemService: FileSystemService {
-    func selectSourceFolder() async -> URL? { nil }
-    func selectDestinationFolders() async -> [URL] { [] }
-    func selectLeftFolder() async -> URL? { nil }
-    func selectRightFolder() async -> URL? { nil }
-    func validateFileAccess(url: URL) async -> Bool { true }
-    func startAccessing(url: URL) -> Bool { true }
-    func stopAccessing(url: URL) {}
-    func getFileList(from folderURL: URL) async throws -> [URL] { [] }
-    nonisolated func getFileSize(for url: URL) throws -> Int64 { 0 }
-    nonisolated func createDirectory(at url: URL) throws {}
-    nonisolated func freeSpace(at url: URL) -> Int64 { .max }
 }
 
 private final class ExecutorChecksumService: ChecksumService {
