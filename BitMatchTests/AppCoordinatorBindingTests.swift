@@ -93,18 +93,26 @@ final class AppCoordinatorBindingTests: XCTestCase {
         coordinator.sharedCoordinator.verificationMode = originalMode
     }
 
-    func testPreparedPhotographerRecipeIsAppliedBeforeSharedSettingsSynchronization() throws {
+    /// The recipe reaches the run, and only the run: the saved label stays
+    /// the user's.
+    /// Plant: in `AppCoordinator.startOperation`, assign the overlay to
+    /// `sharedCoordinator.cameraLabelSettings` instead of
+    /// `projectRunCameraSettings`.
+    func testPreparedPhotographerRecipeAppliesToTheRunOnly() throws {
         let (coordinator, _) = try makePreparedPhotographerCoordinator()
         var base = CameraLabelSettings()
         base.label = "Legacy"
-        coordinator.cameraLabelViewModel.destinationLabelSettings = base
+        coordinator.cameraLabelSettings = base
 
         coordinator.startOperation()
 
+        // The run has not started yet (it starts on a later task).
         XCTAssertEqual(
-            coordinator.sharedCoordinator.cameraLabelSettings.destinationPathComponents,
+            coordinator.sharedCoordinator.projectRunCameraSettings?.destinationPathComponents,
             coordinator.photographerJobViewModel.renderedRecipe?.components
         )
+        XCTAssertEqual(coordinator.sharedCoordinator.projectRunCameraSettings?.label, "Legacy")
+        XCTAssertNil(coordinator.sharedCoordinator.cameraLabelSettings.destinationPathComponents)
         XCTAssertEqual(coordinator.sharedCoordinator.cameraLabelSettings.label, "Legacy")
     }
 

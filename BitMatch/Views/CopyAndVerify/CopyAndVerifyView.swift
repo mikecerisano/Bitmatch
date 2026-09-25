@@ -15,7 +15,7 @@ struct CopyAndVerifyView: View {
             sourceInfo: fileSelection.sourceFolderInfo,
             destinationURLs: fileSelection.destinationURLs,
             verificationMode: coordinator.verificationMode,
-            cameraSettings: coordinator.cameraLabelViewModel.destinationLabelSettings,
+            cameraSettings: coordinator.cameraLabelSettings,
             reportSettings: coordinator.reportSettings,
             isAnalyzing: fileSelection.isFetchingSourceInfo,
             blockingIssues: readinessIssues,
@@ -55,7 +55,7 @@ struct CopyAndVerifyView: View {
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
                 destinations: fileSelection.destinationURLs,
-                settings: coordinator.cameraLabelViewModel.destinationLabelSettings
+                settings: coordinator.cameraLabelSettings
             )
         } catch {
             issues.append(error.localizedDescription)

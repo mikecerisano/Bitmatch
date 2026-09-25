@@ -85,4 +85,38 @@ struct SharedSettingsPersistenceTests {
         #expect(coordinator.reportSettings.clientName == "My client")
         #expect(ReportPrefsStore(defaults: suite.defaults).load().clientName == "My client")
     }
+
+    /// Plant (saved): in `CameraLabelModel.settingsDidChange`, delete
+    /// `guard !suspendsSaving else { return }`.
+    /// Plant (restored): in `processNextQueuedTransfer`'s `defer`, delete
+    /// `cameraLabelSettings = userCameraSettings`.
+    @Test func queueReplayNeverReplacesTheUsersCameraLabel() async throws {
+        let suite = try Defaults()
+        let folders = try CoordinatorFolders()
+        defer { folders.cleanup() }
+        let journal = LocalTransferJournal(fileURL: folders.journalURL)
+        var recordedLabel = CameraLabelSettings()
+        recordedLabel.label = "Recorded cam"
+        var reports = ReportPrefs()
+        reports.makeReport = false
+        _ = try journal.enqueue(
+            sourceURL: folders.source, destinationURLs: [folders.primary], verificationMode: .standard,
+            cameraSettings: recordedLabel, reportSettings: reports, generateASCMHL: false
+        )
+        let operations = RecordingFileOperations(blocked: true)
+        let coordinator = makeCoordinator(suite.defaults, folders: folders, operations: operations, journal: journal)
+        coordinator.cameraLabelSettings.label = "My cam"
+
+        coordinator.startQueue()
+        #expect(await waitUntil(timeout: .seconds(5)) { await operations.starts.count == 1 })
+        #expect(await operations.starts.first?.label == "Recorded cam")
+        #expect(CameraLabelModel(defaults: suite.defaults).settings.label == "My cam")
+
+        await operations.release()
+        #expect(await waitUntil(timeout: .seconds(10)) {
+            !coordinator.queueIsRunning && !coordinator.isOperationInProgress
+        })
+        #expect(coordinator.cameraLabelSettings.label == "My cam")
+        #expect(CameraLabelModel(defaults: suite.defaults).settings.label == "My cam")
+    }
 }

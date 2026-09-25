@@ -1,38 +1,56 @@
-// Core/ViewModels/CameraLabelViewModel.swift
+// Core/ViewModels/CameraLabelModel.swift
 import Foundation
-import SwiftUI
+import Combine
 
+/// The camera label for the next transfer, on every platform (thesis
+/// decision, step 3). It suggests a label from the card, remembers the
+/// label per camera by fingerprint, and saves the settings across launches
+/// with the Mac's `destLabelSettings` key. `SharedAppCoordinator` owns it.
 @MainActor
-final class CameraLabelViewModel: ObservableObject {
-    // MARK: - Published Properties
-    @Published var destinationLabelSettings = CameraLabelSettings()
-    @Published var detectedCamera: CameraType = .generic
-    @Published var currentFingerprint: CameraMemoryService.CameraFingerprint?
-    
-    // MARK: - Private Properties
-    /// Owned detection task and its generation: reselecting the source
-    /// cancels the in-flight detection and only the latest may publish.
+final class CameraLabelModel: ObservableObject {
+    static let settingsKey = "destLabelSettings"
+
+    /// Saved on every change, and remembered for the current camera.
+    @Published var settings = CameraLabelSettings() {
+        didSet { settingsDidChange() }
+    }
+    @Published private(set) var detectedCamera: CameraType = .generic
+    @Published private(set) var currentFingerprint: CameraMemoryService.CameraFingerprint?
+    /// The detected camera's clean display name ("Sony FX6"), for showing
+    /// next to the source. Nil until detection finishes or when unknown.
+    @Published private(set) var detectedCameraName: String?
+
+    /// While true, changes are neither saved nor remembered (a queued
+    /// transfer's replay applies its record's settings for that run only).
+    var suspendsSaving = false
+
+    private let defaults: UserDefaults
+    /// Owned detection task and its generation: reselecting or clearing the
+    /// source cancels the in-flight detection and only the latest may publish.
     private var detectionTask: Task<Void, Never>?
     private var detectionGeneration = 0
-    
-    // MARK: - Initialization
-    init() {
-        loadCameraLabelSettings()
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.settingsKey),
+           let saved = try? JSONDecoder().decode(CameraLabelSettings.self, from: data) {
+            settings = saved
+        }
     }
-    
-    // MARK: - Public Methods (Updated with Memory System)
+
+    // MARK: - Detection with memory
+
     func detectCameraWithMemory(at url: URL) {
         // Supersede any in-flight detection: only the latest source may
         // publish. Detection itself honors task cancellation at the
         // orchestrator's stage boundaries.
-        detectionTask?.cancel()
-        detectionGeneration += 1
-        let generation = detectionGeneration
+        let generation = supersedeDetection()
         detectionTask = Task.detached {
             // Filesystem enumeration, metadata subprocesses, and
             // fingerprinting run off the main actor.
             let detectedName = CameraDetectionOrchestrator.shared.detectCamera(at: url)
             let cameraType = Self.mapCameraNameToType(detectedName)
+            let cleanName = detectedName.map { CleanCameraNameService.shared.getCleanCameraName(from: $0) }
             // A superseded request must not start further scans.
             guard !Task.isCancelled else { return }
 
@@ -46,92 +64,74 @@ final class CameraLabelViewModel: ObservableObject {
                 guard let self, generation == self.detectionGeneration else { return }
                 self.detectedCamera = cameraType
                 self.currentFingerprint = fingerprint
+                self.detectedCameraName = cleanName
 
                 // Check if we remember this specific camera
                 if let fingerprint = fingerprint,
                    let rememberedLabel = CameraMemoryService.shared.getRememberedLabel(for: fingerprint) {
-
                     // We've seen this exact camera before! Use its remembered label
-                    self.destinationLabelSettings.label = rememberedLabel
-
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        self.saveCameraLabelSettings()
-                    }
-
+                    self.settings.label = rememberedLabel
                     SharedLogger.info("Recognized camera: \(fingerprint.displayName) → Auto-applied label: \"\(rememberedLabel)\"", category: .transfer)
 
-                } else if self.destinationLabelSettings.label.isEmpty {
+                } else if self.settings.label.isEmpty {
                     // Try intelligent camera naming from video files first
                     if let cameraSuggestion = suggestion {
-                        self.destinationLabelSettings.label = cameraSuggestion.suggestedName
-
+                        self.settings.label = cameraSuggestion.suggestedName
                         SharedLogger.info("Auto-detected camera designation: \(cameraSuggestion.cameraDesignation) from \(cameraSuggestion.sourceFilename)", category: .transfer)
                         SharedLogger.debug("Suggested folder name: \"\(cameraSuggestion.suggestedName)\" (confidence: \(cameraSuggestion.confidence * 100)%)", category: .transfer)
 
                     } else if cameraType != .generic {
                         // Fallback to model-based naming using clean camera names
-                        if let detectedName = detectedName {
-                            let cleanName = CleanCameraNameService.shared.getCleanCameraName(from: detectedName)
-                            self.destinationLabelSettings.label = cleanName
+                        if let cleanName {
+                            self.settings.label = cleanName
                         } else {
-                            let suggestedLabel = self.getCameraModelLabel(for: cameraType)
-                            self.destinationLabelSettings.label = suggestedLabel
+                            self.settings.label = Self.cameraModelLabel(for: cameraType)
                         }
                     }
-
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        self.saveCameraLabelSettings()
-                    }
-
                     SharedLogger.info("New camera detected: \(cameraType.rawValue)", category: .transfer)
                 }
             }
         }
     }
-    
-    // Call this when user changes the label
-    func onLabelChanged() {
-        // Store the fingerprint with the current label for future use
-        if let fingerprint = currentFingerprint, !destinationLabelSettings.label.isEmpty {
-            CameraMemoryService.shared.updateLabel(destinationLabelSettings.label, for: fingerprint)
-        }
-        saveCameraLabelSettings()
-    }
-    
-    func generateDestinationPath(source: URL, destination: URL) -> URL {
-        let baseName = source.lastPathComponent
-        let labeledName: String
-        if destinationLabelSettings.generateUniqueName {
-            labeledName = generateUniqueFilename(base: baseName, at: destination)
-        } else {
-            labeledName = baseName
-        }
-        return destination.appendingPathComponent(labeledName)
-    }
-    
-    private func generateUniqueFilename(base: String, at destination: URL) -> String {
-        // Future enhancement: implement unique filename generation to avoid collisions
-        return base
-    }
-    
-    func saveSettings() {
-        saveCameraLabelSettings()
-        // Also update memory if we have a fingerprint
-        if let fingerprint = currentFingerprint, !destinationLabelSettings.label.isEmpty {
-            CameraMemoryService.shared.updateLabel(destinationLabelSettings.label, for: fingerprint)
-        }
-    }
-    
+
+    /// No source: no label, no detected camera, and any detection still
+    /// running for the previous source is dropped.
     func clearCameraLabel() {
-        destinationLabelSettings.label = ""
+        supersedeDetection()
+        settings.label = ""
         detectedCamera = .generic
         currentFingerprint = nil
-        saveCameraLabelSettings()
+        detectedCameraName = nil
         SharedLogger.debug("Cleared camera label - no source selected", category: .transfer)
     }
-    
+
+    /// Cancels the in-flight detection and returns the generation a new one
+    /// must match to publish.
+    @discardableResult
+    private func supersedeDetection() -> Int {
+        detectionTask?.cancel()
+        detectionTask = nil
+        detectionGeneration += 1
+        return detectionGeneration
+    }
+
+    // MARK: - Saving and memory
+
+    private func settingsDidChange() {
+        guard !suspendsSaving else { return }
+        // Remember the label for this exact camera for next time.
+        if let fingerprint = currentFingerprint, !settings.label.isEmpty {
+            CameraMemoryService.shared.updateLabel(settings.label, for: fingerprint)
+        }
+        do {
+            defaults.set(try JSONEncoder().encode(settings), forKey: Self.settingsKey)
+        } catch {
+            SharedLogger.error("Failed to save camera label settings: \(error)", category: .transfer)
+        }
+    }
+
     // MARK: - Camera Label Generation (Model-based, not position)
-    private func getCameraModelLabel(for camera: CameraType) -> String {
+    private static func cameraModelLabel(for camera: CameraType) -> String {
         switch camera {
         case .sony: return "SONY"
         case .sonyFX6: return "FX6"
@@ -158,30 +158,13 @@ final class CameraLabelViewModel: ObservableObject {
         case .generic: return ""
         }
     }
-    
-    // MARK: - Settings Persistence
-    private func loadCameraLabelSettings() {
-        if let data = UserDefaults.standard.data(forKey: "destLabelSettings"),
-           let settings = try? JSONDecoder().decode(CameraLabelSettings.self, from: data) {
-            destinationLabelSettings = settings
-        }
-    }
-    
-    private func saveCameraLabelSettings() {
-        do {
-            let data = try JSONEncoder().encode(destinationLabelSettings)
-            UserDefaults.standard.set(data, forKey: "destLabelSettings")
-        } catch {
-            SharedLogger.error("Failed to save camera label settings: \(error)", category: .transfer)
-        }
-    }
-    
+
     // MARK: - Camera Type Mapping
     private nonisolated static func mapCameraNameToType(_ name: String?) -> CameraType {
         guard let name = name else { return .generic }
-        
+
         let lowercased = name.lowercased()
-        
+
         if lowercased.contains("arri") {
             if lowercased.contains("alexa") { return .arriAlexa }
             if lowercased.contains("amira") { return .arriAmira }
@@ -196,33 +179,7 @@ final class CameraLabelViewModel: ObservableObject {
         if lowercased.contains("blackmagic") && lowercased.contains("pocket") { return .blackmagicPocket }
         if lowercased.contains("dji") { return .dji }
         if lowercased.contains("gopro") { return .gopro }
-        
+
         return .generic
-    }
-    
-    // MARK: - Metadata Generation
-    func generateTransferMetadata(
-        jobID: UUID,
-        jobStart: Date,
-        sourceURL: URL?,
-        destinationPath: String,
-        sourceFolderInfo: FolderInfo?,
-        prefs: ReportPrefs,
-        verificationMode: VerificationMode,
-        matchCount: Int,
-        workers: Int,
-        totalBytesProcessed: Int64
-    ) -> TransferMetadata {
-        // Create TransferMetadata using the actual SharedModels structure
-        return TransferMetadata(
-            sourceURL: sourceURL ?? URL(fileURLWithPath: "/"),
-            destinationURLs: [URL(fileURLWithPath: destinationPath)],
-            startTime: jobStart,
-            endTime: Date(), // Current time as end time
-            totalFiles: matchCount,
-            totalSize: totalBytesProcessed,
-            verificationMode: verificationMode,
-            cameraSettings: destinationLabelSettings
-        )
     }
 }

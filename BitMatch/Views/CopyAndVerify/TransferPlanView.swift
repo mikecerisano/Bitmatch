@@ -265,7 +265,7 @@ struct TransferOptionsView: View {
         MacTransferOptionsAdapter(
             coordinator: coordinator,
             shared: coordinator.sharedCoordinator,
-            cameraLabels: coordinator.cameraLabelViewModel,
+            cameraLabels: coordinator.cameraLabels,
             isExpanded: $isExpanded
         )
     }
@@ -274,7 +274,7 @@ struct TransferOptionsView: View {
 private struct MacTransferOptionsAdapter: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var shared: SharedAppCoordinator
-    @ObservedObject var cameraLabels: CameraLabelViewModel
+    @ObservedObject var cameraLabels: CameraLabelModel
     @Binding var isExpanded: Bool
 
     var body: some View {
@@ -286,11 +286,11 @@ private struct MacTransferOptionsAdapter: View {
                 set: { coordinator.sharedCoordinator.generateASCMHL = $0 }
             ),
             makeReport: $shared.reportSettings.makeReport,
-            cameraLabel: cameraLabels.destinationLabelSettings.label
+            cameraLabel: cameraLabels.settings.label
         ) {
-            CameraLabelView(settings: $coordinator.cameraLabelViewModel.destinationLabelSettings,
-                            detectedCamera: coordinator.cameraLabelViewModel.detectedCamera,
-                            fingerprint: coordinator.cameraLabelViewModel.currentFingerprint,
+            CameraLabelView(settings: $cameraLabels.settings,
+                            detectedCamera: cameraLabels.detectedCamera,
+                            fingerprint: cameraLabels.currentFingerprint,
                             sourceURL: coordinator.fileSelectionViewModel.sourceURL)
         }
         .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }

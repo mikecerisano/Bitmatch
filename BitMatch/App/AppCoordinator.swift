@@ -17,7 +17,6 @@ final class AppCoordinator: ObservableObject {
     // MARK: - macOS-Specific ViewModels (backward compat for views)
     @Published var progressViewModel = ProgressViewModel()
     @Published var fileSelectionViewModel: FileSelectionViewModel
-    @Published var cameraLabelViewModel = CameraLabelViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
     /// The one job view model, owned by the shared coordinator.
     var photographerJobViewModel: PhotographerJobViewModel { sharedCoordinator.photographerJobViewModel }
@@ -55,6 +54,12 @@ final class AppCoordinator: ObservableObject {
         get { sharedCoordinator.verificationMode }
         set { sharedCoordinator.verificationMode = newValue }
     }
+    /// The camera label lives (and is saved) in the shared coordinator.
+    var cameraLabels: CameraLabelModel { sharedCoordinator.cameraLabels }
+    var cameraLabelSettings: CameraLabelSettings {
+        get { sharedCoordinator.cameraLabelSettings }
+        set { sharedCoordinator.cameraLabelSettings = newValue }
+    }
     /// Report settings live (and are saved) in the shared coordinator.
     var reportSettings: ReportPrefs {
         get { sharedCoordinator.reportSettings }
@@ -77,15 +82,18 @@ final class AppCoordinator: ObservableObject {
         }
         // Sync macOS VM state into SharedAppCoordinator
         sharedCoordinator.currentMode = currentMode
-        var operationSettings = cameraLabelViewModel.destinationLabelSettings
-        if photographerJobViewModel.hasPreparedIngestAwaitingStart,
+        // The job's folder recipe applies to this run only; the saved label
+        // is left as the user set it.
+        if currentMode == .copyAndVerify,
+           photographerJobViewModel.hasPreparedIngestAwaitingStart,
            let renderedRecipe = photographerJobViewModel.renderedRecipe {
-            operationSettings = PhotographerDestinationResolver.operationSettings(
-                base: operationSettings,
+            sharedCoordinator.projectRunCameraSettings = PhotographerDestinationResolver.operationSettings(
+                base: sharedCoordinator.cameraLabelSettings,
                 renderedRecipe: renderedRecipe
             )
+        } else {
+            sharedCoordinator.projectRunCameraSettings = nil
         }
-        sharedCoordinator.cameraLabelSettings = operationSettings
         sharedCoordinator.sourceURL = fileSelectionViewModel.sourceURL
         sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
         sharedCoordinator.leftURL = fileSelectionViewModel.leftURL
@@ -123,7 +131,7 @@ final class AppCoordinator: ObservableObject {
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
                 destinations: destinations,
-                settings: cameraLabelViewModel.destinationLabelSettings
+                settings: sharedCoordinator.cameraLabelSettings
             )
         } catch {
             return false
@@ -323,8 +331,10 @@ final class AppCoordinator: ObservableObject {
         // already-prepared card's source signature before the user has
         // touched anything.
         fileSelectionViewModel.$sourceURL.dropFirst().sink { [weak self] url in
-            if let url = url { self?.cameraLabelViewModel.detectCameraWithMemory(at: url) }
-            else { self?.cameraLabelViewModel.clearCameraLabel() }
+            if self?.sharedCoordinator.isReplayingQueuedTransfer == false {
+                if let url = url { self?.sharedCoordinator.cameraLabels.detectCameraWithMemory(at: url) }
+                else { self?.sharedCoordinator.cameraLabels.clearCameraLabel() }
+            }
             self?.photographerJobViewModel.sourceDidChange(to: url)
             self?.updateTimeEstimate()
         }.store(in: &cancellables)
@@ -342,10 +352,6 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] dests in
                 if !dests.isEmpty { self?.fileSelectionViewModel.saveLastDestinations() }
             }.store(in: &cancellables)
-
-        cameraLabelViewModel.$destinationLabelSettings
-            .sink { [weak self] _ in self?.cameraLabelViewModel.onLabelChanged() }
-            .store(in: &cancellables)
 
         Publishers.MergeMany(
             fileSelectionViewModel.$sourceURL.map { _ in () }.eraseToAnyPublisher(),
@@ -380,7 +386,6 @@ final class AppCoordinator: ObservableObject {
                 self.currentMode = .copyAndVerify
                 self.fileSelectionViewModel.sourceURL = self.sharedCoordinator.sourceURL
                 self.fileSelectionViewModel.destinationURLs = self.sharedCoordinator.destinationURLs
-                self.cameraLabelViewModel.destinationLabelSettings = self.sharedCoordinator.cameraLabelSettings
             }.store(in: &cancellables)
         // Map SharedAppCoordinator progress → ProgressViewModel
         sharedCoordinator.$progress.compactMap { $0 }

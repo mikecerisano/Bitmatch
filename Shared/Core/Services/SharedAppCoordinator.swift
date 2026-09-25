@@ -34,7 +34,18 @@ class SharedAppCoordinator: ObservableObject {
     @Published var verificationMode: VerificationMode = .standard {
         didSet { if oldValue != verificationMode { clearCompareOutcome() } }
     }
-    @Published var cameraLabelSettings = CameraLabelSettings()
+    /// The camera label for the next transfer: suggested from the card,
+    /// remembered per camera and saved across launches (thesis decision).
+    let cameraLabels: CameraLabelModel
+    var cameraLabelSettings: CameraLabelSettings {
+        get { cameraLabels.settings }
+        set { cameraLabels.settings = newValue }
+    }
+    /// Camera settings for the next run only, used instead of
+    /// `cameraLabelSettings` and cleared when that run starts. A prepared
+    /// project card puts its job's folder recipe here, so the recipe never
+    /// becomes the saved label.
+    var projectRunCameraSettings: CameraLabelSettings?
     /// Saved across launches with the Mac's keys (decision: iPad and iPhone
     /// remember report settings too). A queued transfer's replay uses its
     /// record's settings for that run only and never saves them.
@@ -164,6 +175,7 @@ class SharedAppCoordinator: ObservableObject {
             selectedPreferences = .standard
         }
         self.reportPrefsStore = ReportPrefsStore(defaults: selectedPreferences)
+        self.cameraLabels = CameraLabelModel(defaults: selectedPreferences)
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
         // whole app has one; iPad and iPhone build a portable one here.
@@ -183,6 +195,8 @@ class SharedAppCoordinator: ObservableObject {
         // operationState lives in stateService; views observing this
         // coordinator must still refresh when it changes.
         stateService.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        cameraLabels.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         stateService.automaticPauseHandler = { [weak self] reason in
             Task { await self?.pauseOperation(reason: reason) }
@@ -219,18 +233,28 @@ class SharedAppCoordinator: ObservableObject {
         $sourceURL
             .dropFirst()
             .sink { [weak self] url in
-                self?.photographerJobViewModel.sourceDidChange(to: url)
+                guard let self else { return }
+                self.photographerJobViewModel.sourceDidChange(to: url)
+                // Suggest (or clear) the label for the new card. A queued
+                // transfer's replay brings its own label.
+                guard !self.isReplayingQueuedTransfer else { return }
+                if let url {
+                    self.cameraLabels.detectCameraWithMemory(at: url)
+                } else {
+                    self.cameraLabels.clearCameraLabel()
+                }
             }
             .store(in: &cancellables)
 
-        // Monitor source URL changes for camera detection and folder info
+        // Folder info for the source, and the detected camera card iPad shows.
+        // Detection no longer delays the scan.
         $sourceURL
             .sink { [weak self] url in
                 Task { @MainActor [weak self] in
-                    if let url = url {
-                        await self?.detectCameraFromSource(url)
-                    }
                     await self?.folderInfoService.updateSource(url)
+                }
+                Task { @MainActor [weak self] in
+                    await self?.detectCameraFromSource(url)
                 }
             }
             .store(in: &cancellables)
@@ -400,11 +424,17 @@ class SharedAppCoordinator: ObservableObject {
         // The record's settings apply to this run only; the user's return
         // when it ends (UI plan §8 item 8).
         let userReportSettings = reportSettings
+        let userCameraSettings = cameraLabelSettings
         do {
             let access = try transferJournal.prepareToRun(id: record.id)
             defer { access.release() }
             isReplayingQueuedTransfer = true
-            defer { reportSettings = userReportSettings }
+            cameraLabels.suspendsSaving = true
+            defer {
+                reportSettings = userReportSettings
+                cameraLabelSettings = userCameraSettings
+                cameraLabels.suspendsSaving = false
+            }
             sourceURL = access.sourceURL
             destinationURLs = access.destinationURLs
             verificationMode = record.verificationMode
@@ -414,6 +444,7 @@ class SharedAppCoordinator: ObservableObject {
             currentMode = .copyAndVerify
             photographerReportFinalizer = nil
             activeProjectCardID = nil
+            projectRunCameraSettings = nil
             NotificationCenter.default.post(name: .init("BitMatchQueuedTransferSelected"), object: self)
             await executeOperation(journalRecordID: record.id)
         } catch {
@@ -431,6 +462,9 @@ class SharedAppCoordinator: ObservableObject {
     func startOperation() async { await executeOperation(journalRecordID: nil) }
 
     private func executeOperation(journalRecordID: UUID?) async {
+        // The run-only override applies to this attempt and never lingers.
+        let runCameraSettings = projectRunCameraSettings ?? cameraLabelSettings
+        projectRunCameraSettings = nil
         guard activeStartID == nil, !isOperationInProgress else { return }
         lastOperationWasCompare = false
         guard let sourceURL = sourceURL, !destinationURLs.isEmpty else {
@@ -480,7 +514,7 @@ class SharedAppCoordinator: ObservableObject {
         do {
             recordID = try journalRecordID ?? transferJournal.enqueue(
                 sourceURL: sourceURL, destinationURLs: destinationURLs,
-                verificationMode: verificationMode, cameraSettings: cameraLabelSettings,
+                verificationMode: verificationMode, cameraSettings: runCameraSettings,
                 reportSettings: reportSettings, generateASCMHL: generateASCMHL,
                 projectID: photographerReportFinalizer == nil ? nil : photographerJobViewModel.activeJob?.id
             )
@@ -501,7 +535,7 @@ class SharedAppCoordinator: ObservableObject {
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
                 destinations: destinationURLs,
-                settings: cameraLabelSettings
+                settings: runCameraSettings
             )
         } catch {
             try? transferJournal.interrupt(id: recordID, summary: error.localizedDescription)
@@ -523,7 +557,7 @@ class SharedAppCoordinator: ObservableObject {
             sourceURL: sourceURL,
             destinationURLs: destinationURLs,
             verificationMode: verificationMode,
-            cameraLabelSettings: cameraLabelSettings,
+            cameraLabelSettings: runCameraSettings,
             reportSettings: reportSettings,
             estimatedFiles: sourceFolderInfo?.fileCount ?? 100,
             estimatedBytes: sourceFolderInfo?.totalSize ?? 1_000_000_000,
@@ -722,21 +756,23 @@ class SharedAppCoordinator: ObservableObject {
 
     // MARK: - Camera Detection
     
-    private func detectCameraFromSource(_ url: URL) async {
+    /// The camera card iPad shows next to the source. The label itself comes
+    /// from `cameraLabels`, the same memory-aware path as the Mac.
+    private func detectCameraFromSource(_ url: URL?) async {
+        guard let url else {
+            detectedCamera = nil
+            cameraDetectionInProgress = false
+            return
+        }
         cameraDetectionInProgress = true
         detectedCamera = nil
-        
+
         let result = await platformManager.cameraDetection.detectCamera(from: url)
-        
+
+        // A newer source may have been chosen while detection ran.
+        guard sourceURL == url else { return }
         detectedCamera = result.cameraCard
         cameraDetectionInProgress = false
-        
-        // Update camera label settings if we detected a camera
-        if let camera = result.cameraCard, result.confidence > 0.8 {
-            if cameraLabelSettings.label.isEmpty {
-                cameraLabelSettings.label = camera.name
-            }
-        }
     }
     
     // MARK: - Folder Comparison (delegated to ComparisonCoordinator)
