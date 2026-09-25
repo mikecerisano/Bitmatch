@@ -150,6 +150,9 @@ struct CompareScreen: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
+        // Grey while waiting on a step, like Copy's Start button: a button
+        // that cannot be pressed should not look pressable.
+        .tint(presentation.readiness.canStart ? Color.accentColor : Color.gray)
         .disabled(!presentation.readiness.canStart)
         .frame(maxWidth: .infinity, alignment: layout == .compact ? .leading : .trailing)
     }
