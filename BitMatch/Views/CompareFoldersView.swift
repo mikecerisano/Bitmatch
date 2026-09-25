@@ -7,7 +7,16 @@ import AppKit
 /// outcome are the same rules and screen as on iPad and iPhone.
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    /// Compare draws its progress inline; the coordinator does not republish
+    /// progress ticks, so this view observes them itself.
+    @ObservedObject private var liveProgress: LiveProgressFeed
     @Binding var advancedExpanded: Bool
+
+    init(coordinator: SharedAppCoordinator, advancedExpanded: Binding<Bool>) {
+        _coordinator = ObservedObject(wrappedValue: coordinator)
+        _liveProgress = ObservedObject(wrappedValue: coordinator.liveProgress)
+        _advancedExpanded = advancedExpanded
+    }
 
     /// Also used by ⌘R, so the keyboard path obeys the same readiness rule.
     static func presentation(for shared: SharedAppCoordinator) -> ComparePresentation {

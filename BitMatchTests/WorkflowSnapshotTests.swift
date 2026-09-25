@@ -28,6 +28,12 @@ final class WorkflowSnapshotTests: XCTestCase {
         await settle()
         try capture(ContentView(environment: fixture.environment), size: CGSize(width: 680, height: 900), name: "mac-completion")
 
+        fixture.seedRunning()
+        await settle()
+        try capture(ContentView(environment: fixture.environment), size: CGSize(width: 680, height: 900), name: "mac-progress")
+        try capture(ContentView(environment: fixture.environment), size: CGSize(width: 1_100, height: 900), name: "mac-progress-wide")
+        fixture.endRunning()
+
 
     }
 
@@ -159,6 +165,42 @@ private final class SnapshotFixture {
         sharedCoordinator.destinationURLs = [backup, secondBackup]
         sharedCoordinator.operationState = .notStarted
         sharedCoordinator.results = []
+    }
+
+    /// A copy in progress, for the shared progress screen (UI plan 4.9).
+    /// It sets the running flags without starting the engine.
+    func seedRunning() {
+        sharedCoordinator.currentMode = .copyAndVerify
+        sharedCoordinator.verificationMode = .standard
+        sharedCoordinator.sourceURL = source
+        sharedCoordinator.destinationURLs = [backup, secondBackup]
+        sharedCoordinator.results = []
+        sharedCoordinator.isOperationInProgress = true
+        sharedCoordinator.operationState = .inProgress
+        sharedCoordinator.progress = OperationProgress(
+            overallProgress: 0.42,
+            currentFile: "DCIM/clip.txt",
+            filesProcessed: 7,
+            totalFiles: 8,
+            currentStage: .copying,
+            speed: 92_000_000,
+            timeRemaining: 40,
+            elapsedTime: 20,
+            averageSpeed: 92_000_000,
+            peakSpeed: nil,
+            bytesProcessed: 1_800_000_000,
+            totalBytes: 4_000_000_000,
+            stageProgress: nil,
+            reusedCopies: nil,
+            perDestinationTotals: [4, 4],
+            perDestinationCompleted: [4, 3]
+        )
+    }
+
+    func endRunning() {
+        sharedCoordinator.isOperationInProgress = false
+        sharedCoordinator.progress = nil
+        sharedCoordinator.operationState = .notStarted
     }
 
     func seedComparisonDifferences() {

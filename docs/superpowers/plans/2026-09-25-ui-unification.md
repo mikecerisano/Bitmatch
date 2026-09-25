@@ -668,6 +668,15 @@ Written on branch `cloud/history-screen` without Xcode: reviewed, not compiled o
   - `destinationRowsUseOwnCounts`: two destinations at different fractions. **Plant:** copy the overall fraction to every row.
 - [ ] Check an iPad split view at 600 pt with 4 destinations: nothing is clipped.
 
+**Status of 4.9 (branch `cloud/progress-screen`, not compiled):** implemented, with these differences from the text above:
+- P-1 and P-2 follow the thesis decisions: Cancel asks for one confirmation (the button and Mac ⌘.), and the Mac's sleep assertion was already in `CopyVerifyExecutor`; the screen now says so.
+- Shape as in 4.7: `TransferProgressPresentation` (`Shared/Core/Models/`, pure), `ProgressScreen` and one shared adapter `CoordinatorProgressScreen` (`Shared/Views/Progress/`). iOS `OperationProgressView` is a thin wrapper, so `PhoneContentView` is unchanged and `ModularContentView` only gains a `ScrollView`. The Mac shell routes a running copy to `MacTransferProgressView` (adds the project dashboard).
+- Redraw scope: `SharedAppCoordinator.progress` is no longer `@Published`; it reads and writes `liveProgress` (`LiveProgressFeed`), which only `CoordinatorProgressScreen` and the two Compare adapters observe. The shells observe the coordinator and are not invalidated by a progress tick. Per-file `results` are still published by the coordinator (the Mac live results table needs them); that remains a per-file shell invalidation for a later step.
+- The fraction is the engine's `overallProgress` (not smoothed); speed is the shared EMA (`formattedAverageDataRate`) and time left `formattedTimeRemaining`, both excluding paused time (`notePaused`/`noteResumed`). Resume no longer resets the smoothing model.
+- Destination rows report copy counts only (Waiting, Copying, Copied, Verifying); the engine has no per-backup verified count, so no row claims verification (audit C1).
+- Not done here, because the Mac `CopyAndVerifyView` belongs to the 4.8 branch: its `compactOperationView` is now unreachable, and `BitMatch/Views/CompactTransfer/{TransferQueueView,CompactTransferCard,ContextualDestinationPopup,DestinationDetailView}` (with the DEBUG fake queue items, `getFastLanePriority` and `generateDestinationProgress`) are dead. Delete them once 4.8 has landed.
+- Tests: `BitMatchTests/TransferProgressPresentationTests.swift` (the five above plus `copiedBackupIsNotAVerdict`, `pausedOffersResumeWithoutSpeed`, `progressTicksDoNotRedrawTheShell`) and `BitMatch-iPadTests/ProgressPresentationIOSTests.swift`, each with its **Plant:** line. The opt-in workflow snapshots gain `mac-progress`, `mac-progress-wide`, `iphone-progress`, `narrowpad-progress` and `ipad-progress`.
+
 ### Step 4.10: `MasterReportScreen` (after R4 for shared `ReportPrefs`; the scanner is already done in 4.4)
 
 Written on branch `cloud/master-report-screen` without Xcode: reviewed, not compiled or run.

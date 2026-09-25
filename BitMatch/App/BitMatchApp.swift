@@ -91,19 +91,7 @@ struct BitMatchApp: App {
                 .keyboardShortcut(",", modifiers: .command)
             }
             
-            CommandMenu("File") {
-                Button("Start Verification") {
-                    NotificationCenter.default.post(name: .startVerification, object: nil)
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                
-                Divider()
-                
-                Button("Cancel Operation") {
-                    NotificationCenter.default.post(name: .cancelOperation, object: nil)
-                }
-                .keyboardShortcut(".", modifiers: .command)
-            }
+            OperationCommands()
             
             CommandMenu("View") {
                 Button("Copy & Verify Mode") {
@@ -210,6 +198,41 @@ struct BitMatchApp: App {
                 }
             }
         }
+    }
+}
+
+/// File menu: ⌘R starts, ⌘. cancels. Cancel is disabled while nothing runs;
+/// for a transfer it opens the progress screen's one confirmation.
+struct OperationCommands: Commands {
+    @FocusedValue(\.canCancelOperation) private var canCancelOperation
+
+    var body: some Commands {
+        CommandMenu("File") {
+            Button("Start Verification") {
+                NotificationCenter.default.post(name: .startVerification, object: nil)
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            Divider()
+
+            Button("Cancel Operation…") {
+                NotificationCenter.default.post(name: .cancelOperation, object: nil)
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(canCancelOperation != true)
+        }
+    }
+}
+
+/// Published by the main window so the File menu knows whether anything runs.
+struct CanCancelOperationKey: FocusedValueKey {
+    typealias Value = Bool
+}
+
+extension FocusedValues {
+    var canCancelOperation: Bool? {
+        get { self[CanCancelOperationKey.self] }
+        set { self[CanCancelOperationKey.self] = newValue }
     }
 }
 

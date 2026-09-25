@@ -76,7 +76,16 @@ class SharedAppCoordinator: ObservableObject {
     /// Emits before each `operationState` change, as the stored property's
     /// `$operationState` publisher did.
     var operationStatePublisher: Published<OperationState>.Publisher { stateService.$currentState }
-    @Published var progress: OperationProgress?
+    /// The engine's latest progress. Stored in `liveProgress`, not published
+    /// here: it changes about every 500 ms, and every shell observes this
+    /// coordinator, so a published copy redrew each whole window per tick.
+    /// Views that draw live progress observe `liveProgress` directly.
+    var progress: OperationProgress? {
+        get { liveProgress.progress }
+        set { liveProgress.progress = newValue }
+    }
+    /// Deliberately not forwarded to this object's `objectWillChange`.
+    let liveProgress = LiveProgressFeed()
     /// Smoothed progress for display (rolling speed, ETA, per-destination
     /// bars). Deliberately not forwarded to this object's `objectWillChange`:
     /// it ticks every 250 ms, so views observe it directly.
@@ -320,7 +329,7 @@ class SharedAppCoordinator: ObservableObject {
     /// Feeds `progressPresentation`: engine progress at most every 120 ms,
     /// and the smoothing timer while an operation runs.
     private func setupProgressPresentation() {
-        $progress.compactMap { $0 }
+        liveProgress.$progress.compactMap { $0 }
             .throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] prog in self?.presentProgress(prog) }
             .store(in: &cancellables)
@@ -330,11 +339,22 @@ class SharedAppCoordinator: ObservableObject {
                 guard let self else { return }
                 let presentation = self.progressPresentation
                 switch state {
-                case .inProgress, .copying, .verifying:
-                    presentation.startProgressTracking()
+                case .inProgress, .copying, .verifying, .resuming:
+                    // One run is tracked once. Resume (`.resuming` then
+                    // `.inProgress`) and stage changes keep the byte totals
+                    // and speed samples; a new run stops tracking first
+                    // (`executeOperation`), so it starts from zero.
+                    if presentation.isTracking {
+                        presentation.noteResumed()
+                    } else if state != .resuming {
+                        presentation.startProgressTracking()
+                    }
                     if presentation.progressMessage == "Ready" {
                         presentation.setProgressMessage("Preparing transfer…")
                     }
+                case .paused:
+                    // Paused time is left out of speed and time remaining.
+                    presentation.notePaused()
                 case .completed, .failed, .cancelled:
                     presentation.stopProgressTracking()
                     self.lastPresentedBytes = 0
@@ -642,6 +662,10 @@ class SharedAppCoordinator: ObservableObject {
 
         guard activeStartID == startID, !startCancellationRequested else { return }
 
+        // A new run starts its smoothed progress from zero, even if the last
+        // run never reached a terminal state.
+        progressPresentation.stopProgressTracking()
+        lastPresentedBytes = 0
         operationState = .inProgress
         results = []
         progress = nil

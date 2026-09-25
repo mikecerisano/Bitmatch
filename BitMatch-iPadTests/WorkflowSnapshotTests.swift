@@ -45,6 +45,25 @@ final class WorkflowSnapshotTests: XCTestCase {
             name: "narrowpad-completion"
         )
 
+        fixture.seedRunning()
+        await settle()
+        try capture(
+            ContentView(coordinator: fixture.coordinator),
+            size: CGSize(width: 393, height: 852),
+            name: "iphone-progress"
+        )
+        try capture(
+            ContentView(coordinator: fixture.coordinator),
+            size: CGSize(width: 600, height: 1_000),
+            name: "narrowpad-progress"
+        )
+        try capture(
+            ContentView(coordinator: fixture.coordinator),
+            size: CGSize(width: 1_180, height: 820),
+            name: "ipad-progress"
+        )
+        fixture.endRunning()
+
         try fixture.seedInterruptedTransfer()
         await settle()
         try capture(
@@ -163,6 +182,42 @@ private final class SnapshotFixture {
         coordinator.destinationURLs = [backup, secondBackup]
         coordinator.operationState = .notStarted
         coordinator.results = []
+    }
+
+    /// A copy in progress, for the shared progress screen (UI plan 4.9).
+    /// It sets the running flags without starting the engine.
+    func seedRunning() {
+        coordinator.currentMode = .copyAndVerify
+        coordinator.verificationMode = .standard
+        coordinator.sourceURL = source
+        coordinator.destinationURLs = [backup, secondBackup]
+        coordinator.results = []
+        coordinator.isOperationInProgress = true
+        coordinator.operationState = .inProgress
+        coordinator.progress = OperationProgress(
+            overallProgress: 0.42,
+            currentFile: "DCIM/clip.txt",
+            filesProcessed: 7,
+            totalFiles: 8,
+            currentStage: .copying,
+            speed: 92_000_000,
+            timeRemaining: 40,
+            elapsedTime: 20,
+            averageSpeed: 92_000_000,
+            peakSpeed: nil,
+            bytesProcessed: 1_800_000_000,
+            totalBytes: 4_000_000_000,
+            stageProgress: nil,
+            reusedCopies: nil,
+            perDestinationTotals: [4, 4],
+            perDestinationCompleted: [4, 3]
+        )
+    }
+
+    func endRunning() {
+        coordinator.isOperationInProgress = false
+        coordinator.progress = nil
+        coordinator.operationState = .notStarted
     }
 
     func seedComparisonDifferences() {

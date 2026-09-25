@@ -71,7 +71,6 @@ struct ResultsTableView: View {
         HStack {
             resultCounts
             Spacer()
-            operationIndicators
             resultControls
         }
     }
@@ -81,7 +80,6 @@ struct ResultsTableView: View {
             HStack {
                 resultCounts
                 Spacer()
-                operationIndicators
             }
             HStack {
                 Spacer()
@@ -107,52 +105,10 @@ struct ResultsTableView: View {
         }
     }
 
-    @ViewBuilder
-    private var operationIndicators: some View {
-        if coordinator.isOperationInProgress {
-            HStack(spacing: 12) {
-                if progress.filesPerSecond > 0 {
-                    Label(formatSpeed(), systemImage: "speedometer")
-                        .font(.system(size: 11, design: .monospaced))
-                }
-                if let remaining = progress.estimatedTimeRemaining {
-                    Label(formatTime(remaining), systemImage: "clock")
-                        .font(.system(size: 11, design: .monospaced))
-                }
-            }
-            .foregroundColor(.white.opacity(0.5))
-        }
-    }
-
     private var resultControls: some View {
+        // Speed, time left and Cancel (with its confirmation) are on the
+        // shared progress screen above; one of each, one formula.
         HStack(spacing: 8) {
-                // Cancel button when verifying
-                if coordinator.isOperationInProgress {
-                    Button {
-                        coordinator.cancelOperation()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 9))
-                            Text("Cancel")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundColor(.red.opacity(0.9))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.red.opacity(0.15))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.red.opacity(0.3), lineWidth: 0.5)
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help("Cancel verification (⌘.)")
-                }
-                
                 // Filter toggle that changes label based on state
                 Toggle(isOn: $showOnlyIssues) {
                     Label(showOnlyIssues ? "Show All" : "Issues Only",
@@ -398,24 +354,4 @@ struct ResultsTableView: View {
         }
     }
     
-    private func formatSpeed() -> String {
-        if progress.filesPerSecond >= 1 {
-            return String(format: "%.0f files/s", progress.filesPerSecond)
-        } else {
-            return "Processing..."
-        }
-    }
-    
-    private func formatTime(_ seconds: TimeInterval) -> String {
-        if seconds < 60 {
-            return "<1 min"
-        } else if seconds < 3600 {
-            return "\(Int(seconds / 60)) min"
-        } else {
-            let hours = Int(seconds / 3600)
-            let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
-            return "\(hours)h \(minutes)m"
-        }
-    }
-
 }

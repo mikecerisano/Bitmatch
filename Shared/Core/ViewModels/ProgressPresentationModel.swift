@@ -47,6 +47,16 @@ final class ProgressPresentationModel: ObservableObject {
     
     // Planned total bytes (overall across all destinations)
     private var plannedTotalBytes: Int64?
+
+    /// When the run was paused, so the paused time can be left out of speed
+    /// and time remaining (UI plan 3.2.3). Nil while running.
+    private var pausedAt: Date?
+    /// Injected so tests can step time; the app uses the wall clock.
+    private let clock: () -> Date
+
+    init(clock: @escaping () -> Date = { Date() }) {
+        self.clock = clock
+    }
     
     // MARK: - Public Properties (FIXED: Exposed for reporting)
     private(set) var totalBytesProcessed: Int64 = 0
@@ -70,6 +80,7 @@ final class ProgressPresentationModel: ObservableObject {
     func startProgressTracking() {
         reset()
         progressTimer?.invalidate()
+        pausedAt = nil
         // Perf 2: reduce timer frequency from 0.1s to 0.25s for less UI overhead
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
@@ -98,7 +109,10 @@ final class ProgressPresentationModel: ObservableObject {
         progressMessage = "Ready"
         totalBytesProcessed = 0
         reusedFileCopies = 0
-        lastUpdateTime = Date()
+        lastUpdateTime = clock()
+        lastProgressUpdate = clock()
+        pausedAt = nil
+        emaBytesPerSecond = nil
         lastFileCount = 0
         lastBytesProcessed = 0
         isCountingFiles = false
@@ -110,6 +124,29 @@ final class ProgressPresentationModel: ObservableObject {
         plannedTotalBytes = nil
         byteSamples.removeAll(keepingCapacity: false)
         rateSamples.removeAll(keepingCapacity: false)
+    }
+
+    // MARK: - Pause and resume
+
+    /// Marks the start of a pause. Repeated calls keep the first time.
+    func notePaused() {
+        if pausedAt == nil { pausedAt = clock() }
+    }
+
+    /// Ends a pause: every time reference moves forward by the paused
+    /// interval, so the next speed sample measures only active copying.
+    /// Byte and file totals are kept. Does nothing when not paused.
+    func noteResumed() {
+        guard let pausedAt else { return }
+        self.pausedAt = nil
+        let gap = max(0, clock().timeIntervalSince(pausedAt))
+        guard gap > 0 else { return }
+        lastUpdateTime = lastUpdateTime.addingTimeInterval(gap)
+        lastProgressUpdate = lastProgressUpdate.addingTimeInterval(gap)
+        byteSamples = byteSamples.map { (time: $0.time.addingTimeInterval(gap), bytes: $0.bytes) }
+        rateSamples = rateSamples.map {
+            (time: $0.time.addingTimeInterval(gap), bytesDelta: $0.bytesDelta, duration: $0.duration)
+        }
     }
 
     // MARK: - Reuse Accounting
@@ -167,7 +204,7 @@ final class ProgressPresentationModel: ObservableObject {
     
     func incrementFileCompleted(_ count: Int = 1) {
         fileCountCompleted += count
-        lastProgressUpdate = Date()
+        lastProgressUpdate = clock()
         updatePerformanceMetrics()
         // Force immediate progress update for the first few files
         if fileCountCompleted <= 3 {
@@ -227,7 +264,7 @@ final class ProgressPresentationModel: ObservableObject {
         }
         
         let baseProgress = Double(fileCountCompleted) / Double(fileCountTotal)
-        let now = Date()
+        let now = clock()
         let timeSinceLastFile = now.timeIntervalSince(lastProgressUpdate)
         
         // Always show immediate progress based on file completion
@@ -258,7 +295,7 @@ final class ProgressPresentationModel: ObservableObject {
     }
     
     private func updatePerformanceMetrics() {
-        let now = Date()
+        let now = clock()
         let timeDelta = now.timeIntervalSince(lastUpdateTime)
         
         // Update metrics more often, but still apply smoothing
@@ -319,10 +356,15 @@ extension ProgressPresentationModel {
         return "\(filesRemaining) files"
     }
     
-    var formattedAverageDataRate: String? {
-        // Prefer EMA, then rolling averages, then instantaneous
+    /// The one copy speed shown on every platform: an EMA over active time
+    /// (pauses excluded), then rolling averages, then the last sample.
+    var averageBytesPerSecond: Double? {
         let rate = (emaBytesPerSecond ?? rollingActiveBytesPerSecond ?? rollingBytesPerSecond ?? bytesPerSecond)
-        guard rate > 0 else { return nil }
+        return rate > 0 ? rate : nil
+    }
+
+    var formattedAverageDataRate: String? {
+        guard let rate = averageBytesPerSecond else { return nil }
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .decimal
