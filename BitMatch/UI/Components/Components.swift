@@ -84,6 +84,8 @@ struct ModeSelectorView: View {
                     .contentShape(Rectangle()) // Make entire button area clickable
                 }
                 .buttonStyle(.plain)
+                // Audit M1: selection was shown by fill color alone.
+                .accessibilityAddTraits(mode == appMode ? .isSelected : [])
             }
         }
         .background(

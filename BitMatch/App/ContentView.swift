@@ -282,9 +282,12 @@ struct MacMainView: View {
                         .font(.system(size: 16))
                         .foregroundColor(.white.opacity(0.7))
                         .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Preferences")
+                // Audit M8: a tooltip alone is not a reliable accessible name.
+                .accessibilityLabel("Settings")
             }
             .padding(.horizontal, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -558,6 +561,8 @@ private extension MacMainView {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             showCancelNotice = true
         }
+        // Audit M10: a toast that lasts under two seconds is otherwise silent.
+        AccessibilityNotification.Announcement("Cancelled").post()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 showCancelNotice = false
@@ -570,6 +575,8 @@ private extension MacMainView {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             showDropRejection = true
         }
+        // Audit M10: the rejection reason is otherwise only on screen for 2.5s.
+        AccessibilityNotification.Announcement(reason).post()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 showDropRejection = false

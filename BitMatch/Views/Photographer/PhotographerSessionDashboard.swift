@@ -97,7 +97,13 @@ struct PhotographerSessionDashboard: View {
                     if let remote = row.remoteBackupPresentations[id] {
                         Label(remote.title, systemImage: remote.symbol)
                             .font(DesignSystem.Typography.caption)
-                            .foregroundColor(remote.isWarning ? DesignSystem.Colors.warning : (remote.isFullyBackedUp ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary))
+                            .foregroundColor(
+                                // Audit M11: "Remote Failed" is an error, not
+                                // the same orange as "retrying"/"unverified".
+                                remote.isError ? DesignSystem.Colors.error
+                                    : remote.isWarning ? DesignSystem.Colors.warning
+                                    : (remote.isFullyBackedUp ? DesignSystem.Colors.success : DesignSystem.Colors.textSecondary)
+                            )
                     }
                 }
                 let remoteStates = Set(row.remoteBackupPresentations.values.map(\.state))

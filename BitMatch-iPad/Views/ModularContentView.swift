@@ -61,6 +61,10 @@ struct ModularContentView: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 showCancelToast = true
             }
+            // Audit M10: this toast is gone in 1.8s and was otherwise silent.
+            AccessibilityNotification.Announcement(
+                coordinator.currentMode == .compareFolders ? "Compare cancelled" : "Transfer cancelled"
+            ).post()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     showCancelToast = false
@@ -131,6 +135,9 @@ struct HeaderSectionView: View {
                 Image(systemName: "gear")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(.white.opacity(0.7))
+                    // Audit H6: the icon alone was well under 44pt.
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")

@@ -98,29 +98,34 @@ enum DesignSystem {
     // MARK: - Typography
 
     /// Predefined font styles for consistent text rendering.
+    ///
+    /// Audit H11: these were fixed point sizes (9-16pt) with no Dynamic
+    /// Type support. Every case is now built from a text style, so it
+    /// scales with the system text size setting; the weight and design
+    /// stay as before.
     enum Typography {
 
         /// Large title -- app name, primary headings.
         /// Usage: section titles, modal headers.
-        static let title = Font.system(size: 16, weight: .semibold)
+        static let title = Font.system(.subheadline, weight: .semibold)
 
         /// Section heading -- card titles, group headers.
-        static let heading = Font.system(size: 14, weight: .semibold)
+        static let heading = Font.system(.footnote, weight: .semibold)
 
         /// Standard body text.
-        static let body = Font.system(size: 12, weight: .medium)
+        static let body = Font.system(.footnote, weight: .medium)
 
         /// Small supporting text -- labels, timestamps, secondary info.
-        static let caption = Font.system(size: 10, weight: .regular)
+        static let caption = Font.system(.caption2, weight: .regular)
 
         /// Extra-small text for badges, counters, and micro-labels.
-        static let micro = Font.system(size: 9, weight: .semibold)
+        static let micro = Font.system(.caption2, weight: .semibold)
 
         /// Monospaced text for file names, paths, speeds, and technical readouts.
-        static let mono = Font.system(size: 11, weight: .semibold, design: .monospaced)
+        static let mono = Font.system(.footnote, design: .monospaced, weight: .semibold)
 
         /// Small monospaced text for inline file info and progress details.
-        static let monoSmall = Font.system(size: 10, weight: .regular, design: .monospaced)
+        static let monoSmall = Font.system(.caption2, design: .monospaced, weight: .regular)
     }
 
     // MARK: - Spacing

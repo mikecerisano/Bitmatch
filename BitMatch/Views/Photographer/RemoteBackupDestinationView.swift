@@ -235,6 +235,8 @@ struct RemoteBackupDestinationManager: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            // Audit H4: an icon-only Menu has no accessible name otherwise.
+            .accessibilityLabel("More actions for \(profile.name)")
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.55)))
@@ -246,6 +248,9 @@ struct RemoteBackupDestinationManager: View {
             TextField(prompt, text: text)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: text.wrappedValue) { _, _ in validationMessage = nil }
+                // Audit H4: the visible title is a separate Text, so
+                // without this VoiceOver reads only the example text.
+                .accessibilityLabel(label)
         }
     }
 

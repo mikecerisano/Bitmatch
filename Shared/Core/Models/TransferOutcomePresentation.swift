@@ -175,6 +175,19 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         }
     }
 
+    /// Audit H12: one spoken stop per file result ("name, status, size,
+    /// destination") instead of four or five separate VoiceOver stops per
+    /// row, with no column names to say what "80 KB" means.
+    static func accessibilityLabel(for row: ResultRow) -> String {
+        let name = URL(fileURLWithPath: row.path).lastPathComponent
+        let status = statusLabel(for: row.status)
+        let size = ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file)
+        guard let destination = row.destination, !destination.isEmpty else {
+            return "\(name), \(status), \(size)"
+        }
+        return "\(name), \(status), \(size), \(destination)"
+    }
+
     func emptyFileListText(issuesOnly: Bool) -> String {
         if rowCount == 0 {
             return isCancelled
