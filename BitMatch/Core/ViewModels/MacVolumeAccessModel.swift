@@ -38,6 +38,9 @@ final class MacVolumeAccessModel: ObservableObject {
     /// Volume facts for `BackupTargetPolicy`. Tests supply their own, since
     /// their drives are not mounted.
     var volumeFacts: (URL) -> BackupTargetPolicy.VolumeFacts? = BackupTargetPolicy.VolumeFacts.read
+    /// Where last-used backups are kept. Tests supply their own, so they
+    /// never race over the app's list.
+    var lastUsedDefaults: UserDefaults = .standard
 
     private var sourceURL: URL? { shared?.sourceURL }
     private var destinationURLs: [URL] { shared?.destinationURLs ?? [] }
@@ -337,9 +340,13 @@ final class MacVolumeAccessModel: ObservableObject {
     }
     
     // MARK: - Smart Defaults Methods
+    /// Remembers `urls` as last-used backups. A list holding a debug stress
+    /// test folder is not remembered at all, so the backups saved before the
+    /// test are the ones restored at the next launch.
     func saveLastDestinations(_ urls: [URL]) {
+        guard !urls.contains(where: { StressTestScratch.isScratch($0) }) else { return }
         let paths = urls.prefix(maxRememberedDestinations).map { $0.path }
-        UserDefaults.standard.set(paths, forKey: lastDestinationsKey)
+        lastUsedDefaults.set(paths, forKey: lastDestinationsKey)
     }
     
     /// Last time's backups, all or nothing (`LastBackupsRestorePolicy`):
@@ -350,7 +357,7 @@ final class MacVolumeAccessModel: ObservableObject {
     func loadLastDestinations() -> [URL] {
         let facts = volumeFacts
         return LastBackupsRestorePolicy.backupsToRestore(
-            savedPaths: UserDefaults.standard.stringArray(forKey: lastDestinationsKey) ?? [],
+            savedPaths: lastUsedDefaults.stringArray(forKey: lastDestinationsKey) ?? [],
             exists: { FileManager.default.fileExists(atPath: $0) },
             refusal: { BackupTargetPolicy.refusal(for: $0, origin: .restored, source: nil, facts: facts) }
         )
@@ -377,7 +384,7 @@ final class MacVolumeAccessModel: ObservableObject {
     
     // MARK: - Recent Folders Management
     private func saveRecentFolder(_ url: URL?, key: String) {
-        guard let url = url else { return }
+        guard let url = url, !StressTestScratch.isScratch(url) else { return }
         UserDefaults.standard.set(url.path, forKey: key)
         updateRecentFolders()
     }

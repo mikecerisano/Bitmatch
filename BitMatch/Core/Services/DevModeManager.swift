@@ -1,20 +1,19 @@
-// DevModeManager.swift - Development mode testing utilities
-// Security 13: entire class gated to DEBUG builds only
+// DevModeManager.swift - the tools behind the Developer menu
+// Security 13: gated to DEBUG builds. This file is in the Mac target only.
 import Foundation
 import Combine
 import SwiftUI
-
-#if os(macOS)
 import AppKit
-#else
-import UIKit
-#endif
 
 #if DEBUG
-class DevModeManager: ObservableObject {
+final class DevModeManager: ObservableObject {
     static let shared = DevModeManager()
 
-    @Published var isDevModeEnabled: Bool = false {
+    /// Launch argument that turns dev mode on at launch, as the Developer
+    /// menu's Enable Dev Mode does.
+    static let launchArgument = "--dev-mode"
+
+    @Published var isDevModeEnabled: Bool {
         didSet {
             AppLogger.devMode("Mode \(isDevModeEnabled ? "ENABLED" : "DISABLED")")
         }
@@ -23,75 +22,314 @@ class DevModeManager: ObservableObject {
     // Controls whether verbose dev logs are printed from subsystems (e.g., volume scanning)
     @Published var verboseLogs: Bool = false
 
+    /// A stress test is creating its files or running. The Developer menu
+    /// greys its Stress Test items meanwhile.
+    @Published private(set) var isStressTestRunning = false
+
+    /// The main window's coordinator, attached when the window appears, so
+    /// the Developer menu reaches the window it drives.
+    private weak var coordinator: SharedAppCoordinator?
+    /// The backups chosen before the last stress test, put back at the next
+    /// New transfer (the outcome screen lists the test's own backup).
+    private var backupsToPutBack: [URL]?
+    private var putBackSubscription: AnyCancellable?
+
     private init() {
-        self.isDevModeEnabled = false
-        self.verboseLogs = false
+        isDevModeEnabled = Self.isRequestedAtLaunch(arguments: ProcessInfo.processInfo.arguments)
     }
-    
-    private var stressCancellables = Set<AnyCancellable>()
-    
-    // MARK: - Fake Data Generation
-    
-    
-    func generateFakeSource() -> (url: URL, info: FolderInfo) {
+
+    static func isRequestedAtLaunch(arguments: [String]) -> Bool {
+        arguments.contains(launchArgument)
+    }
+
+    @MainActor
+    func attach(_ coordinator: SharedAppCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    // MARK: - Stress test
+
+    enum StressPreset: Sendable { case small, medium, large }
+
+    /// The Developer menu's Stress Test items. They work whenever the menu is
+    /// shown (every DEBUG build), with dev mode on or off, because the test
+    /// copies real files and needs no fake data. Anything that stops it is
+    /// shown through `report`, never dropped silently.
+    @MainActor
+    func runStressTest(
+        preset: StressPreset,
+        report: @escaping @MainActor (String) -> Void = DevModeManager.showStressProblem
+    ) {
+        guard let coordinator else {
+            report("Open the main BitMatch window, then run the stress test again.")
+            return
+        }
+        runStressTest(coordinator: coordinator, preset: preset, report: report)
+    }
+
+    /// Writes a synthetic card to a temp folder, copies it to a temp backup
+    /// through the one Start, and deletes both folders when the run ends.
+    /// The user's backups come back at the next New transfer, and neither
+    /// temp folder is remembered as a last-used backup or a recent folder
+    /// (`StressTestScratch`).
+    @MainActor
+    func runStressTest(
+        coordinator: SharedAppCoordinator,
+        preset: StressPreset,
+        verify: Bool = false,
+        report: @escaping @MainActor (String) -> Void = DevModeManager.showStressProblem
+    ) {
+        guard !isStressTestRunning else {
+            report("A stress test is already running.")
+            return
+        }
+        if let refusal = Self.startRefusal(coordinator) {
+            report(refusal)
+            return
+        }
+        isStressTestRunning = true
+        let previousSource = coordinator.sourceURL
+        let previousBackups = backupsToPutBack
+            ?? coordinator.destinationURLs.filter { !StressTestScratch.isScratch($0) }
+        let previousMode = coordinator.verificationMode
+        let source = StressTestScratch.newFolder(kind: "src")
+        let backup = StressTestScratch.newFolder(kind: "dst")
+
+        Task { @MainActor in
+            defer { self.isStressTestRunning = false }
+            // Folders left behind when the app quit during an earlier run.
+            StressTestScratch.remove(StressTestScratch.leftovers())
+            let size = ByteCountFormatter.string(fromByteCount: Self.estimatedBytes(preset), countStyle: .file)
+            SharedLogger.info("Preparing synthetic dataset (~\(size))…")
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try Self.writeDataset(preset, source: source, backup: backup)
+                }.value
+            } catch {
+                StressTestScratch.remove([source, backup])
+                report("Could not create the test files: \(error.localizedDescription)")
+                return
+            }
+
+            let ran = await Self.startStressTransfer(
+                coordinator: coordinator,
+                source: source,
+                backup: backup,
+                verificationMode: verify ? .standard : .quick,
+                report: report
+            )
+            // Start returns when the run has ended, so the files can go.
+            let leftBehind = StressTestScratch.remove([source, backup])
+            if !leftBehind.isEmpty {
+                SharedLogger.warning("Stress test could not delete: \(leftBehind.map(\.path).joined(separator: ", "))")
+            }
+            coordinator.verificationMode = previousMode
+            if ran {
+                self.putBackAtNextNewTransfer(previousBackups, coordinator: coordinator, testSource: source)
+            } else {
+                if coordinator.sourceURL == source { coordinator.sourceURL = previousSource }
+                Self.putBack(previousBackups, in: coordinator)
+            }
+        }
+    }
+
+    /// Why Start would do nothing whatever the folders: something is
+    /// running, or Setup is on a project (a stress run must never become a
+    /// project ingest).
+    @MainActor
+    static func startRefusal(_ coordinator: SharedAppCoordinator) -> String? {
+        if coordinator.isOperationInProgress || coordinator.queueIsRunning {
+            return "A transfer, compare or queue is running. Run the stress test when it has finished."
+        }
+        if coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart {
+            return "A project card is set up and waiting to start, so Start would copy into that project. Start or clear that card first."
+        }
+        if coordinator.usesProjectWorkflow {
+            return "Setup is on Project transfer, where Start waits for a card to be set up. Choose One-time transfer, then run the stress test again."
+        }
+        return nil
+    }
+
+    /// Chooses the test folders, waits for the readiness rule, then presses
+    /// the one Start (`startCurrentMode`, as the Start button and ⌘R do).
+    /// Returns whether a transfer ran. When none can, `report` gets the
+    /// reason Start would give, once.
+    @MainActor
+    static func startStressTransfer(
+        coordinator: SharedAppCoordinator,
+        source: URL,
+        backup: URL,
+        verificationMode: VerificationMode,
+        readinessTimeout: Duration = .seconds(120),
+        report: @MainActor (String) -> Void
+    ) async -> Bool {
+        coordinator.switchMode(to: .copyAndVerify)
+        coordinator.sourceURL = source
+        for existing in coordinator.destinationURLs {
+            coordinator.removeDestinationFolder(existing)
+        }
+        // The same rule as every other add (`BackupTargetPolicy`).
+        if let refusal = coordinator.addDestination(backup, origin: .userChoice) {
+            report("The test backup was refused: \(refusal)")
+            return false
+        }
+        coordinator.verificationMode = verificationMode
+
+        if let reason = await waitUntilReadyToStart(coordinator, timeout: readinessTimeout) {
+            report("Start is not ready: \(reason)")
+            return false
+        }
+
+        let ran = RunFlag()
+        let watch = coordinator.$isOperationInProgress.sink { if $0 { ran.value = true } }
+        await coordinator.startCurrentMode()
+        watch.cancel()
+        if !ran.value {
+            report("Start did not run the transfer. \(coordinator.operationReadinessAssessment.statusMessage)")
+        }
+        return ran.value
+    }
+
+    /// Nil once Start may run; otherwise why not. Start waits while the
+    /// source is being analysed, so this waits too, up to `timeout`.
+    @MainActor
+    static func waitUntilReadyToStart(
+        _ coordinator: SharedAppCoordinator,
+        timeout: Duration,
+        pollInterval: Duration = .milliseconds(100)
+    ) async -> String? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while true {
+            if let refusal = startRefusal(coordinator) { return refusal }
+            let readiness = coordinator.transferReadiness
+            switch readiness.status {
+            case .ready:
+                return nil
+            case .analysing:
+                guard clock.now < deadline, !Task.isCancelled else {
+                    return "The source was still being analysed after \(timeout)."
+                }
+                try? await Task.sleep(for: pollInterval)
+            case .needsSource:
+                return TransferReadiness.noSourceIssue
+            case .needsDestination:
+                return TransferReadiness.noDestinationIssue
+            case .blocked:
+                return readiness.blockers.joined(separator: "\n")
+            }
+        }
+    }
+
+    /// Shows a stress-test problem as an alert, and logs it.
+    @MainActor
+    static func showStressProblem(_ message: String) {
+        SharedLogger.info("Stress test: \(message)")
+        Task { await MacOSPlatformManager.shared.presentAlert(title: "Stress test did not start", message: message) }
+    }
+
+    /// Replaces the stress test's backup with `backups`, through the same
+    /// rule as any other add.
+    @MainActor
+    static func putBack(_ backups: [URL], in coordinator: SharedAppCoordinator) {
+        for scratch in coordinator.destinationURLs where StressTestScratch.isScratch(scratch) {
+            coordinator.removeDestinationFolder(scratch)
+        }
+        for url in backups {
+            coordinator.addDestination(url, origin: .userChoice)
+        }
+    }
+
+    /// The outcome screen lists the test's own backup, so the user's come
+    /// back once the source changes (New transfer clears it).
+    @MainActor
+    private func putBackAtNextNewTransfer(_ backups: [URL], coordinator: SharedAppCoordinator, testSource: URL) {
+        backupsToPutBack = backups
+        putBackSubscription = coordinator.$sourceURL
+            .dropFirst()
+            .first { $0 != testSource }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak coordinator] _ in
+                MainActor.assumeIsolated {
+                    if let coordinator { Self.putBack(backups, in: coordinator) }
+                    self?.backupsToPutBack = nil
+                    self?.putBackSubscription = nil
+                }
+            }
+    }
+
+    private final class RunFlag { var value = false }
+
+    private static func estimatedBytes(_ preset: StressPreset) -> Int64 {
+        let shape = datasetShape(preset)
+        return Int64(shape.dirCount * shape.filesPerDir * shape.smallSize + shape.largeFiles * shape.largeSize)
+    }
+
+    /// Roughly 8 MB, 100 MB and 300 MB.
+    private static func datasetShape(
+        _ preset: StressPreset
+    ) -> (dirCount: Int, filesPerDir: Int, smallSize: Int, largeFiles: Int, largeSize: Int) {
+        let small = 4 * 1024
+        let large = 1024 * 1024
+        switch preset {
+        case .small: return (20, 50, small, 4, large)
+        case .medium: return (40, 200, small, 70, large)
+        case .large: return (60, 300, small, 230, large)
+        }
+    }
+
+    /// Creates the source with its files and the empty backup. Throws on the
+    /// first write that fails, so a half-written card is never copied.
+    private static func writeDataset(_ preset: StressPreset, source: URL, backup: URL) throws {
+        let shape = datasetShape(preset)
+        let fm = FileManager.default
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+        // A pattern rather than zeros, so nothing compresses them away.
+        var dataSmall = Data(count: shape.smallSize)
+        dataSmall.withUnsafeMutableBytes { buf in
+            for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i) }
+        }
+        var dataLarge = Data(count: shape.largeSize)
+        dataLarge.withUnsafeMutableBytes { buf in
+            for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i & 0xFF) }
+        }
+        for d in 1...shape.dirCount {
+            let dirURL = source.appendingPathComponent(String(format: "dir%03d", d), isDirectory: true)
+            try fm.createDirectory(at: dirURL, withIntermediateDirectories: true)
+            for f in 1...shape.filesPerDir {
+                try dataSmall.write(to: dirURL.appendingPathComponent(String(format: "file%04d.bin", f)), options: .atomic)
+            }
+        }
+        for i in 1...shape.largeFiles {
+            try dataLarge.write(to: source.appendingPathComponent(String(format: "large%03d.bin", i)), options: .atomic)
+        }
+    }
+
+    // MARK: - Fill Test Data (made-up /Volumes paths, for layout only)
+
+    private func generateFakeSource() -> (url: URL, info: FolderInfo) {
         let cameras = ["A_CAM", "B_CAM", "C_CAM", "MAIN_CAM", "BACKUP_CAM"]
-        let selectedCamera = cameras.randomElement()!
-        
-        // Realistic camera models with their typical file patterns
-        let cameraModels = [
-            ("Sony A7S III", ["C0001", "C0002", "C0003"], ["MP4", "XML"]),
-            ("Sony FX6", ["A001_C001", "A001_C002", "A002_C001"], ["MOV", "XML"]),
-            ("Canon R5C", ["MVI_", "IMG_"], ["MOV", "CR3", "JPG"]),
-            ("ARRI Alexa Mini", ["A001_C001", "A002_C001"], ["MOV", "ARI"]),
-            ("RED Komodo", ["A001_C001", "A002_C001"], ["R3D", "MOV"]),
-            ("Blackmagic Pocket 6K", ["BMPCC", "Clip_"], ["MOV", "BRAW"]),
-            ("Panasonic GH6", ["P", "DSC"], ["MOV", "MP4", "RW2"]),
-            ("Canon C70", ["MVI_", "Canon_"], ["MP4", "MOV"])
-        ]
-        
-        _ = cameraModels.randomElement()!
-        
-        // Just create fake URL - no actual directory needed for UI testing
-        let fakeURL = URL(fileURLWithPath: "/Volumes/\(selectedCamera)")
-        let fileCount = Int.random(in: 150...450)
-        let totalSize = Int64.random(in: 2_000_000_000...8_000_000_000) // 2-8 GB
-        
-        #if os(macOS)
-        let cameraIcon = NSImage(systemSymbolName: "camera.fill", accessibilityDescription: nil) ?? NSImage()
-        #else
-        let cameraIcon = UIImage(systemName: "camera.fill") ?? UIImage()
-        #endif
-        
+        let fakeURL = URL(fileURLWithPath: "/Volumes/\(cameras.randomElement()!)")
         let fakeInfo = FolderInfo(
             url: fakeURL,
-            fileCount: fileCount,
-            totalSize: totalSize,
+            fileCount: Int.random(in: 150...450),
+            totalSize: Int64.random(in: 2_000_000_000...8_000_000_000), // 2-8 GB
             lastModified: Date(),
             isInternalDrive: false
         )
-        
         return (fakeURL, fakeInfo)
     }
-    
-    func generateFakeDestinations() -> [(url: URL, info: FolderInfo)] {
+
+    private func generateFakeDestinations() -> [(url: URL, info: FolderInfo)] {
         let destinations = [
-            ("Samsung T7 NVMe", Int64.random(in: 500_000_000_000...2_000_000_000_000)), // 500GB-2TB
-            ("WD Black SSD", Int64.random(in: 250_000_000_000...1_000_000_000_000)),    // 250GB-1TB  
-            ("Seagate Backup", Int64.random(in: 1_000_000_000_000...4_000_000_000_000)), // 1TB-4TB
-            ("LaCie HDD", Int64.random(in: 2_000_000_000_000...8_000_000_000_000))      // 2TB-8TB
+            ("Samsung T7 NVMe", Int64.random(in: 500_000_000_000...2_000_000_000_000)),
+            ("WD Black SSD", Int64.random(in: 250_000_000_000...1_000_000_000_000)),
+            ("Seagate Backup", Int64.random(in: 1_000_000_000_000...4_000_000_000_000)),
+            ("LaCie HDD", Int64.random(in: 2_000_000_000_000...8_000_000_000_000))
         ]
-        
-        let selectedCount = Int.random(in: 2...4)
-        return destinations.prefix(selectedCount).map { name, capacity in
-            // Just create fake URL - no actual directory needed for UI testing
+        return destinations.prefix(Int.random(in: 2...4)).map { name, capacity in
             let fakeURL = URL(fileURLWithPath: "/Volumes/\(name)")
-            
-            #if os(macOS)
-            let driveIcon = NSImage(systemSymbolName: "externaldrive.fill", accessibilityDescription: nil) ?? NSImage()
-            #else
-            let driveIcon = UIImage(systemName: "externaldrive.fill") ?? UIImage()
-            #endif
-            
             let fakeInfo = FolderInfo(
                 url: fakeURL,
                 fileCount: 0, // Destinations start empty
@@ -102,366 +340,24 @@ class DevModeManager: ObservableObject {
             return (fakeURL, fakeInfo)
         }
     }
-    
-    // MARK: - Fake Data Population
-    
-    #if os(macOS)
-    enum StressPreset { case small, medium, large }
 
-    @MainActor
-    func runStressTest(coordinator: SharedAppCoordinator, preset: StressPreset, verify: Bool = false, cleanupAfter: Bool = true) {
-        guard isDevModeEnabled else {
-            SharedLogger.debug("Stress test skipped: Dev Mode disabled")
-            return
-        }
-        guard !coordinator.isOperationInProgress else {
-            SharedLogger.debug("Stress test skipped: operation already in progress")
-            return
-        }
-        
-        let fm = FileManager.default
-        let tmp = fm.temporaryDirectory
-        let src = tmp.appendingPathComponent("bitmatch_stress_src_\(UUID().uuidString)", isDirectory: true)
-        let dst = tmp.appendingPathComponent("bitmatch_stress_dst_\(UUID().uuidString)", isDirectory: true)
-        do {
-            try fm.createDirectory(at: src, withIntermediateDirectories: true)
-            try fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        } catch {
-            SharedLogger.error("Failed to create temp dirs: \(error)")
-            return
-        }
-        
-        // Preset configurations targeting approximate totals: ~10MB, ~100MB, ~300MB
-        let dirCount: Int
-        let filesPerDir: Int
-        let smallSize = 4 * 1024 // 4KB tiny files
-        let largeFiles: Int
-        let largeSize: Int
-        switch preset {
-        case .small:
-            dirCount = 20; filesPerDir = 50; largeFiles = 4; largeSize = 1 * 1024 * 1024 // ~3.8MB + 4MB
-        case .medium:
-            dirCount = 40; filesPerDir = 200; largeFiles = 70; largeSize = 1 * 1024 * 1024 // ~32MB + 70MB
-        case .large:
-            dirCount = 60; filesPerDir = 300; largeFiles = 230; largeSize = 1 * 1024 * 1024 // ~70MB + 230MB
-        }
-        let estimatedBytes = Int64(dirCount * filesPerDir * smallSize + largeFiles * largeSize)
-        SharedLogger.info("Preparing synthetic dataset (~\(ByteCountFormatter.string(fromByteCount: estimatedBytes, countStyle: .file))) …")
-        
-        // Generate files off the main thread
-        Task.detached(priority: .userInitiated) {
-            var dataSmall = Data(count: smallSize)
-            var dataLarge = Data(count: largeSize)
-            // Fill with a simple pattern to avoid compressible zeros
-            dataSmall.withUnsafeMutableBytes { buf in
-                for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i) }
-            }
-            dataLarge.withUnsafeMutableBytes { buf in
-                for i in 0..<buf.count { buf[i] = UInt8(truncatingIfNeeded: i & 0xFF) }
-            }
-            
-            let fm = FileManager.default
-            // Create directories and small files
-            for d in 1...dirCount {
-                let dirURL = src.appendingPathComponent(String(format: "dir%03d", d), isDirectory: true)
-                try? fm.createDirectory(at: dirURL, withIntermediateDirectories: true)
-                for f in 1...filesPerDir {
-                    let fileURL = dirURL.appendingPathComponent(String(format: "file%04d.bin", f))
-                    try? dataSmall.write(to: fileURL, options: .atomic)
-                }
-            }
-            // Add a handful of larger files at root
-            for i in 1...largeFiles {
-                let f = src.appendingPathComponent(String(format: "large%03d.bin", i))
-                try? dataLarge.write(to: f, options: .atomic)
-            }
-            
-            await MainActor.run {
-                // Wire up coordinator selections
-                // The shared scanner reports the synthetic folder's real size.
-                coordinator.sourceURL = src
-                coordinator.replaceDestinations(with: [dst])
-                coordinator.verificationMode = verify ? .standard : .quick
-                coordinator.switchMode(to: .copyAndVerify)
-                
-                // Subscribe for cleanup on completion/cancel
-                self.stressCancellables.removeAll()
-                coordinator.operationStatePublisher
-                    .receive(on: DispatchQueue.main)
-                    .sink { [weak self] state in
-                        guard let self = self else { return }
-                        switch state {
-                        case .completed, .failed, .cancelled:
-                            if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
-                            self.stressCancellables.removeAll()
-                        default:
-                            break
-                        }
-                    }
-                    .store(in: &self.stressCancellables)
-                // Also observe shared-core completion broadcast
-                NotificationCenter.default.publisher(for: .operationCompleted)
-                    .receive(on: DispatchQueue.main)
-                    .sink { [weak self] _ in
-                        guard let self = self else { return }
-                        if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
-                        self.stressCancellables.removeAll()
-                    }
-                    .store(in: &self.stressCancellables)
-                NotificationCenter.default.publisher(for: .operationCancelledByUser)
-                    .receive(on: DispatchQueue.main)
-                    .sink { [weak self] _ in
-                        guard let self = self else { return }
-                        if cleanupAfter { self.cleanupSynthetic(at: src, and: dst) }
-                        self.stressCancellables.removeAll()
-                    }
-                    .store(in: &self.stressCancellables)
-                
-                // Start the transfer once the source scan is done: Start
-                // waits for it (`isAnalysingSource`), so starting at once
-                // was always refused, silently, since the one readiness rule.
-                Task { @MainActor in
-                    var waits = 0
-                    while coordinator.isAnalysingSource && waits < 600 {
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-                        waits += 1
-                    }
-                    if !coordinator.canStartOperation {
-                        let issues = coordinator.operationReadinessAssessment.issues
-                        SharedLogger.info("Stress test cannot start: \(issues.joined(separator: "; "))")
-                    }
-                    await coordinator.startCurrentMode()
-                }
-            }
-        }
-    }
-
-    // Backwards compatibility shim for prior call sites
-    @MainActor
-    func runStressTest(coordinator: SharedAppCoordinator, smallFootprint: Bool = true) {
-        let preset: StressPreset = smallFootprint ? .small : .medium
-        runStressTest(coordinator: coordinator, preset: preset, verify: false, cleanupAfter: true)
-    }
-    
-    @MainActor
-    private func cleanupSynthetic(at src: URL, and dst: URL) {
-        SharedLogger.info("Cleaning up synthetic data…")
-        let fm = FileManager.default
-        try? fm.removeItem(at: src)
-        try? fm.removeItem(at: dst)
-        SharedLogger.info("Cleanup complete.")
-    }
-    
     @MainActor func fillTestDataOnly(coordinator: SharedAppCoordinator) {
         SharedLogger.debug("Fill Test Data called - Dev Mode: \(isDevModeEnabled)")
-        
+
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
-        
-        // Set fake source. Folder info comes from the shared scanner, so the
-        // generated info is only logged.
+
+        // Folder info comes from the shared scanner, so the generated info
+        // is only logged.
         coordinator.sourceURL = sourceURL
         SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
-
-        // Set fake destinations
         coordinator.replaceDestinations(with: destinations.map { $0.url })
-
-        // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.2) {
-                // We can't easily set individual destination info, so we'll just log it
-                SharedLogger.debug("Fake destination \(index): \(info.formattedSize)")
-            }
+            SharedLogger.debug("Fake destination \(index): \(info.formattedSize)")
         }
 
         // Switch to copy mode but don't start operation
         coordinator.switchMode(to: .copyAndVerify)
-    }
-    #endif
-    
-    // MARK: - iPad Test Data Population
-    
-    #if os(iOS)
-    @MainActor func fillTestDataOnly(sourceFolder: inout URL?, destinationFolders: inout [URL]) {
-        SharedLogger.debug("Fill Test Data called for iPad - Dev Mode: \(isDevModeEnabled)")
-        
-        let (sourceURL, sourceInfo) = generateFakeSource()
-        let destinations = generateFakeDestinations()
-        
-        // Set fake source
-        sourceFolder = sourceURL
-        
-        // Set fake destinations
-        destinationFolders = destinations.map { $0.url }
-
-        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
-        for (index, (_, info)) in destinations.enumerated() {
-            SharedLogger.debug("Fake destination \(index): \(info.name) - \(info.formattedSize)")
-        }
-    }
-    
-    // MARK: - Shared Coordinator Test Data Population (for iPad)
-    
-    @MainActor func fillTestDataOnly(coordinator: SharedAppCoordinator) {
-        SharedLogger.debug("Fill Test Data called for SharedAppCoordinator - Dev Mode: \(isDevModeEnabled)")
-
-        guard isDevModeEnabled else {
-            SharedLogger.debug("Dev mode is disabled, not filling fake data")
-            return
-        }
-        
-        let (sourceURL, sourceInfo) = generateFakeSource()
-        let destinations = generateFakeDestinations()
-        
-        // Set fake source
-        coordinator.sourceURL = sourceURL
-        coordinator.sourceFolderInfo = sourceInfo
-        SharedLogger.debug("Set source URL: \(sourceURL)")
-        SharedLogger.debug("Source URL is now: \(coordinator.sourceURL?.path ?? "nil")")
-
-        // Set fake destinations
-        coordinator.replaceDestinations(with: destinations.map { $0.url })
-        SharedLogger.debug("Set \(destinations.count) destinations")
-        SharedLogger.debug("Destinations are now: \(coordinator.destinationURLs.map { $0.path })")
-        
-        // Set fake camera detection
-        let cameraName = "Sony A7S III"
-        coordinator.detectedCamera = CameraCard(
-            name: cameraName,
-            manufacturer: "Sony",
-            model: "A7S III",
-            fileCount: sourceInfo.fileCount,
-            totalSize: sourceInfo.totalSize,
-            detectionConfidence: 0.95,
-            metadata: [
-                "volumeName": sourceURL.lastPathComponent,
-                "path": sourceURL.path
-            ]
-        )
-
-        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
-        for (index, (_, info)) in destinations.enumerated() {
-            SharedLogger.debug("Fake destination \(index): \(info.name) - \(info.formattedSize)")
-        }
-    }
-    #endif
-}
-
-// MARK: - Fake Transfer Progress Simulation
-
-extension DevModeManager {
-    
-    #if os(macOS)
-    @MainActor func simulateRealisticTransferProgress(coordinator: SharedAppCoordinator) {
-        // This will be called during fake transfers to provide realistic progress updates
-        // The actual FileOperationsService will handle the fake progress in dev mode
-        
-        guard coordinator.isOperationInProgress else { return }
-        
-        let totalFiles = coordinator.progressPresentation.fileCountTotal
-        let filesPerSecond: Double = 2.5 // Realistic speed for large video files
-        let totalDurationSeconds = Double(totalFiles) / filesPerSecond
-
-        SharedLogger.debug("Simulating transfer: \(totalFiles) files over \(String(format: "%.1f", totalDurationSeconds))s")
-    }
-    #endif
-    
-    // MARK: - Fake Progress Simulation
-    
-    @MainActor
-    static func simulateFakeCopyProgress(
-        totalFiles: Int,
-        onProgress: @escaping @MainActor (String, Int64) -> Void,
-        onError: @escaping @MainActor (String, Error) -> Void
-    ) async throws {
-        
-        // Calculate timing to make the transfer last exactly 1 minute
-        let targetDurationSeconds: Double = 60.0 // 1 minute
-        let filesPerSecond = Double(totalFiles) / targetDurationSeconds
-        let interval = 1.0 / filesPerSecond
-
-        SharedLogger.debug("Fake transfer will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
-        
-        let fakeFileNames = [
-            "DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00004.ARW", "DSC00005.ARW",
-            "C0001.MP4", "C0002.MP4", "C0003.MP4", "C0004.MP4", "C0005.MP4",
-            "DSC00006.JPG", "DSC00007.JPG", "DSC00008.JPG", "DSC00009.JPG", "DSC00010.JPG",
-            "A001_C001_230825_R4K8.MOV", "A001_C002_230825_R4K8.MOV", "A001_C003_230825_R4K8.MOV",
-            "PROXY001.MP4", "PROXY002.MP4", "PROXY003.MP4",
-            "AUDIO_CH1.WAV", "AUDIO_CH2.WAV", "SYNC_DATA.XML", "METADATA.XML"
-        ]
-        
-        for i in 0..<totalFiles {
-            try Task.checkCancellation()
-            
-            // Simulate file processing time
-            try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            
-            // Random file name and size
-            let fileName = fakeFileNames.randomElement() ?? "FILE_\(String(format: "%03d", i)).RAF"
-            let fileSize = Int64.random(in: 15_000_000...85_000_000) // 15-85 MB per file (realistic for video)
-            
-            // Occasionally simulate an error (1% chance)
-            if Double.random(in: 0...1) < 0.01 {
-                let error = NSError(domain: "FakeTransferError", code: 1001, userInfo: [
-                    NSLocalizedDescriptionKey: "Simulated transfer error for testing"
-                ])
-                onError(fileName, error)
-            } else {
-                onProgress(fileName, fileSize)
-            }
-
-            SharedLogger.debug("Fake progress: \(i+1)/\(totalFiles) - \(fileName)")
-        }
-    }
-    
-    @MainActor
-    static func simulateFakeVerifyProgress(
-        totalFiles: Int,
-        sourceURL: URL,
-        destURL: URL,
-        onProgress: @escaping @MainActor (String) -> Void,
-        onResult: @escaping @MainActor (ResultRow) -> Void
-    ) async throws {
-        
-        // Verification is typically faster than copy, aim for 30 seconds
-        let targetDurationSeconds: Double = 30.0 // 30 seconds for verification
-        let filesPerSecond = Double(totalFiles) / targetDurationSeconds
-        let interval = 1.0 / filesPerSecond
-
-        SharedLogger.debug("Fake verification will take \(targetDurationSeconds)s for \(totalFiles) files (\(String(format: "%.2f", filesPerSecond)) files/sec)")
-        
-        let fakeFileNames = [
-            "DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00004.ARW", "DSC00005.ARW",
-            "C0001.MP4", "C0002.MP4", "C0003.MP4", "C0004.MP4", "C0005.MP4",
-            "DSC00006.JPG", "DSC00007.JPG", "DSC00008.JPG", "DSC00009.JPG", "DSC00010.JPG",
-            "A001_C001_230825_R4K8.MOV", "A001_C002_230825_R4K8.MOV", "A001_C003_230825_R4K8.MOV",
-            "PROXY001.MP4", "PROXY002.MP4", "PROXY003.MP4",
-            "AUDIO_CH1.WAV", "AUDIO_CH2.WAV", "SYNC_DATA.XML", "METADATA.XML"
-        ]
-        
-        for i in 0..<totalFiles {
-            try Task.checkCancellation()
-            
-            try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            
-            let fileName = fakeFileNames.randomElement() ?? "FILE_\(String(format: "%03d", i)).RAF"
-            onProgress(fileName)
-            
-            // 99% files match, 1% have issues for testing
-            let statusText = Double.random(in: 0...1) < 0.99 ? "Match" : "Content Mismatch"
-            let fileSize = Int64.random(in: 1000...50_000_000) // Random file size for testing
-            let result = ResultRow(
-                path: fileName,
-                status: statusText,
-                size: fileSize,
-                checksum: statusText == "Match" ? "abc123def456" : nil,
-                destination: nil
-            )
-            onResult(result)
-
-            SharedLogger.debug("Fake verify: \(i+1)/\(totalFiles) - \(fileName) (\(statusText))")
-        }
     }
 }
 #else

@@ -134,12 +134,14 @@ struct BitMatchApp: App {
                 
 
                 Divider()
-                Button("Stress Test (Small)") { NotificationCenter.default.post(name: .runStressTestSmall, object: nil) }
-                    .disabled(!devModeManager.isDevModeEnabled)
-                Button("Stress Test (Medium)") { NotificationCenter.default.post(name: .runStressTestMedium, object: nil) }
-                    .disabled(!devModeManager.isDevModeEnabled)
-                Button("Stress Test (Large)") { NotificationCenter.default.post(name: .runStressTestLarge, object: nil) }
-                    .disabled(!devModeManager.isDevModeEnabled)
+                // Real files in temp folders, no fake data: available
+                // whenever this menu is, with dev mode on or off.
+                Button("Stress Test (Small)") { devModeManager.runStressTest(preset: .small) }
+                    .disabled(devModeManager.isStressTestRunning)
+                Button("Stress Test (Medium)") { devModeManager.runStressTest(preset: .medium) }
+                    .disabled(devModeManager.isStressTestRunning)
+                Button("Stress Test (Large)") { devModeManager.runStressTest(preset: .large) }
+                    .disabled(devModeManager.isStressTestRunning)
 
                 Divider()
                 Toggle("Verbose Dev Logs", isOn: $devModeManager.verboseLogs)

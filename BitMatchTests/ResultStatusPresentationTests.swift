@@ -57,8 +57,8 @@ final class ResultStatusPresentationTests: XCTestCase {
             ("✅ Copied - not verified", .unverified),
             ("✅ Unverified", .unverified),
             ("✅", .unverified),
-            ("Match", .neutral),              // DevModeManager: no ✅, so not a success
-            ("Content Mismatch", .warning),   // DevModeManager
+            ("Match", .neutral),              // bare text (the old fake verify): no ✅, so not a success
+            ("Content Mismatch", .warning),   // bare text (the old fake verify)
             ("Size Mismatch", .warning),
             ("Missing in Destination", .warning),
             ("❌ Checksum Mismatch", .failure),

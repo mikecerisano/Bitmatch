@@ -108,7 +108,10 @@ struct MacMainView: View {
             .onAppear {
                 restoreWindowFrame()
                 updateWindowSize(width: compactWindowWidth, height: idealWindowHeight)
-
+#if DEBUG
+                // The Developer menu's stress test drives this window.
+                DevModeManager.shared.attach(coordinator)
+#endif
             }
             .alert("Error", isPresented: $errorHandler.showErrorAlert) {
                 if errorHandler.currentError?.canRetry == true {
@@ -558,16 +561,6 @@ struct MacMainView: View {
             .onReceive(NotificationCenter.default.publisher(for: .fillTestData)) { _ in
                 DevModeManager.shared.fillTestDataOnly(coordinator: coordinator)
             }
-            // Legacy stress notification removed; use preset-specific hooks below
-            .onReceive(NotificationCenter.default.publisher(for: .runStressTestSmall)) { _ in
-                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .small)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .runStressTestMedium)) { _ in
-                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .medium)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .runStressTestLarge)) { _ in
-                DevModeManager.shared.runStressTest(coordinator: coordinator, preset: .large)
-            }
 #endif
             .onReceive(NotificationCenter.default.publisher(for: .clearTestData)) { _ in
                 coordinator.resetForNewOperation()
@@ -587,9 +580,6 @@ extension Notification.Name {
     // Developer mode notifications
     static let fillTestData = Notification.Name("fillTestData")
     static let clearTestData = Notification.Name("clearTestData")
-    static let runStressTestSmall = Notification.Name("runStressTestSmall")
-    static let runStressTestMedium = Notification.Name("runStressTestMedium")
-    static let runStressTestLarge = Notification.Name("runStressTestLarge")
     static let dropRejected = Notification.Name("dropRejected")
     // operationCancelledByUser is defined in Shared/Core/Models/SharedModels.swift
 }
