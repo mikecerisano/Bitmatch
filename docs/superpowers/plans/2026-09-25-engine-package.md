@@ -550,7 +550,17 @@ Legend per step: **Files** moved/changed · **Access** changes · **Compiles** w
 - **One `@Observable` app model** (thesis target shape). After C30; not planned here.
 - **PDF on iPad and iPhone** (THESIS Decision: later, low priority). C15 makes it a matter of passing `pdf: Data` from an iOS renderer.
 
-## 12. Open questions for Mike
+## 12. Answers (Mike delegated these to the recommendations, 2026-09-25)
+
+1. **`ResultsOverflowService`:** delete it (C04).
+2. **Engine ETA:** one estimator everywhere. Drop `OperationProgress.timeRemaining` from the engine and feed the iOS Live Activity from `ProgressPresentationModel`'s measured estimate.
+3. **Made-up evidence numbers:** done before this plan runs, on main in a1a0bec and 30ef3ef. The JSON omits copy/verify durations and peak speed. The CSV's per-file Timestamp is empty, with the measured start and finish in the summary. Matches count verified files only. No golden-file change is left for this plan.
+4. **Project store (Core Data → JSON):** keep on the list, after this plan.
+5. **Camera detection:** stays in the app, not the engine package.
+6. **C18:** one path-containment rule everywhere (it can only refuse more). `SafetyValidator.pathIsWithin` was fixed for the `/private` alias in 31bc940; unify on that behaviour.
+7. **Imports:** keep the `@_exported import BitMatchEngine` shim during the migration; replace it with explicit imports as the final commit.
+
+## 12a. Original questions
 
 1. **`ResultsOverflowService`.** It is written and never read; `LiveResultsFeed` already holds every row in memory. Delete it (C04, recommended)?
 2. **Engine ETA.** After the estimate-from-speed decision, `OperationProgress.timeRemaining` feeds only the iOS Live Activity. Drop it from the engine and feed the Live Activity from `ProgressPresentationModel`'s measured estimate (one estimator everywhere, recommended), or keep one copy in `RunLedger`?
