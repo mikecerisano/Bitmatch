@@ -83,28 +83,47 @@ extension UnreadableMediaNotice.Media {
 final class UnreadableMediaMonitor: ObservableObject {
     @Published private(set) var notices: [UnreadableMediaNotice] = []
     private var session: DASession?
+    /// What Disk Arbitration holds as the callback context: a retained box
+    /// with a weak reference. A monitor freed without `stop()` (a torn-down
+    /// view) is then ignored, instead of Disk Arbitration calling into freed
+    /// memory on the next disk event, which corrupted the heap.
+    private var context: Unmanaged<CallbackBox>?
+
+    private final class CallbackBox {
+        weak var monitor: UnreadableMediaMonitor?
+        init(_ monitor: UnreadableMediaMonitor) { self.monitor = monitor }
+    }
+
+    private static let appeared: DADiskAppearedCallback = { disk, context in
+        guard let context, let description = DADiskCopyDescription(disk) as? [String: Any],
+              let media = UnreadableMediaNotice.Media(description: description) else { return }
+        let box = Unmanaged<CallbackBox>.fromOpaque(context).takeUnretainedValue()
+        MainActor.assumeIsolated { box.monitor?.diskAppeared(media) }
+    }
+
+    private static let disappeared: DADiskDisappearedCallback = { disk, context in
+        guard let context, let name = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
+        let box = Unmanaged<CallbackBox>.fromOpaque(context).takeUnretainedValue()
+        MainActor.assumeIsolated { box.monitor?.diskDisappeared(name) }
+    }
 
     func start() {
         guard session == nil, let session = DASessionCreate(kCFAllocatorDefault) else { return }
         self.session = session
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        DARegisterDiskAppearedCallback(session, nil, { disk, context in
-            guard let context, let description = DADiskCopyDescription(disk) as? [String: Any],
-                  let media = UnreadableMediaNotice.Media(description: description) else { return }
-            let monitor = Unmanaged<UnreadableMediaMonitor>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated { monitor.diskAppeared(media) }
-        }, context)
-        DARegisterDiskDisappearedCallback(session, nil, { disk, context in
-            guard let context, let name = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
-            let monitor = Unmanaged<UnreadableMediaMonitor>.fromOpaque(context).takeUnretainedValue()
-            MainActor.assumeIsolated { monitor.diskDisappeared(name) }
-        }, context)
+        let context = Unmanaged.passRetained(CallbackBox(self))
+        self.context = context
+        DARegisterDiskAppearedCallback(session, nil, Self.appeared, context.toOpaque())
+        DARegisterDiskDisappearedCallback(session, nil, Self.disappeared, context.toOpaque())
         DASessionScheduleWithRunLoop(session, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
     }
 
     func stop() {
-        guard let session else { return }
+        guard let session, let context else { return }
+        DAUnregisterCallback(session, unsafeBitCast(Self.appeared, to: UnsafeMutableRawPointer.self), context.toOpaque())
+        DAUnregisterCallback(session, unsafeBitCast(Self.disappeared, to: UnsafeMutableRawPointer.self), context.toOpaque())
         DASessionUnscheduleFromRunLoop(session, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        context.release()
+        self.context = nil
         self.session = nil
         notices = []
     }
