@@ -57,13 +57,14 @@ enum ReportPDFRenderer {
             return Data()
         }
 
-        // Render each page (in reverse order to get correct page sequence).
-        for pageIndex in (0..<pageCount).reversed() {
+        // CoreGraphics' origin is bottom-left, so the view's top sits at
+        // y = totalHeight. Page N shows the band N page-heights below that
+        // top; the last page is short and its gap falls at the bottom.
+        for pageIndex in 0..<pageCount {
             context.beginPDFPage(nil)
             context.saveGState()
 
-            // Translate to show the correct portion of the view.
-            let yOffset = CGFloat(pageIndex) * pageHeight
+            let yOffset = totalHeight - CGFloat(pageIndex + 1) * pageHeight
             context.translateBy(x: 0, y: -yOffset)
 
             renderer.render { _, renderFunc in
