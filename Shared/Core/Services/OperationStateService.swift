@@ -11,7 +11,9 @@ import UIKit
 class OperationStateService: ObservableObject {
     
     // MARK: - Published State
-    @Published var currentState: OperationState = .idle
+    /// The one stored state of the current operation. `SharedAppCoordinator.operationState`
+    /// reads and writes this; there is no second copy.
+    @Published private(set) var currentState: OperationState = .notStarted
     @Published var pauseResumeCapabilities = PauseResumeCapabilities()
     @Published var savedOperations: [SavedOperationState] = []
     
@@ -49,6 +51,27 @@ class OperationStateService: ObservableObject {
         return true
     }
     
+    /// Wired by the coordinator to its real pause, so an automatic pause
+    /// stops the engine instead of only relabelling the screen.
+    var automaticPauseHandler: ((PauseInfo.PauseReason) -> Void)?
+
+    /// Ask for a pause the user did not request (low battery). Without a
+    /// handler nothing can pause the engine, so nothing is claimed.
+    func requestAutomaticPause(reason: PauseInfo.PauseReason) {
+        guard currentState.canPause else { return }
+        guard let automaticPauseHandler else {
+            SharedLogger.info("StateService: automatic pause (\(reason)) skipped; nothing can pause the engine", category: .transfer)
+            return
+        }
+        automaticPauseHandler(reason)
+    }
+
+    /// Record a state reported by the coordinator or the engine.
+    func adopt(_ newState: OperationState) {
+        stateMachine.adopt(newState)
+        currentState = newState
+    }
+
     // MARK: - Operation Lifecycle
     
     func startOperation(id: UUID, sourceURL: URL, destinationURLs: [URL], totalFiles: Int, totalBytes: Int64, verificationMode: String? = nil, mode: String? = nil) {
@@ -137,8 +160,20 @@ class OperationStateService: ObservableObject {
         return true
     }
     
-    func completeOperation(success: Bool, message: String) {
-        guard let operationId = currentOperationId else { return }
+    /// The current operation's ID if `operationId` names it (or is nil,
+    /// meaning "whatever is running"). A stale operation winding down after
+    /// a newer one started gets nil, so it cannot end the newer one.
+    private func currentOperation(matching operationId: UUID?) -> UUID? {
+        guard let current = currentOperationId else { return nil }
+        if let operationId, operationId != current {
+            SharedLogger.warning("StateService: ignored lifecycle call from stale operation \(operationId)", category: .transfer)
+            return nil
+        }
+        return current
+    }
+
+    func completeOperation(operationId requested: UUID? = nil, success: Bool, message: String) {
+        guard let operationId = currentOperation(matching: requested) else { return }
 
         // Clean up any saved state
         if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
@@ -155,8 +190,8 @@ class OperationStateService: ObservableObject {
 
     /// Error-path terminal state. Distinct from cancellation so a failed
     /// operation is never reported as cancelled (or vice versa).
-    func failOperation() {
-        guard let operationId = currentOperationId else { return }
+    func failOperation(operationId requested: UUID? = nil) {
+        guard let operationId = currentOperation(matching: requested) else { return }
 
         applyTransition(.failed)
 
@@ -170,8 +205,8 @@ class OperationStateService: ObservableObject {
         SharedLogger.warning("StateService: failed and cleaned up", category: .transfer)
     }
 
-    func cancelOperation() {
-        guard let operationId = currentOperationId else { return }
+    func cancelOperation(operationId requested: UUID? = nil) {
+        guard let operationId = currentOperation(matching: requested) else { return }
         
         applyTransition(.cancelled)
         
@@ -235,31 +270,18 @@ class OperationStateService: ObservableObject {
             object: nil
         )
         #endif
-        
-        #if canImport(AppKit)
-        // macOS sleep/wake notifications
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemWillSleep),
-            name: NSWorkspace.willSleepNotification,
-            object: nil
-        )
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemDidWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
-        #endif
+
     }
     
     // MARK: - System Event Handlers
     
     #if canImport(UIKit)
     @objc private func appDidEnterBackground() {
+        // Copying continues on background time (IOSBackgroundTaskService);
+        // an interrupted run is recovered on relaunch. Claiming a pause here
+        // would show "paused" while the engine keeps copying.
         if currentState.canPause {
-            pauseOperation(reason: .backgrounded, currentProgress: nil)
+            SharedLogger.info("StateService: app backgrounded during an operation", category: .transfer)
         }
     }
     
@@ -273,25 +295,12 @@ class OperationStateService: ObservableObject {
     @objc private func batteryLevelChanged() {
         let batteryLevel = UIDevice.current.batteryLevel
         if batteryLevel < 0.15 && batteryLevel > 0 && currentState.canPause {
-            pauseOperation(reason: .lowBattery, currentProgress: nil)
-            SharedLogger.warning("StateService: auto-paused (battery=\(Int(batteryLevel * 100))%)", category: .transfer)
+            SharedLogger.warning("StateService: requesting pause (battery=\(Int(batteryLevel * 100))%)", category: .transfer)
+            requestAutomaticPause(reason: .lowBattery)
         }
     }
     #endif
-    
-    #if canImport(AppKit)
-    @objc private func systemWillSleep() {
-        if currentState.canPause {
-            pauseOperation(reason: .systemSleep, currentProgress: nil)
-        }
-    }
-    
-    @objc private func systemDidWake() {
-        if currentState.isPaused {
-            SharedLogger.info("StateService: system wake with paused operation", category: .transfer)
-        }
-    }
-    #endif
+
     
     // MARK: - Persistence
     

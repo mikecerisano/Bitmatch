@@ -30,7 +30,7 @@ A read-only audit of the whole codebase against these promises found the safety 
 Each step ships on its own.
 
 1. Delete dead code; correct stale docs and comments.
-2. Collapse operation state to one source, with the verdict derived from results.
+2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, except replacing "✅"-string status matching with a typed status, which is its own follow-up.
 3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do.
 4. Merge the two UI shells one screen at a time, starting with Compare.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.

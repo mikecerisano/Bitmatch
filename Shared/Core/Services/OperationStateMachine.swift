@@ -16,8 +16,10 @@ final class OperationStateMachine: ObservableObject {
         "inProgress": ["copying", "verifying", "paused", "completed", "failed", "cancelled"],
         "copying": ["verifying", "paused", "completed", "failed", "cancelled"],
         "verifying": ["completed", "paused", "failed", "cancelled"],
-        "paused": ["resuming", "cancelled"],
-        "resuming": ["inProgress", "copying", "verifying", "failed", "cancelled"],
+        // A run that finishes while paused or resuming (an automatic pause
+        // racing the last file) must still record how it ended.
+        "paused": ["resuming", "completed", "failed", "cancelled"],
+        "resuming": ["inProgress", "copying", "verifying", "completed", "failed", "cancelled"],
         "completed": ["notStarted", "idle"],
         "failed": ["notStarted", "idle"],
         "cancelled": ["notStarted", "idle"],
@@ -41,6 +43,21 @@ final class OperationStateMachine: ObservableObject {
     /// Force reset to initial state (e.g., on app launch)
     func reset() {
         currentState = .notStarted
+    }
+
+    /// Set a state reported by the coordinator or the engine without
+    /// rejecting it, so the one stored state always matches what actually
+    /// happened. Returns whether it was a listed transition; unlisted ones
+    /// are logged for review.
+    @discardableResult
+    func adopt(_ newState: OperationState) -> Bool {
+        let listed = currentState == newState
+            || Self.validTransitions[stateKey(currentState)]?.contains(stateKey(newState)) == true
+        if !listed {
+            SharedLogger.warning("Adopted unlisted state transition: \(stateKey(currentState)) -> \(stateKey(newState))", category: .transfer)
+        }
+        currentState = newState
+        return listed
     }
 
     /// Rehydrate a persisted paused state (e.g., after relaunch). This is not

@@ -352,18 +352,27 @@ final class OperationStateMachineTests: XCTestCase {
         XCTAssertFalse(stateMachine.transition(to: .inProgress))
     }
 
-    func testCannotGoFromPausedToCompleted() {
+    // A run that ends while paused (a pause racing the last file) must
+    // record how it ended; rejecting this left a finished transfer "paused".
+    func testPausedRunCanStillComplete() {
         stateMachine.startOperation()
         stateMachine.beginCopying()
         stateMachine.pause(info: makePauseInfo())
-        XCTAssertFalse(stateMachine.complete(info: makeCompletionInfo()))
+        XCTAssertTrue(stateMachine.complete(info: makeCompletionInfo()))
     }
 
-    func testCannotGoFromPausedToFailed() {
+    func testPausedRunCanStillFail() {
         stateMachine.startOperation()
         stateMachine.beginCopying()
         stateMachine.pause(info: makePauseInfo())
-        XCTAssertFalse(stateMachine.fail())
+        XCTAssertTrue(stateMachine.fail())
+    }
+
+    func testPausedRunCannotJumpBackToCopying() {
+        stateMachine.startOperation()
+        stateMachine.beginCopying()
+        stateMachine.pause(info: makePauseInfo())
+        XCTAssertFalse(stateMachine.beginCopying())
     }
 
     func testCannotGoFromVerifyingToCopying() {

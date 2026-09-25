@@ -50,7 +50,15 @@ class SharedAppCoordinator: ObservableObject {
 
     // MARK: - Operation State
     @Published var isOperationInProgress = false
-    @Published var operationState: OperationState = .notStarted
+    /// Stored once, in `stateService` (Promise 2): the verdict on screen and
+    /// pause/resume can never disagree. Writes are adopted as reported.
+    var operationState: OperationState {
+        get { stateService.currentState }
+        set { stateService.adopt(newValue) }
+    }
+    /// Emits before each `operationState` change, as the stored property's
+    /// `$operationState` publisher did.
+    var operationStatePublisher: Published<OperationState>.Publisher { stateService.$currentState }
     @Published var progress: OperationProgress?
     @Published var results: [ResultRow] = []
     @Published var currentOperation: FileOperation?
@@ -134,6 +142,13 @@ class SharedAppCoordinator: ObservableObject {
         setupBindings()
         self.transferJournal.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        // operationState lives in stateService; views observing this
+        // coordinator must still refresh when it changes.
+        stateService.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        stateService.automaticPauseHandler = { [weak self] reason in
+            Task { await self?.pauseOperation(reason: reason) }
+        }
         // Default first launch to checksum verification; honor last-picked thereafter.
         if let saved = UserDefaults.standard.string(forKey: "lastVerificationMode"),
            let mode = VerificationMode.allCases.first(where: { $0.rawValue == saved }) {
@@ -577,21 +592,25 @@ class SharedAppCoordinator: ObservableObject {
         updateProjectLifecycle(for: .cancelled)
     }
     
-    func pauseOperation() async {
+    func pauseOperation(reason: PauseInfo.PauseReason = .userRequested) async {
         guard stateService.currentState.canPause else { return }
         
         // Pause the underlying file operations
         await platformManager.fileOperations.pauseOperation()
-        
+
+        // The run may have finished while the engine paused; a finished run
+        // stays finished and offers no Resume.
+        guard stateService.currentState.canPause else { return }
+
         // Update state service with current progress
-        stateService.pauseOperation(reason: .userRequested, currentProgress: progress)
+        stateService.pauseOperation(reason: reason, currentProgress: progress)
         
         // Update our operation state to match
         operationState = stateService.currentState
         
         // Update capabilities
         stateService.updateCapabilities(canPause: false, canResume: true)
-        SharedLogger.info("Operation paused by user", category: .transfer)
+        SharedLogger.info("Operation paused (\(reason))", category: .transfer)
     }
     
     func resumeOperation() async {
