@@ -227,17 +227,14 @@ final class ReportExporter {
         )
         
         let shouldGenerateFullReport = generateFullReport && prefs.makeReport
-        
-        // Generate PDF on main thread (required for SwiftUI views)
-        #if os(macOS)
+
+        // Generate PDF on main thread (required for SwiftUI views). Every
+        // platform renders the same `ReportView` through `ReportPDFRenderer`
+        // (Promise 5, "one app everywhere").
         let pdfData: Data? = shouldGenerateFullReport ? await MainActor.run {
-            generatePDF(summary: summary, results: results)
+            ReportPDFRenderer.renderPDF(summary: summary, results: results)
         } : nil
-        #else
-        // PDF generation not available on iOS
-        let pdfData: Data? = nil
-        #endif
-        
+
         try Task.checkCancellation()
         // Auto-save to reports folder
         try await autoSaveReports(mode: mode,
@@ -259,171 +256,6 @@ final class ReportExporter {
                        generateFullReport: shouldGenerateFullReport,
                        photographerContext: photographerContext)
     }
-    
-    #if os(macOS)
-    @MainActor
-    private static func generatePDF(summary: ReportSummary, results: [ResultRow]) -> Data {
-        let view = ReportView(s: summary, rows: results)
-
-        // Use ImageRenderer if available (macOS 13+)
-        if #available(macOS 13.0, *) {
-            let renderer = ImageRenderer(content: view)
-            let pageWidth: CGFloat = 612
-            let pageHeight: CGFloat = 792
-
-            // Let the view determine its own height
-            renderer.proposedSize = ProposedViewSize(width: pageWidth, height: nil)
-            if renderer.scale == 0 {
-                renderer.scale = NSScreen.main?.backingScaleFactor ?? 2.0
-            }
-
-            // Get the actual rendered size from the CGImage
-            let totalHeight: CGFloat
-            if let cgImage = renderer.cgImage {
-                // CGImage height is in pixels, need to account for scale
-                let scale = renderer.scale > 0 ? renderer.scale : 2.0
-                totalHeight = CGFloat(cgImage.height) / scale
-            } else {
-                totalHeight = pageHeight
-            }
-            let pageCount = max(1, Int(ceil(totalHeight / pageHeight)))
-
-            // Render to PDF using Core Graphics
-            let pdfMetadata = [
-                kCGPDFContextCreator: "BitMatch",
-                kCGPDFContextTitle: "BitMatch Verification Report"
-            ] as CFDictionary
-
-            let mutableData = NSMutableData()
-            guard let consumer = CGDataConsumer(data: mutableData as CFMutableData) else {
-                return Data()
-            }
-
-            var mediaBox = CGRect(origin: .zero, size: CGSize(width: pageWidth, height: pageHeight))
-            guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, pdfMetadata) else {
-                return Data()
-            }
-
-            // Render each page (in reverse order to get correct page sequence)
-            for pageIndex in (0..<pageCount).reversed() {
-                context.beginPDFPage(nil)
-
-                // Save the context state
-                context.saveGState()
-
-                // Translate to show the correct portion of the view
-                let yOffset = CGFloat(pageIndex) * pageHeight
-                context.translateBy(x: 0, y: -yOffset)
-
-                // Render the full SwiftUI view (will be clipped to page)
-                renderer.render { size, renderFunc in
-                    renderFunc(context)
-                }
-
-                // Restore context state for next page
-                context.restoreGState()
-                context.endPDFPage()
-            }
-
-            context.closePDF()
-            return mutableData as Data
-        } else {
-            // Fallback for macOS 12 and earlier - use legacy bitmap approach
-            return generatePDFLegacy(summary: summary, results: results)
-        }
-    }
-
-    @MainActor
-    @available(macOS, deprecated: 13.0, message: "Use generatePDF with ImageRenderer")
-    private static func generatePDFLegacy(summary: ReportSummary, results: [ResultRow]) -> Data {
-        let view = ReportView(s: summary, rows: results)
-        let hosting = NSHostingView(rootView: view)
-        let pageSize = NSSize(width: 612, height: 792)
-
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = NSColor.white.cgColor
-        hosting.frame = NSRect(origin: .zero, size: pageSize)
-        hosting.layoutSubtreeIfNeeded()
-
-        let fittingHeight = max(pageSize.height, hosting.fittingSize.height)
-        hosting.frame.size = NSSize(width: pageSize.width, height: fittingHeight)
-        hosting.layoutSubtreeIfNeeded()
-
-        // Create bitmap context and render view
-        let scale: CGFloat = 2.0 // Retina resolution
-        let scaledSize = CGSize(width: pageSize.width * scale, height: fittingHeight * scale)
-
-        guard let bitmapRep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(scaledSize.width),
-            pixelsHigh: Int(scaledSize.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            return Data()
-        }
-
-        let context = NSGraphicsContext(bitmapImageRep: bitmapRep)
-        NSGraphicsContext.current = context
-
-        guard let cgContext = context?.cgContext else {
-            NSGraphicsContext.current = nil
-            SharedLogger.error("Failed to get CGContext for PDF rendering", category: .transfer)
-            return Data()
-        }
-        cgContext.scaleBy(x: scale, y: scale)
-
-        hosting.layer?.render(in: cgContext)
-
-        NSGraphicsContext.current = nil
-
-        // Convert bitmap to PDF
-        let image = NSImage(size: NSSize(width: pageSize.width, height: fittingHeight))
-        image.addRepresentation(bitmapRep)
-
-        // Create PDF from image
-        let pdfData = NSMutableData()
-        guard let consumer = CGDataConsumer(data: pdfData as CFMutableData) else {
-            return Data()
-        }
-
-        let pageCount = Int(ceil(fittingHeight / pageSize.height))
-        var mediaBox = CGRect(origin: .zero, size: pageSize)
-
-        guard let pdfContext = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            return Data()
-        }
-
-        for pageIndex in 0..<pageCount {
-            pdfContext.beginPDFPage(nil)
-
-            let yOffset = CGFloat(pageIndex) * pageSize.height
-
-            if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                let croppedImage = cgImage.cropping(to: CGRect(
-                    x: 0,
-                    y: yOffset * scale,
-                    width: pageSize.width * scale,
-                    height: min(pageSize.height * scale, scaledSize.height - yOffset * scale)
-                ))
-
-                if let cropped = croppedImage {
-                    pdfContext.draw(cropped, in: CGRect(origin: .zero, size: pageSize))
-                }
-            }
-
-            pdfContext.endPDFPage()
-        }
-
-        pdfContext.closePDF()
-        return pdfData as Data
-    }
-    #endif
     
     private static func autoSaveReports(mode: AppMode,
                                         destinationURLs: [URL],

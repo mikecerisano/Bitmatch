@@ -266,7 +266,7 @@ For each operation, in order:
 - **`ReportExporter.export`** (`Shared/Core/Services/ReportExporter.swift`): the per-transfer report. `CopyVerifyExecutor` calls it when `ReportPrefs.makeReport` is on.
   - Location: `<first destination>/Reports/` for Copy & Verify.
   - Always written: CSV and JSON.
-  - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `BitMatch/Views/ReportView.swift` on macOS only (iOS writes no PDF).
+  - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `Shared/Views/ReportView.swift` through `Shared/Views/ReportPDFRenderer.swift` (SwiftUI `ImageRenderer` into a PDF `CGContext`) on every platform.
 - **`SharedReportGenerationService`** (`Shared/Core/Services/SharedReportGenerationService.swift`): the Master Report PDF and JSON, built from scanned transfer reports.
   - Screen: `Shared/Views/MasterReport/MasterReportScreen.swift` over `MasterReportModel` and `MasterReportPresentation` (`Shared/Core/Models/`): choose a drive or folder and a day (today by default), include transfers grouped by camera, then save or share.
   - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). Each platform picks the folder its own way: an open panel on the Mac, the Files document picker (`IOSDriverScanner.chooseFolder`) on iOS. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform; a long list scrolls.

@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- iPad and iPhone: The per-transfer report now includes a PDF, rendered from the same `ReportView` the Mac uses (SwiftUI `ImageRenderer` into a PDF, shared in `Shared/Views/ReportPDFRenderer.swift`). CSV and JSON are unchanged. The Advanced report toggle on every platform now says "Create PDF, CSV and JSON reports".
 - Mac: The menu bar has one View menu (the mode shortcuts ⌘1–⌘3 are in it) and File is back in its usual place, first after the app menu.
 
 ## [0.1.7] - 2026-09-25

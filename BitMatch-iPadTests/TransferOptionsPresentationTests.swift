@@ -2,14 +2,14 @@ import Foundation
 import Testing
 @testable import BitMatch_iPad
 
-/// Step 4.6 (P4), iOS side: iPad and iPhone write CSV and JSON reports, no PDF.
+/// Step 4.6 (P4), iOS side: iPad and iPhone write the same PDF, CSV and
+/// JSON reports as the Mac (THESIS decision, 2026-09-25: "iPad and iPhone
+/// get a PDF report too").
 struct TransferOptionsPresentationIOSTests {
-    // Plant: in `TransferOptionsPresentation.reportFormatsDescription`, return
-    // `"PDF, CSV and JSON"` unconditionally.
+    // Plant: in `TransferOptionsPresentation.platformWritesPDF`, return `false`.
     @Test
-    func iOSReportLabelDoesNotPromisePDF() {
-        #expect(!TransferOptionsPresentation.platformWritesPDF)
-        #expect(TransferOptionsPresentation.reportToggleTitle() == "Create CSV and JSON reports")
-        #expect(!TransferOptionsPresentation.reportToggleTitle().contains("PDF"))
+    func iOSReportLabelPromisesThePDFTooNow() {
+        #expect(TransferOptionsPresentation.platformWritesPDF)
+        #expect(TransferOptionsPresentation.reportToggleTitle() == "Create PDF, CSV and JSON reports")
     }
 }
