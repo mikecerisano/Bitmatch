@@ -7,37 +7,34 @@ import AppKit
 /// outcome are the same rules and screen as on iPad and iPhone.
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: AppCoordinator
-    // Observed directly: AppCoordinator does not forward folder-info,
-    // progress or compare-outcome changes.
-    @ObservedObject private var fileSelection: FileSelectionViewModel
+    // Observed directly: the selection, folder info, progress and compare
+    // outcome all live in the shared coordinator.
     @ObservedObject private var shared: SharedAppCoordinator
     @Binding var advancedExpanded: Bool
 
     init(coordinator: AppCoordinator, advancedExpanded: Binding<Bool>) {
         _coordinator = ObservedObject(wrappedValue: coordinator)
-        _fileSelection = ObservedObject(wrappedValue: coordinator.fileSelectionViewModel)
         _shared = ObservedObject(wrappedValue: coordinator.sharedCoordinator)
         _advancedExpanded = advancedExpanded
     }
 
     /// Also used by ⌘R, so the keyboard path obeys the same readiness rule.
     static func presentation(for coordinator: AppCoordinator) -> ComparePresentation {
-        let files = coordinator.fileSelectionViewModel
         let shared = coordinator.sharedCoordinator
         return ComparePresentation.make(
             left: CompareFolderSlot.make(
-                url: files.leftURL,
-                infoURL: files.leftFolderInfo?.url,
-                fileCount: files.leftFolderInfo?.fileCount,
-                totalSize: files.leftFolderInfo?.totalSize,
-                isFetching: files.isFetchingLeftInfo
+                url: shared.leftURL,
+                infoURL: shared.leftFolderInfo?.url,
+                fileCount: shared.leftFolderInfo?.fileCount,
+                totalSize: shared.leftFolderInfo?.totalSize,
+                isFetching: shared.isAnalysingLeft
             ),
             right: CompareFolderSlot.make(
-                url: files.rightURL,
-                infoURL: files.rightFolderInfo?.url,
-                fileCount: files.rightFolderInfo?.fileCount,
-                totalSize: files.rightFolderInfo?.totalSize,
-                isFetching: files.isFetchingRightInfo
+                url: shared.rightURL,
+                infoURL: shared.rightFolderInfo?.url,
+                fileCount: shared.rightFolderInfo?.fileCount,
+                totalSize: shared.rightFolderInfo?.totalSize,
+                isFetching: shared.isAnalysingRight
             ),
             mode: shared.verificationMode,
             isRunning: shared.isOperationInProgress,
@@ -67,12 +64,12 @@ struct CompareFoldersView: View {
             verificationMode: $shared.verificationMode,
             advancedExpanded: $advancedExpanded,
             actions: CompareActions(
-                pickLeft: { if let url = openFolderPanel() { fileSelection.leftURL = url } },
-                pickRight: { if let url = openFolderPanel() { fileSelection.rightURL = url } },
-                clearLeft: { fileSelection.leftURL = nil },
-                clearRight: { fileSelection.rightURL = nil },
-                dropLeft: { url in acceptDrop(url) { fileSelection.leftURL = $0 } },
-                dropRight: { url in acceptDrop(url) { fileSelection.rightURL = $0 } },
+                pickLeft: { if let url = openFolderPanel() { shared.leftURL = url } },
+                pickRight: { if let url = openFolderPanel() { shared.rightURL = url } },
+                clearLeft: { shared.leftURL = nil },
+                clearRight: { shared.rightURL = nil },
+                dropLeft: { url in acceptDrop(url) { shared.leftURL = $0 } },
+                dropRight: { url in acceptDrop(url) { shared.rightURL = $0 } },
                 compare: { Self.startIfReady(coordinator) },
                 cancel: { coordinator.cancelOperation() }
             )

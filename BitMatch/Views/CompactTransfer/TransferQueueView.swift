@@ -281,19 +281,19 @@ struct TransferQueueView: View {
         let timeRemaining = coordinator.progressViewModel.formattedTimeRemaining
         let currentFile = getCurrentFileName()
         
-        guard let sourceURL = coordinator.fileSelectionViewModel.sourceURL else { return nil }
+        guard let sourceURL = coordinator.sourceURL else { return nil }
         
         return QueuedTransfer(
             sourceURL: sourceURL,
-            sourceInfo: coordinator.fileSelectionViewModel.sourceFolderInfo,
-            destinations: coordinator.fileSelectionViewModel.destinationURLs,
+            sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
+            destinations: coordinator.destinationURLs,
             state: state,
             progress: progress,
             currentFile: currentFile,
             speed: speed,
             timeRemaining: timeRemaining,
             destinationProgress: coordinator.progressViewModel.destinationProgressFractions(
-                expectedCount: coordinator.fileSelectionViewModel.destinationURLs.count
+                expectedCount: coordinator.destinationURLs.count
             )
         )
     }

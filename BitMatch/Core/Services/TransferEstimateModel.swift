@@ -29,6 +29,37 @@ final class TransferEstimateModel: ObservableObject {
         self.estimator = estimator
     }
 
+    private var cancellables = Set<AnyCancellable>()
+
+    /// Keeps the estimate current for the shared selection: a new source,
+    /// its finished scan, a new verification mode, or (debounced) a change
+    /// of backups. Each `$x` publishes before the value is stored, so the
+    /// refresh runs on the next main-queue turn and reads the stored values.
+    func bind(to shared: SharedAppCoordinator) {
+        cancellables.removeAll()
+        let refresh: () -> Void = { [weak self, weak shared] in
+            guard let self, let shared else { return }
+            self.update(
+                source: shared.sourceURL,
+                destinations: shared.destinationURLs,
+                totalBytes: shared.sourceFolderInfo?.totalSize,
+                mode: shared.verificationMode
+            )
+        }
+        Publishers.MergeMany(
+            shared.$sourceURL.map { _ in () }.eraseToAnyPublisher(),
+            shared.folderInfoService.$sourceFolderInfo.map { _ in () }.eraseToAnyPublisher(),
+            shared.$verificationMode.removeDuplicates().map { _ in () }.eraseToAnyPublisher()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { refresh() }
+        .store(in: &cancellables)
+        shared.$destinationURLs
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { _ in refresh() }
+            .store(in: &cancellables)
+    }
+
     func update(source: URL?, destinations: [URL], totalBytes: Int64?, mode: VerificationMode) {
         generation += 1
         let current = generation

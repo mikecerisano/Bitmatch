@@ -323,14 +323,43 @@ class SharedAppCoordinator: ObservableObject {
     func addDestinationFolder() async {
         let urls = await platformManager.fileSystem.selectDestinationFolders()
         for url in urls {
-            if !destinationURLs.contains(url) {
-                destinationURLs.append(url)
-            }
+            addDestination(url)
         }
     }
-    
+
+    /// Adds a backup unless the same folder (by resolved path) is already
+    /// chosen. Used by every platform's picker and by Mac drag-and-drop.
+    func addDestination(_ url: URL) {
+        let path = Self.resolvedPath(url)
+        guard !destinationURLs.contains(where: { Self.resolvedPath($0) == path }) else { return }
+        destinationURLs.append(url)
+    }
+
     func removeDestinationFolder(_ url: URL) {
         destinationURLs.removeAll { $0 == url }
+    }
+
+    private static func resolvedPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// True while the chosen source has not finished its folder scan. Start
+    /// waits for it on every platform (the Mac's stricter rule, decided).
+    var isAnalysingSource: Bool {
+        guard let sourceURL else { return false }
+        return folderInfoService.isAwaitingSourceInfo(for: sourceURL)
+    }
+
+    /// True while the left compare folder has not finished its scan.
+    var isAnalysingLeft: Bool {
+        guard let leftURL else { return false }
+        return folderInfoService.isAwaitingLeftInfo(for: leftURL)
+    }
+
+    /// True while the right compare folder has not finished its scan.
+    var isAnalysingRight: Bool {
+        guard let rightURL else { return false }
+        return folderInfoService.isAwaitingRightInfo(for: rightURL)
     }
     
     func selectLeftFolder() async {

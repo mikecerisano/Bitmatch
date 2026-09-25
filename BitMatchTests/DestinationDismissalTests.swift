@@ -8,6 +8,15 @@ import Testing
 /// (unplug) and reappearing treats it as a new arrival again.
 @MainActor
 struct DestinationDismissalTests {
+    /// Discovery writes through the shared coordinator, which owns the backups.
+    private func makeModel() -> (MacVolumeAccessModel, SharedAppCoordinator) {
+        let shared = SharedAppCoordinator(
+            platformManager: RecordingPlatformManager(fileOperations: RecordingFileOperations()),
+            projectStore: InMemoryPhotographerJobStore()
+        )
+        return (MacVolumeAccessModel(shared: shared, enableVolumeMonitoring: false), shared)
+    }
+
     private func drive(at path: String) -> VolumeMonitorService.DetectedVolume {
         VolumeMonitorService.DetectedVolume(
             url: URL(fileURLWithPath: path),
@@ -22,18 +31,18 @@ struct DestinationDismissalTests {
 
     @Test func removedDestinationIsNotReaddedByRediscovery() async throws {
         #if os(macOS)
-        let viewModel = FileSelectionViewModel(enableVolumeMonitoring: false)
+        let (viewModel, shared) = makeModel()
         let drive = drive(at: "/Volumes/DISMISSED")
 
         viewModel.handleBackupDrivesUpdate([drive])
-        #expect(viewModel.destinationURLs.map(\.path) == [drive.url.path])
+        #expect(shared.destinationURLs.map(\.path) == [drive.url.path])
 
         viewModel.removeDestination(drive.url)
-        #expect(viewModel.destinationURLs.isEmpty)
+        #expect(shared.destinationURLs.isEmpty)
 
         // Same drive still visible to discovery: must stay out.
         viewModel.handleBackupDrivesUpdate([drive])
-        #expect(viewModel.destinationURLs.isEmpty)
+        #expect(shared.destinationURLs.isEmpty)
         #else
         #expect(true)
         #endif
@@ -41,7 +50,7 @@ struct DestinationDismissalTests {
 
     @Test func repluggedDriveIsTreatedAsNewArrival() async throws {
         #if os(macOS)
-        let viewModel = FileSelectionViewModel(enableVolumeMonitoring: false)
+        let (viewModel, shared) = makeModel()
         let drive = drive(at: "/Volumes/REPLUGGED")
 
         viewModel.handleBackupDrivesUpdate([drive])
@@ -51,7 +60,7 @@ struct DestinationDismissalTests {
         viewModel.handleBackupDrivesUpdate([])
         // Drive reappears: treated as a new arrival, auto-added again.
         viewModel.handleBackupDrivesUpdate([drive])
-        #expect(viewModel.destinationURLs.map(\.path) == [drive.url.path])
+        #expect(shared.destinationURLs.map(\.path) == [drive.url.path])
         #else
         #expect(true)
         #endif
@@ -59,7 +68,7 @@ struct DestinationDismissalTests {
 
     @Test func explicitReaddClearsDismissal() async throws {
         #if os(macOS)
-        let viewModel = FileSelectionViewModel(enableVolumeMonitoring: false)
+        let (viewModel, shared) = makeModel()
         let drive = drive(at: "/Volumes/READDED")
 
         viewModel.handleBackupDrivesUpdate([drive])
@@ -69,7 +78,7 @@ struct DestinationDismissalTests {
         // User changed their mind: later updates must not drop it, and the
         // dismissal must be forgotten.
         viewModel.handleBackupDrivesUpdate([drive])
-        #expect(viewModel.destinationURLs.map(\.path) == [drive.url.path])
+        #expect(shared.destinationURLs.map(\.path) == [drive.url.path])
         #else
         #expect(true)
         #endif

@@ -8,16 +8,15 @@ struct CopyAndVerifyView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var fileSelection: FileSelectionViewModel { coordinator.fileSelectionViewModel }
     private var plan: TransferPlanPresentation {
         TransferPlanPresentation.make(
-            sourceURL: fileSelection.sourceURL,
-            sourceInfo: fileSelection.sourceFolderInfo,
-            destinationURLs: fileSelection.destinationURLs,
+            sourceURL: coordinator.sourceURL,
+            sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
+            destinationURLs: coordinator.destinationURLs,
             verificationMode: coordinator.verificationMode,
             cameraSettings: coordinator.cameraLabelSettings,
             reportSettings: coordinator.reportSettings,
-            isAnalyzing: fileSelection.isFetchingSourceInfo,
+            isAnalyzing: coordinator.isAnalysingSource,
             blockingIssues: readinessIssues,
             warnings: readinessWarnings
         )
@@ -28,23 +27,23 @@ struct CopyAndVerifyView: View {
     private var readinessIssues: [String] {
         // A source or backup not chosen yet is the next step, not an error;
         // TransferPlanPresentation.nextStep highlights it instead.
-        guard let sourceURL = fileSelection.sourceURL else { return [] }
+        guard let sourceURL = coordinator.sourceURL else { return [] }
 
         var issues: [String] = []
 
-        let uniquePaths = Set(fileSelection.destinationURLs.map {
+        let uniquePaths = Set(coordinator.destinationURLs.map {
             $0.standardizedFileURL.resolvingSymlinksInPath().path
         })
-        if uniquePaths.count != fileSelection.destinationURLs.count {
+        if uniquePaths.count != coordinator.destinationURLs.count {
             issues.append("Remove duplicate destinations")
         }
 
-        for destination in fileSelection.destinationURLs {
+        for destination in coordinator.destinationURLs {
             if SafetyValidator.isProtectedSystemPath(destination) {
                 issues.append("\(destination.lastPathComponent) is a system folder")
             } else if let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: destination) {
                 issues.append("\(destination.lastPathComponent): \(issue)")
-            } else if let sourceSize = fileSelection.sourceFolderInfo?.totalSize,
+            } else if let sourceSize = coordinator.sourceFolderInfo?.totalSize,
                       let available = availableSpace(for: destination),
                       available < sourceSize + Int64(100 * 1024 * 1024) {
                 issues.append("Not enough space on \(destination.lastPathComponent)")
@@ -54,7 +53,7 @@ struct CopyAndVerifyView: View {
         do {
             try SafetyValidator.validateResolvedDestinationRoots(
                 source: sourceURL,
-                destinations: fileSelection.destinationURLs,
+                destinations: coordinator.destinationURLs,
                 settings: coordinator.cameraLabelSettings
             )
         } catch {
@@ -68,8 +67,8 @@ struct CopyAndVerifyView: View {
         if coordinator.verificationMode == .quick {
             warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
         }
-        if let sourceSize = fileSelection.sourceFolderInfo?.totalSize {
-            warnings.append(contentsOf: fileSelection.destinationURLs.compactMap { destination in
+        if let sourceSize = coordinator.sourceFolderInfo?.totalSize {
+            warnings.append(contentsOf: coordinator.destinationURLs.compactMap { destination in
                 guard let available = availableSpace(for: destination), available > 0 else { return nil }
                 return Double(sourceSize) / Double(available) > 0.7
                     ? "Limited space on \(destination.lastPathComponent)" : nil
@@ -112,10 +111,10 @@ struct CopyAndVerifyView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
                     HStack(spacing: 6) {
-                        Text(fileSelection.sourceURL?.lastPathComponent ?? "Source")
+                        Text(coordinator.sourceURL?.lastPathComponent ?? "Source")
                         Image(systemName: "arrow.right")
                             .font(.system(size: 9, weight: .semibold))
-                        Text("\(fileSelection.destinationURLs.count) backup\(fileSelection.destinationURLs.count == 1 ? "" : "s")")
+                        Text("\(coordinator.destinationURLs.count) backup\(coordinator.destinationURLs.count == 1 ? "" : "s")")
                     }
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.white.opacity(0.58))

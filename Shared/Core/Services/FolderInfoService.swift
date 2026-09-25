@@ -204,6 +204,23 @@ final class FolderInfoService: ObservableObject {
         return folderInfoLoadingState[url] ?? false
     }
 
+    /// True until the source scan for `url` has finished: while it runs, and
+    /// also before its task has picked the URL up, so the moment right after
+    /// a choice never reads as "analysed".
+    func isAwaitingSourceInfo(for url: URL) -> Bool {
+        sourceURL != url || isFolderInfoLoading(for: url)
+    }
+
+    /// The same for the left compare folder.
+    func isAwaitingLeftInfo(for url: URL) -> Bool {
+        leftURL != url || isFolderInfoLoading(for: url)
+    }
+
+    /// The same for the right compare folder.
+    func isAwaitingRightInfo(for url: URL) -> Bool {
+        rightURL != url || isFolderInfoLoading(for: url)
+    }
+
     /// Clear all cached folder info
     func clearAll() {
         sourceWork?.cancel()

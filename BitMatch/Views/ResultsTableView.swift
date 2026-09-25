@@ -76,7 +76,7 @@ struct ResultsTableView: View {
 
     private var destinationSummaries: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(DestinationResultSummary.make(rows: results, destinations: coordinator.fileSelectionViewModel.destinationURLs)) { summary in
+            ForEach(DestinationResultSummary.make(rows: results, destinations: coordinator.destinationURLs)) { summary in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: summary.needsAttention ? "exclamationmark.triangle" : "checkmark.circle")
                         .foregroundColor(summary.needsAttention ? .orange : .green)

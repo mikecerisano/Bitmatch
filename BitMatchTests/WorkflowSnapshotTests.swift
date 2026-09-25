@@ -149,9 +149,8 @@ private final class SnapshotFixture {
             transferJournal: journal,
             photographerJobViewModel: viewModel
         )
-        let fileSelectionViewModel = FileSelectionViewModel(enableVolumeMonitoring: false)
         appCoordinator = AppCoordinator(
-            fileSelectionViewModel: fileSelectionViewModel,
+            monitorsVolumes: false,
             startRemoteScheduler: false,
             sharedCoordinator: sharedCoordinator
         )
@@ -160,8 +159,6 @@ private final class SnapshotFixture {
     func seedSetup() {
         appCoordinator.currentMode = .copyAndVerify
         appCoordinator.verificationMode = .standard
-        appCoordinator.fileSelectionViewModel.sourceURL = source
-        appCoordinator.fileSelectionViewModel.destinationURLs = [backup, secondBackup]
         sharedCoordinator.currentMode = .copyAndVerify
         sharedCoordinator.sourceURL = source
         sharedCoordinator.destinationURLs = [backup, secondBackup]
@@ -172,8 +169,6 @@ private final class SnapshotFixture {
     func seedComparisonDifferences() {
         appCoordinator.currentMode = .compareFolders
         appCoordinator.verificationMode = .standard
-        appCoordinator.fileSelectionViewModel.leftURL = source
-        appCoordinator.fileSelectionViewModel.rightURL = backup
         sharedCoordinator.currentMode = .compareFolders
         sharedCoordinator.verificationMode = .standard
         sharedCoordinator.leftURL = source
@@ -192,8 +187,6 @@ private final class SnapshotFixture {
 
     func seedCompletion() {
         appCoordinator.currentMode = .copyAndVerify
-        appCoordinator.fileSelectionViewModel.sourceURL = source
-        appCoordinator.fileSelectionViewModel.destinationURLs = [backup, secondBackup]
         sharedCoordinator.currentMode = .copyAndVerify
         sharedCoordinator.sourceURL = source
         sharedCoordinator.destinationURLs = [backup, secondBackup]

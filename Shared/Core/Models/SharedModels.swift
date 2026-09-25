@@ -378,6 +378,19 @@ extension NSNotification.Name {
 
 // MARK: - FolderInfo Compatibility Extension
 extension EnhancedFolderInfo {
+    /// Extensions counted as video, upper-cased as `fileTypeBreakdown` keys are.
+    static let videoExtensions: Set<String> = [
+        "MOV", "MP4", "MXF", "R3D", "BRAW", "ARI", "AVI", "M4V", "HEVC", "HEIC", "PRORES", "DNXHD"
+    ]
+
+    /// Video files in the folder. Zero until the full scan (with its
+    /// extension breakdown) has finished.
+    var videoFileCount: Int {
+        fileTypeBreakdown.reduce(0) { total, entry in
+            Self.videoExtensions.contains(entry.key) ? total + entry.value : total
+        }
+    }
+
     /// Convert to base FolderInfo for backward compatibility
     var asFolderInfo: FolderInfo {
         return FolderInfo(

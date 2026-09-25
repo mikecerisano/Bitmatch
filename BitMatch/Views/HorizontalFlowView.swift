@@ -2,7 +2,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-typealias DriveSpeed = FileSelectionViewModel.DriveSpeed
+typealias DriveSpeed = MacVolumeAccessModel.DriveSpeed
 
 struct HorizontalFlowView: View {
     @ObservedObject var coordinator: AppCoordinator
@@ -17,13 +17,12 @@ struct HorizontalFlowView: View {
     @State private var isAddButtonTargeted = false
 
     // Convenience accessors
-    private var fileSelection: FileSelectionViewModel { coordinator.fileSelectionViewModel }
     private var progress: ProgressViewModel { coordinator.progressViewModel }
     private var isOperationActive: Bool { coordinator.isOperationInProgress }
 
     var body: some View {
         Group {
-            if presentation == .expanded && fileSelection.sourceURL == nil {
+            if presentation == .expanded && coordinator.sourceURL == nil {
                 HStack(alignment: .top, spacing: 16) {
                     compactSourceSection
                         .frame(minWidth: 210, idealWidth: 250, maxWidth: 300)
@@ -41,10 +40,10 @@ struct HorizontalFlowView: View {
         }
         .padding(.vertical, 4)
         .id(refreshID) // Force refresh when needed
-        .onReceive(fileSelection.$sourceURL) { _ in
+        .onReceive(coordinator.sharedCoordinator.$sourceURL) { _ in
             refreshID = UUID()
         }
-        .onReceive(fileSelection.$destinationURLs) { _ in
+        .onReceive(coordinator.sharedCoordinator.$destinationURLs) { _ in
             refreshID = UUID()
         }
     }
@@ -78,7 +77,7 @@ struct HorizontalFlowView: View {
 
     @ViewBuilder
     private var sourceSectionContent: some View {
-        if let sourceURL = fileSelection.sourceURL {
+        if let sourceURL = coordinator.sourceURL {
             selectedSourceView(sourceURL: sourceURL)
         } else {
             emptySourceView
@@ -124,14 +123,14 @@ struct HorizontalFlowView: View {
                 .foregroundColor(.white.opacity(0.6))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            if let cam = fileSelection.sourceCameraLabel, !cam.isEmpty {
+            if let cam = coordinator.cameraLabels.detectedCameraName, !cam.isEmpty {
                 Text(cam)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.green.opacity(0.9))
             }
 
-            if let info = fileSelection.sourceFolderInfo {
-                let videoText = fileSelection.sourceVideoFileCount > 0 ? "\(fileSelection.sourceVideoFileCount) videos" : "\(info.formattedFileCount) files"
+            if let info = coordinator.sourceFolderInfo {
+                let videoText = info.videoFileCount > 0 ? "\(info.videoFileCount) videos" : "\(info.formattedFileCount) files"
                 Text("\(videoText) • \(info.formattedSize)")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.6))
@@ -143,7 +142,7 @@ struct HorizontalFlowView: View {
     private var removeSourceButton: some View {
         if !isOperationActive {
             Button {
-                fileSelection.sourceURL = nil
+                coordinator.sourceURL = nil
                 refreshID = UUID()
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -227,7 +226,7 @@ struct HorizontalFlowView: View {
                 .foregroundColor(.white.opacity(0.5))
                 .tracking(0)
 
-            if fileSelection.destinationURLs.isEmpty {
+            if coordinator.destinationURLs.isEmpty {
                 // Empty state
                 VStack(spacing: 6) {
                     Image(systemName: "externaldrive.badge.plus")
@@ -269,7 +268,7 @@ struct HorizontalFlowView: View {
                 }
             } else {
                 LazyVGrid(columns: destinationColumns, alignment: .leading, spacing: 8) {
-                    ForEach(Array(fileSelection.destinationURLs.enumerated()), id: \.element) { index, destination in
+                    ForEach(Array(coordinator.destinationURLs.enumerated()), id: \.element) { index, destination in
                         compactDestinationCard(for: destination, at: index)
                     }
 
@@ -316,7 +315,7 @@ struct HorizontalFlowView: View {
     }
 
     private var destinationColumns: [GridItem] {
-        if fileSelection.sourceURL != nil && fileSelection.destinationURLs.count > 1 && presentation == .expanded {
+        if coordinator.sourceURL != nil && coordinator.destinationURLs.count > 1 && presentation == .expanded {
             return [GridItem(.flexible(), spacing: 8, alignment: .top),
                     GridItem(.flexible(), spacing: 8, alignment: .top)]
         }
@@ -340,7 +339,7 @@ struct HorizontalFlowView: View {
                     .foregroundColor(.white.opacity(0.65))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let free = fileSelection.formattedAvailableSpace(for: url) {
+                if let free = coordinator.volumeAccess.formattedAvailableSpace(for: url) {
                     Text("\(free) available")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.75))
@@ -349,7 +348,7 @@ struct HorizontalFlowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if !isOperationActive {
                 Button {
-                    fileSelection.removeDestination(url)
+                    coordinator.volumeAccess.removeDestination(url)
                     refreshID = UUID()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -392,8 +391,8 @@ struct HorizontalFlowView: View {
         loadDroppedDirectories(providers: providers, allowMultiple: false) { urls in
             guard let url = urls.first else { return }
             guard validateDestination(url, replacingIndex: targetIndex) else { return }
-            if targetIndex < fileSelection.destinationURLs.count {
-                fileSelection.destinationURLs[targetIndex] = url
+            if targetIndex < coordinator.destinationURLs.count {
+                coordinator.destinationURLs[targetIndex] = url
                 refreshID = UUID()
             }
         }
@@ -467,19 +466,19 @@ struct HorizontalFlowView: View {
             rejectDrop(dropRejectionReason(for: [url]))
             return
         }
-        if let conflict = fileSelection.destinationURLs.first(where: {
+        if let conflict = coordinator.destinationURLs.first(where: {
             SafetyValidator.destinationSafetyIssue(source: url, destination: $0) != nil
         }) {
             rejectDrop("Source conflicts with destination \(conflict.lastPathComponent)")
             return
         }
-        fileSelection.sourceURL = url
+        coordinator.sourceURL = url
         refreshID = UUID()
     }
 
     private func addDestinationURLs(_ urls: [URL]) {
         for url in urls where validateDestination(url, replacingIndex: nil) {
-            fileSelection.addDestination(url)
+            coordinator.volumeAccess.addDestination(url)
         }
         refreshID = UUID()
     }
@@ -490,7 +489,7 @@ struct HorizontalFlowView: View {
             return false
         }
 
-        let existingDestinations = fileSelection.destinationURLs.enumerated()
+        let existingDestinations = coordinator.destinationURLs.enumerated()
             .filter { replacingIndex == nil || $0.offset != replacingIndex }
             .map(\.element)
 
@@ -499,7 +498,7 @@ struct HorizontalFlowView: View {
             return false
         }
 
-        if let sourceURL = fileSelection.sourceURL,
+        if let sourceURL = coordinator.sourceURL,
            let issue = SafetyValidator.destinationSafetyIssue(source: sourceURL, destination: url) {
             rejectDrop(issue)
             return false
@@ -569,11 +568,11 @@ struct HorizontalFlowView: View {
 
     private func getFastLanePriority(for url: URL, at index: Int) -> FastLanePriorityInfo? {
         // Only show priority indicators when we have multiple destinations
-        guard fileSelection.destinationURLs.count > 1 else { return nil }
+        guard coordinator.destinationURLs.count > 1 else { return nil }
 
         // Get all destination speeds to determine ranking
-        let destinationsWithSpeeds = fileSelection.destinationURLs.map { dest in
-            (url: dest, speed: fileSelection.detectDriveSpeed(for: dest))
+        let destinationsWithSpeeds = coordinator.destinationURLs.map { dest in
+            (url: dest, speed: coordinator.volumeAccess.detectDriveSpeed(for: dest))
         }
         let sortedBySpeed = destinationsWithSpeeds.sorted { $0.speed.estimatedSpeed > $1.speed.estimatedSpeed }
 

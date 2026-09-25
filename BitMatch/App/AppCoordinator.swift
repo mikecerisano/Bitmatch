@@ -16,8 +16,10 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - macOS-Specific ViewModels (backward compat for views)
     @Published var progressViewModel = ProgressViewModel()
-    @Published var fileSelectionViewModel: FileSelectionViewModel
-    @Published var cameraDetectionService = CameraCardDetectionService()
+    /// Mac-only volume access, backup-drive discovery, recents and drive speed.
+    let volumeAccess: MacVolumeAccessModel
+    /// Mac-only: a detected camera card becomes the source when allowed.
+    let cameraAutoSource: MacCameraAutoSourceController
     /// The one job view model, owned by the shared coordinator.
     var photographerJobViewModel: PhotographerJobViewModel { sharedCoordinator.photographerJobViewModel }
     /// Mac-only SFTP off-site backups.
@@ -37,11 +39,30 @@ final class AppCoordinator: ObservableObject {
     var results: [ResultRow] { sharedCoordinator.results }
     var canStartOperation: Bool {
         switch currentMode {
-        case .copyAndVerify: return fileSelectionViewModel.canCopyAndVerify
-        case .compareFolders: return fileSelectionViewModel.canCompare
+        case .copyAndVerify: return sourceURL != nil && !destinationURLs.isEmpty
+        case .compareFolders: return leftURL != nil && rightURL != nil
         case .masterReport: return false
         }
     }
+    // The selection lives in the shared coordinator.
+    var sourceURL: URL? {
+        get { sharedCoordinator.sourceURL }
+        set { sharedCoordinator.sourceURL = newValue }
+    }
+    var destinationURLs: [URL] {
+        get { sharedCoordinator.destinationURLs }
+        set { sharedCoordinator.destinationURLs = newValue }
+    }
+    var leftURL: URL? {
+        get { sharedCoordinator.leftURL }
+        set { sharedCoordinator.leftURL = newValue }
+    }
+    var rightURL: URL? {
+        get { sharedCoordinator.rightURL }
+        set { sharedCoordinator.rightURL = newValue }
+    }
+    var sourceFolderInfo: EnhancedFolderInfo? { sharedCoordinator.sourceFolderInfo }
+    var isAnalysingSource: Bool { sharedCoordinator.isAnalysingSource }
     var progressPercentage: Double { progressViewModel.displayProgress }
     var currentFileName: String? { progressViewModel.currentFileName }
     var formattedSpeed: String? { progressViewModel.formattedSpeed }
@@ -74,8 +95,8 @@ final class AppCoordinator: ObservableObject {
             if photographerJobViewModel.hasPreparedIngestAwaitingStart {
                 guard photographerJobViewModel.isStartEligible(
                     preflightReady: preflightReady,
-                    sourceURL: fileSelectionViewModel.sourceURL,
-                    destinationCount: fileSelectionViewModel.destinationURLs.count,
+                    sourceURL: sourceURL,
+                    destinationCount: destinationURLs.count,
                     verificationMode: verificationMode
                 ) else { return }
             }
@@ -94,10 +115,6 @@ final class AppCoordinator: ObservableObject {
         } else {
             sharedCoordinator.projectRunCameraSettings = nil
         }
-        sharedCoordinator.sourceURL = fileSelectionViewModel.sourceURL
-        sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
-        sharedCoordinator.leftURL = fileSelectionViewModel.leftURL
-        sharedCoordinator.rightURL = fileSelectionViewModel.rightURL
         configurePhotographerReportLifecycle()
 
         progressViewModel.setProgressMessage("Preparing transfer…")
@@ -117,10 +134,10 @@ final class AppCoordinator: ObservableObject {
     }
 
     private var copyAndVerifyPreflightIsReady: Bool {
-        guard let sourceURL = fileSelectionViewModel.sourceURL,
-              !fileSelectionViewModel.destinationURLs.isEmpty,
-              !fileSelectionViewModel.isFetchingSourceInfo else { return false }
-        let destinations = fileSelectionViewModel.destinationURLs
+        guard let sourceURL,
+              !destinationURLs.isEmpty,
+              !isAnalysingSource else { return false }
+        let destinations = destinationURLs
         let uniquePaths = Set(destinations.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
         guard uniquePaths.count == destinations.count,
               destinations.allSatisfy({ destination in
@@ -136,7 +153,7 @@ final class AppCoordinator: ObservableObject {
         } catch {
             return false
         }
-        if let sourceSize = fileSelectionViewModel.sourceFolderInfo?.totalSize {
+        if let sourceSize = sourceFolderInfo?.totalSize {
             for destination in destinations {
                 if let available = (try? destination.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity,
                    Int64(available) < sourceSize + Int64(100 * 1024 * 1024) {
@@ -220,41 +237,21 @@ final class AppCoordinator: ObservableObject {
         sharedCoordinator.saveVerificationMode()
     }
 
-    // MARK: - Camera Detection
-    func toggleCameraDetection(_ enabled: Bool) {
-        sharedCoordinator.reportSettings.enableAutoCameraDetection = enabled
-        if enabled { cameraDetectionService.startMonitoring() }
-        else { cameraDetectionService.stopMonitoring() }
-    }
-
-    func rescanForCameras() {
-        cameraDetectionService.rescanVolumes()
-    }
-
-    // MARK: - Time Estimate
-    /// `mode` is passed when the verification mode is about to change, since
-    /// `$verificationMode` publishes before the new value is stored.
-    func updateTimeEstimate(mode: VerificationMode? = nil) {
-        estimate.update(
-            source: fileSelectionViewModel.sourceURL,
-            destinations: fileSelectionViewModel.destinationURLs,
-            totalBytes: fileSelectionViewModel.sourceFolderInfo?.totalSize,
-            mode: mode ?? verificationMode
-        )
-    }
+    // MARK: - Camera Detection (forwards to MacCameraAutoSourceController)
+    func toggleCameraDetection(_ enabled: Bool) { cameraAutoSource.toggleCameraDetection(enabled) }
+    func rescanForCameras() { cameraAutoSource.rescanForCameras() }
 
     // MARK: - Initialization
     /// `platformManager` defaults to the real macOS manager; tests inject one
     /// that does not present modal alerts.
     init(
         photographerJobViewModel: PhotographerJobViewModel? = nil,
-        fileSelectionViewModel: FileSelectionViewModel? = nil,
+        monitorsVolumes: Bool = true,
         platformManager: PlatformManager = MacOSPlatformManager.shared,
         remoteBackupQueue: RemoteBackupQueue? = nil,
         startRemoteScheduler: Bool = true,
         sharedCoordinator: SharedAppCoordinator? = nil
     ) {
-        self.fileSelectionViewModel = fileSelectionViewModel ?? FileSelectionViewModel()
         let shared: SharedAppCoordinator
         let remoteBackups: MacRemoteBackupController
         if sharedCoordinator != nil || photographerJobViewModel != nil {
@@ -293,6 +290,9 @@ final class AppCoordinator: ObservableObject {
         }
         self.sharedCoordinator = shared
         self.remoteBackups = remoteBackups
+        self.volumeAccess = MacVolumeAccessModel(shared: shared, enableVolumeMonitoring: monitorsVolumes)
+        self.cameraAutoSource = MacCameraAutoSourceController(shared: shared, startMonitoring: monitorsVolumes)
+        estimate.bind(to: shared)
         // The host-key alert and the estimate line read these companions
         // through this object.
         remoteBackups.objectWillChange
@@ -301,67 +301,8 @@ final class AppCoordinator: ObservableObject {
         estimate.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
-        // A new verification mode changes the estimate (verify passes).
-        shared.$verificationMode
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] mode in self?.updateTimeEstimate(mode: mode) }
-            .store(in: &cancellables)
-        setupFileSelectionBindings()
         setupProgressBindings()
         setupSharedCoordinatorBindings()
-        setupCameraDetection()
-    }
-
-    private func setupFileSelectionBindings() {
-        // Keep retained comparison evidence tied to the folders shown on Mac,
-        // including selections made after a comparison has finished.
-        fileSelectionViewModel.$leftURL
-            .sink { [weak self] in self?.sharedCoordinator.leftURL = $0 }
-            .store(in: &cancellables)
-        fileSelectionViewModel.$rightURL
-            .sink { [weak self] in self?.sharedCoordinator.rightURL = $0 }
-            .store(in: &cancellables)
-
-        // Camera detection with memory when source changes. `dropFirst()`
-        // skips the synchronous replay Combine delivers immediately upon
-        // subscribing to `$sourceURL`; without it, every AppCoordinator
-        // init reports a spurious "source changed to nil" to the
-        // photographer job view model and permanently invalidates any
-        // already-prepared card's source signature before the user has
-        // touched anything.
-        fileSelectionViewModel.$sourceURL.dropFirst().sink { [weak self] url in
-            if self?.sharedCoordinator.isReplayingQueuedTransfer == false {
-                if let url = url { self?.sharedCoordinator.cameraLabels.detectCameraWithMemory(at: url) }
-                else { self?.sharedCoordinator.cameraLabels.clearCameraLabel() }
-            }
-            self?.photographerJobViewModel.sourceDidChange(to: url)
-            self?.updateTimeEstimate()
-        }.store(in: &cancellables)
-
-        fileSelectionViewModel.$destinationURLs
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.updateTimeEstimate() }
-            .store(in: &cancellables)
-
-        fileSelectionViewModel.$sourceFolderInfo
-            .sink { [weak self] _ in self?.updateTimeEstimate() }
-            .store(in: &cancellables)
-
-        fileSelectionViewModel.$destinationURLs
-            .sink { [weak self] dests in
-                if !dests.isEmpty { self?.fileSelectionViewModel.saveLastDestinations() }
-            }.store(in: &cancellables)
-
-        Publishers.MergeMany(
-            fileSelectionViewModel.$sourceURL.map { _ in () }.eraseToAnyPublisher(),
-            fileSelectionViewModel.$destinationURLs.map { _ in () }.eraseToAnyPublisher(),
-            fileSelectionViewModel.$leftURL.map { _ in () }.eraseToAnyPublisher(),
-            fileSelectionViewModel.$rightURL.map { _ in () }.eraseToAnyPublisher()
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in self?.objectWillChange.send() }
-        .store(in: &cancellables)
     }
 
     private func setupProgressBindings() {
@@ -384,8 +325,6 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] notification in
                 guard let self, (notification.object as? SharedAppCoordinator) === self.sharedCoordinator else { return }
                 self.currentMode = .copyAndVerify
-                self.fileSelectionViewModel.sourceURL = self.sharedCoordinator.sourceURL
-                self.fileSelectionViewModel.destinationURLs = self.sharedCoordinator.destinationURLs
             }.store(in: &cancellables)
         // Map SharedAppCoordinator progress → ProgressViewModel
         sharedCoordinator.$progress.compactMap { $0 }
@@ -395,7 +334,7 @@ final class AppCoordinator: ObservableObject {
                 self.progressViewModel.setFileCountTotal(prog.totalFiles)
                 self.progressViewModel.setPlannedTotalBytes(prog.totalBytes)
                 self.progressViewModel.fileCountCompleted = prog.filesProcessed
-                let destCount = self.fileSelectionViewModel.destinationURLs.count
+                let destCount = self.sharedCoordinator.destinationURLs.count
                 if let totals = prog.perDestinationTotals, let completed = prog.perDestinationCompleted,
                    totals.count == destCount, completed.count == destCount {
                     self.progressViewModel.setPerDestinationProgress(totals: totals, completed: completed)
@@ -476,29 +415,5 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-    }
-
-    private func setupCameraDetection() {
-        NotificationCenter.default.publisher(for: .cameraCardDetected)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard let cameraCard = notification.userInfo?["cameraCard"] as? CameraCard else { return }
-                guard let self, self.sharedCoordinator.reportSettings.enableAutoCameraDetection else { return }
-                let sourceURL = cameraCard.mediaPath
-                let shouldSelect = AutomaticSourceSelectionPolicy.shouldSelect(
-                    automaticSelectionEnabled: self.sharedCoordinator.reportSettings.autoPopulateSource,
-                    hasExistingSource: self.fileSelectionViewModel.sourceURL != nil,
-                    isReadable: FileManager.default.isReadableFile(atPath: sourceURL.path)
-                )
-                guard shouldSelect else {
-                    SharedLogger.info("Detected camera card is available, but BitMatch did not auto-select it without readable access.", category: .transfer)
-                    return
-                }
-                self.fileSelectionViewModel.sourceURL = sourceURL
-            }.store(in: &cancellables)
-
-        if sharedCoordinator.reportSettings.enableAutoCameraDetection {
-            cameraDetectionService.startMonitoring()
-        }
     }
 }

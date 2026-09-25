@@ -28,7 +28,7 @@ struct PhotographerJobSetupView: View {
             recipe: viewModel.draftRecipe,
             workflow: viewModel.selectedWorkflow,
             duplicateWarningText: viewModel.duplicateWarning?.message,
-            hasSource: coordinator.fileSelectionViewModel.sourceURL != nil,
+            hasSource: coordinator.sourceURL != nil,
             isPreparing: viewModel.isPreparing
         )
     }
@@ -79,7 +79,7 @@ struct PhotographerJobSetupView: View {
                 isExpanded = false
             }
         }
-        .onChange(of: coordinator.fileSelectionViewModel.sourceCameraLabel) { _, label in
+        .onChange(of: coordinator.cameraLabels.detectedCameraName) { _, label in
             if cameraName.isEmpty, let label { cameraName = label }
         }
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
@@ -361,7 +361,7 @@ struct PhotographerJobSetupView: View {
 
     private func setUpCard() {
         guard presentation.canSetUpCard,
-              let sourceURL = coordinator.fileSelectionViewModel.sourceURL else { return }
+              let sourceURL = coordinator.sourceURL else { return }
         viewModel.startPreparingDraftCard(sourceURL: sourceURL, setupSignature: setupSignature)
     }
 
@@ -378,10 +378,10 @@ struct PhotographerJobSetupView: View {
             photographerName = card.provenance.photographerName
             cameraName = card.provenance.cameraName
             isExpanded = false
-        } else if let label = coordinator.fileSelectionViewModel.sourceCameraLabel {
+        } else if let label = coordinator.cameraLabels.detectedCameraName {
             cameraName = label
         }
-        viewModel.sourceDidChange(to: coordinator.fileSelectionViewModel.sourceURL)
+        viewModel.sourceDidChange(to: coordinator.sourceURL)
         viewModel.updateSetupSignature(setupSignature)
     }
 }

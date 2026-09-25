@@ -178,15 +178,9 @@ class DevModeManager: ObservableObject {
             
             await MainActor.run {
                 // Wire up coordinator selections
-                coordinator.fileSelectionViewModel.sourceURL = src
-                coordinator.fileSelectionViewModel.sourceFolderInfo = FolderInfo(
-                    url: src,
-                    fileCount: dirCount * filesPerDir + largeFiles,
-                    totalSize: estimatedBytes,
-                    lastModified: Date(),
-                    isInternalDrive: true
-                )
-                coordinator.fileSelectionViewModel.destinationURLs = [dst]
+                // The shared scanner reports the synthetic folder's real size.
+                coordinator.sourceURL = src
+                coordinator.destinationURLs = [dst]
                 coordinator.verificationMode = verify ? .standard : .quick
                 coordinator.switchMode(to: .copyAndVerify)
                 
@@ -251,12 +245,13 @@ class DevModeManager: ObservableObject {
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
         
-        // Set fake source
-        coordinator.fileSelectionViewModel.sourceURL = sourceURL
-        coordinator.fileSelectionViewModel.sourceFolderInfo = sourceInfo
-        
+        // Set fake source. Folder info comes from the shared scanner, so the
+        // generated info is only logged.
+        coordinator.sourceURL = sourceURL
+        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
+
         // Set fake destinations
-        coordinator.fileSelectionViewModel.destinationURLs = destinations.map { $0.url }
+        coordinator.destinationURLs = destinations.map { $0.url }
 
         // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {
@@ -347,12 +342,13 @@ class DevModeManager: ObservableObject {
         let (sourceURL, sourceInfo) = generateFakeSource()
         let destinations = generateFakeDestinations()
         
-        // Set fake source
-        coordinator.fileSelectionViewModel.sourceURL = sourceURL
-        coordinator.fileSelectionViewModel.sourceFolderInfo = sourceInfo
-        
+        // Set fake source. Folder info comes from the shared scanner, so the
+        // generated info is only logged.
+        coordinator.sourceURL = sourceURL
+        SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
+
         // Set fake destinations
-        coordinator.fileSelectionViewModel.destinationURLs = destinations.map { $0.url }
+        coordinator.destinationURLs = destinations.map { $0.url }
 
         // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {

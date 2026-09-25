@@ -152,8 +152,8 @@ struct TransferPlanView: View {
         let photographerStart = coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
             ? coordinator.photographerJobViewModel.startPresentation(
                 preflightReady: plan.canStart,
-                sourceURL: coordinator.fileSelectionViewModel.sourceURL,
-                destinationCount: coordinator.fileSelectionViewModel.destinationURLs.count,
+                sourceURL: coordinator.sourceURL,
+                destinationCount: coordinator.destinationURLs.count,
                 verificationMode: coordinator.verificationMode
             )
             : nil
@@ -291,7 +291,7 @@ private struct MacTransferOptionsAdapter: View {
             CameraLabelView(settings: $cameraLabels.settings,
                             detectedCamera: cameraLabels.detectedCamera,
                             fingerprint: cameraLabels.currentFingerprint,
-                            sourceURL: coordinator.fileSelectionViewModel.sourceURL)
+                            sourceURL: shared.sourceURL)
         }
         .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
         .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.035)))

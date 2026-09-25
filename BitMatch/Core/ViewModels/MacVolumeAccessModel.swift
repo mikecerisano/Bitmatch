@@ -1,4 +1,10 @@
-// Core/ViewModels/FileSelectionViewModel.swift
+// Core/ViewModels/MacVolumeAccessModel.swift
+//
+// The Mac-only half of the old file-selection view model: the volume
+// monitor and backup-drive discovery, /Volumes bookmarks, recent folders,
+// last-used backups and drive speed. The selection itself (source, backups,
+// compare folders and their folder info) lives in SharedAppCoordinator;
+// this model reads it and writes changes through it.
 import Foundation
 import SwiftUI
 import Combine
@@ -8,66 +14,16 @@ import AppKit
 #endif
 
 @MainActor
-final class FileSelectionViewModel: ObservableObject {
+final class MacVolumeAccessModel: ObservableObject {
     // MARK: - Published Properties
-    @Published var leftURL: URL? {
-        didSet {
-            handleURLChange(leftURL, for: .left)
-        }
-    }
-    
-    @Published var rightURL: URL? {
-        didSet {
-            handleURLChange(rightURL, for: .right)
-        }
-    }
-    
-    @Published var sourceURL: URL? {
-        didSet {
-            handleURLChange(sourceURL, for: .source)
-        }
-    }
-    
-    @Published var destinationURLs: [URL] = [] {
-        didSet {
-            // Auto-save destinations when they change
-            if !destinationURLs.isEmpty {
-                saveLastDestinations()
-            }
-        }
-    }
     @Published var recentFolders: [URL] = []
-    
-    // Folder Info
-    @Published var leftFolderInfo: FolderInfo?
-    @Published var rightFolderInfo: FolderInfo?
-    @Published var sourceFolderInfo: FolderInfo?
-    @Published var sourceCameraLabel: String?
-    @Published var sourceVideoFileCount: Int = 0
-    
-    // Loading States
-    @Published var isFetchingLeftInfo = false
-    @Published var isFetchingRightInfo = false
-    @Published var isFetchingSourceInfo = false
-    
-    // Source Protection
-    @Published var sourceIsWriteProtected = false
-    
+
     // Auto-detected volumes
     @Published var detectedCameraCards: [VolumeMonitorService.DetectedVolume] = []
     @Published var detectedBackupDrives: [VolumeMonitorService.DetectedVolume] = []
-    
+
     // MARK: - Private Properties
-    private enum InfoTarget { case left, right, source }
-    /// Owned fetch tasks and their generations: reselecting or clearing a
-    /// target cancels the in-flight scan, and only the latest generation
-    /// may publish.
-    private var infoFetchTasks: [InfoTarget: Task<Void, Never>] = [:]
-    private var infoFetchGenerations: [InfoTarget: Int] = [:]
-    /// Owned camera-hint task for the source target: cancelled whenever a
-    /// newer source fetch starts, so rapid reselection cannot pile up
-    /// background detections.
-    private var cameraHintTask: Task<Void, Never>?
+    private weak var shared: SharedAppCoordinator?
     private let lastDestinationsKey = "lastUsedDestinations"
     private let maxRememberedDestinations = 5
     private let recentFoldersListKey = "recentFoldersList"
@@ -79,14 +35,38 @@ final class FileSelectionViewModel: ObservableObject {
     /// skips these until the drive disappears (unplug) or the user re-adds
     /// it, so rediscovery never undoes a deliberate removal.
     private var dismissedDestinationPaths = Set<String>()
-    
+
+    private var sourceURL: URL? { shared?.sourceURL }
+    private var destinationURLs: [URL] { shared?.destinationURLs ?? [] }
+
     // MARK: - Initialization
-    init(enableVolumeMonitoring: Bool = true) {
+    init(shared: SharedAppCoordinator, enableVolumeMonitoring: Bool = true) {
+        self.shared = shared
         loadRecentFolders()
+        observeSelection(of: shared)
         if enableVolumeMonitoring {
             setupVolumeMonitoring()
             loadSavedBookmarks()
         }
+    }
+
+    /// Recents and last-used backups follow the shared selection. `$x`
+    /// publishes the new value before it is stored, so the sinks use it.
+    private func observeSelection(of shared: SharedAppCoordinator) {
+        shared.$sourceURL.dropFirst()
+            .sink { [weak self] url in self?.saveRecentFolder(url, key: "recentSource") }
+            .store(in: &cancellables)
+        shared.$leftURL.dropFirst()
+            .sink { [weak self] url in self?.saveRecentFolder(url, key: "recentLeft") }
+            .store(in: &cancellables)
+        shared.$rightURL.dropFirst()
+            .sink { [weak self] url in self?.saveRecentFolder(url, key: "recentRight") }
+            .store(in: &cancellables)
+        shared.$destinationURLs.dropFirst()
+            .sink { [weak self] urls in
+                if !urls.isEmpty { self?.saveLastDestinations(urls) }
+            }
+            .store(in: &cancellables)
     }
 
     deinit {
@@ -135,13 +115,13 @@ final class FileSelectionViewModel: ObservableObject {
             let sourceStillExists = cards.contains { $0.url.path == sourceURL.path }
             if !sourceStillExists && FileManager.default.fileExists(atPath: sourceURL.path) == false {
                 SharedLogger.info("Selected source volume was removed: \(sourceURL.lastPathComponent)", category: .transfer)
-                self.sourceURL = nil
+                shared?.sourceURL = nil
             }
         }
         
         // Volume discovery only updates the available-card list. Choosing a
-        // source belongs to the explicit auto-source policy in AppCoordinator,
-        // which first proves the card is readable.
+        // source belongs to the explicit auto-source policy in
+        // MacCameraAutoSourceController, which first proves the card is readable.
     }
     
     /// Internal (not private) so tests can drive the discovery policy
@@ -173,32 +153,27 @@ final class FileSelectionViewModel: ObservableObject {
     }
 
     // MARK: - Public Methods
+    /// Adds a backup through the shared coordinator (which refuses the same
+    /// folder twice) and forgets any earlier dismissal of it.
     func addDestination(_ url: URL) {
         guard !destinationURLs.contains(url) else { return }
         // An explicit add overrides any earlier dismissal.
         dismissedDestinationPaths.remove(url.path)
-        destinationURLs.append(url)
+        shared?.addDestination(url)
         saveRecentFolder(url, key: "recentDestination")
     }
 
+    /// Removes a backup and remembers the dismissal, so discovery does not
+    /// add the same drive back while it stays plugged in.
     func removeDestination(_ url: URL) {
         dismissedDestinationPaths.insert(url.path)
-        destinationURLs.removeAll { $0 == url }
+        shared?.removeDestinationFolder(url)
     }
 
-    func clearAllSelections() {
-        stopAllSecurityScopes()
-        leftURL = nil
-        rightURL = nil
-        sourceURL = nil
-        destinationURLs.removeAll()
-        dismissedDestinationPaths.removeAll()
-    }
-    
     func removeAutoDetectedCameraCard(_ volume: VolumeMonitorService.DetectedVolume) {
         // If this was our auto-selected source, clear it
         if sourceURL == volume.url {
-            sourceURL = nil
+            shared?.sourceURL = nil
         }
         
         // Remove from volume monitor (user doesn't want to see this one)
@@ -398,8 +373,8 @@ final class FileSelectionViewModel: ObservableObject {
     }
     
     // MARK: - Smart Defaults Methods
-    func saveLastDestinations() {
-        let paths = destinationURLs.prefix(maxRememberedDestinations).map { $0.path }
+    func saveLastDestinations(_ urls: [URL]) {
+        let paths = urls.prefix(maxRememberedDestinations).map { $0.path }
         UserDefaults.standard.set(paths, forKey: lastDestinationsKey)
     }
     
@@ -416,202 +391,11 @@ final class FileSelectionViewModel: ObservableObject {
     }
     
     func restoreLastDestinations() {
-        let lastDests = loadLastDestinations()
-        for dest in lastDests {
-            if !destinationURLs.contains(dest) {
-                destinationURLs.append(dest)
-            }
+        for dest in loadLastDestinations() {
+            shared?.addDestination(dest)
         }
     }
     
-    // MARK: - Validation
-    var canCompare: Bool {
-        leftURL != nil && rightURL != nil
-    }
-    
-    var canCopyAndVerify: Bool {
-        sourceURL != nil && !destinationURLs.isEmpty
-    }
-    
-    func validateDestinations(for source: URL) -> [URL] {
-        var seenPaths = Set<String>()
-        return destinationURLs.filter { destination in
-            let path = destination.standardizedFileURL.resolvingSymlinksInPath().path
-            guard !seenPaths.contains(path),
-                  !SafetyValidator.isProtectedSystemPath(destination),
-                  SafetyValidator.destinationSafetyIssue(source: source, destination: destination) == nil else {
-                return false
-            }
-            seenPaths.insert(path)
-            return true
-        }
-    }
-    
-    // MARK: - Private Methods
-    private func handleURLChange(_ url: URL?, for target: InfoTarget) {
-        switch target {
-        case .left:
-            saveRecentFolder(url, key: "recentLeft")
-            fetchInfo(for: .left)
-        case .right:
-            saveRecentFolder(url, key: "recentRight")
-            fetchInfo(for: .right)
-        case .source:
-            saveRecentFolder(url, key: "recentSource")
-            fetchInfo(for: .source)
-        }
-    }
-    
-    private func fetchInfo(for target: InfoTarget) {
-        // Supersede any in-flight fetch: the synchronous filesystem loop
-        // must never run on the main actor, and a stale result must never
-        // publish over the current selection.
-        infoFetchTasks[target]?.cancel()
-        if target == .source {
-            cameraHintTask?.cancel()
-        }
-        infoFetchGenerations[target, default: 0] += 1
-        let generation = infoFetchGenerations[target]!
-
-        let url: URL?
-
-        switch target {
-        case .left:
-            isFetchingLeftInfo = leftURL != nil
-            leftFolderInfo = nil
-            url = leftURL
-        case .right:
-            isFetchingRightInfo = rightURL != nil
-            rightFolderInfo = nil
-            url = rightURL
-        case .source:
-            isFetchingSourceInfo = sourceURL != nil
-            sourceFolderInfo = nil
-            url = sourceURL
-        }
-
-        guard let urlToFetch = url else {
-            infoFetchTasks[target] = nil
-            if target == .source {
-                cameraHintTask?.cancel()
-                cameraHintTask = nil
-                sourceCameraLabel = nil
-            }
-            return
-        }
-
-        infoFetchTasks[target] = Task.detached { [weak self] in
-            let scanned = Self.scanFolderInfo(at: urlToFetch)
-            await MainActor.run { [weak self] in
-                self?.publishFolderInfo(scanned, for: target, url: urlToFetch, generation: generation)
-            }
-        }
-    }
-
-    /// Synchronous folder scan. Runs off the main actor; checks
-    /// cancellation periodically so a superseded fetch stops promptly.
-    private nonisolated static func scanFolderInfo(at url: URL) -> (info: FolderInfo, videoCount: Int)? {
-        guard !Task.isCancelled else { return nil }
-        let fm = FileManager.default
-        var fileCount = 0
-        var totalSize: Int64 = 0
-        var videoCount = 0
-        let videoExts: Set<String> = ["mov","mp4","mxf","r3d","braw","ari","avi","m4v","hevc","heic","prores","dnxhd"]
-        if let enumerator = fm.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: []
-        ) {
-            while let next = (enumerator as NSEnumerator).nextObject() as? URL {
-                do {
-                    let rv = try next.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-                    if rv.isRegularFile == true {
-                        fileCount += 1
-                        totalSize += Int64(rv.fileSize ?? 0)
-                        let ext = next.pathExtension.lowercased()
-                        if videoExts.contains(ext) { videoCount += 1 }
-                    }
-                } catch { /* ignore individual file errors */ }
-                if fileCount % 256 == 0, Task.isCancelled { return nil }
-            }
-        }
-        guard !Task.isCancelled else { return nil }
-        let lastModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
-        let info = FolderInfo(
-            url: url,
-            fileCount: fileCount,
-            totalSize: totalSize,
-            lastModified: lastModified,
-            isInternalDrive: !url.path.starts(with: "/Volumes/")
-        )
-        return (info, videoCount)
-    }
-
-    private func currentURL(for target: InfoTarget) -> URL? {
-        switch target {
-        case .left: leftURL
-        case .right: rightURL
-        case .source: sourceURL
-        }
-    }
-
-    /// Publish a scan result only if it is still current: same fetch
-    /// generation and same selected URL. Stale or cancelled fetches drop
-    /// their result without touching loading flags owned by the live fetch.
-    private func publishFolderInfo(
-        _ scanned: (info: FolderInfo, videoCount: Int)?,
-        for target: InfoTarget,
-        url: URL,
-        generation: Int
-    ) {
-        guard generation == infoFetchGenerations[target, default: 0],
-              currentURL(for: target) == url else { return }
-        // Generation match implies this task is the latest for the target,
-        // so releasing the handle cannot orphan a live fetch.
-        infoFetchTasks[target] = nil
-
-        switch target {
-        case .left:
-            leftFolderInfo = scanned?.info
-            isFetchingLeftInfo = false
-        case .right:
-            rightFolderInfo = scanned?.info
-            isFetchingRightInfo = false
-        case .source:
-            sourceFolderInfo = scanned?.info
-            isFetchingSourceInfo = false
-            sourceVideoFileCount = scanned?.videoCount ?? 0
-            if let src = sourceURL {
-                let values = try? src.resourceValues(forKeys: [.volumeIsReadOnlyKey])
-                sourceIsWriteProtected = values?.volumeIsReadOnly ?? false
-                // Camera detection enumerates the filesystem and can wait
-                // on metadata subprocesses: resolve it off the main actor
-                // and publish the label only if still current.
-                sourceCameraLabel = nil
-                cameraHintTask?.cancel()
-                cameraHintTask = Task.detached { [weak self, generation] in
-                    let hint = CameraDetectionOrchestrator.shared.detectCamera(at: src)
-                    let clean = hint.map { CleanCameraNameService.shared.getCleanCameraName(from: $0) }
-                    await MainActor.run { [weak self] in
-                        self?.publishCameraLabel(clean, for: src, generation: generation)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Publish a camera label only if the source selection has not moved on
-    /// since the hint was requested. A superseded hint is dropped silently;
-    /// the live fetch owns the label.
-    private func publishCameraLabel(_ label: String?, for url: URL, generation: Int) {
-        guard generation == infoFetchGenerations[.source, default: 0],
-              sourceURL == url else { return }
-        // The generation match implies no newer fetch replaced this task,
-        // so the handle is unconditionally ours to release.
-        cameraHintTask = nil
-        sourceCameraLabel = label
-    }
-
     // MARK: - Volume Space Helpers
     func formattedAvailableSpace(for url: URL) -> String? {
         do {
@@ -739,26 +523,11 @@ final class FileSelectionViewModel: ObservableObject {
 }
 
 // MARK: - Convenience Extensions
-extension FileSelectionViewModel {
-    var hasSourceAndDestinations: Bool {
-        sourceURL != nil && !destinationURLs.isEmpty
-    }
-    
-    var hasLeftAndRight: Bool {
-        leftURL != nil && rightURL != nil
-    }
-    
+extension MacVolumeAccessModel {
     var hasLastDestinations: Bool {
         !loadLastDestinations().isEmpty
     }
-    
-    func getWorkerCount() -> Int {
-        let cpuCount = ProcessInfo.processInfo.activeProcessorCount
-        let isSourceSSD = sourceFolderInfo?.isInternalDrive ?? false
-        let baseWorkers = isSourceSSD ? cpuCount : max(2, cpuCount / 2)
-        return max(2, min(8, baseWorkers))
-    }
-    
+
     // Smart worker count based on drive speeds
     func getOptimalWorkerCount(source: DriveSpeed, destinations: [DriveSpeed]) -> Int {
         let cpuCount = ProcessInfo.processInfo.activeProcessorCount

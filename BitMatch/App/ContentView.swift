@@ -42,8 +42,8 @@ struct ContentView: View {
         case .copyAndVerify:
             // Allow room for the source row, backup grid, and primary action.
             // Backup rows grow in pairs at the default compact window width.
-            let destinationCount = coordinator.fileSelectionViewModel.destinationURLs.count
-            let hasSource = coordinator.fileSelectionViewModel.sourceURL != nil
+            let destinationCount = coordinator.destinationURLs.count
+            let hasSource = coordinator.sourceURL != nil
             let extraRows = max(0, (destinationCount + 1) / 2 - 1)
             let locationsHeight: CGFloat = hasSource ? 320 + CGFloat(extraRows) * 84 : 230
             totalHeight += locationsHeight + 200
