@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+- Fix: With "Automatically set detected cameras as source" turned on (Mac, off by default), BitMatch could select a card's media subfolder (such as PRIVATE/ on a Sony Alpha or FX3 card) instead of the whole card, leaving the DCIM stills out of a transfer that still verified green. Auto-select now always uses the card root.
+- Presentation: Only rows that were checksum- or byte-verified show a green check; a Quick copy's "Copied" rows are neutral. On iPad and iPhone, a cancelled transfer's guidance now says it was cancelled.
+
 ## [0.1.6] - 2026-09-25
 
 - Fix: Compare no longer reports "1 only in destination" after an offload when Finder has written a .DS_Store into the copied folder. Finder view files (.DS_Store, ._*, Icon) are ignored on both sides, and checksum manifests written at the destination root (ascmhl/, .mhl, .mhl.md5) no longer count as extra files (GitHub issue #8).

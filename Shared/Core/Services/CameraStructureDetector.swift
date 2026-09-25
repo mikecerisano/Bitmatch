@@ -40,7 +40,10 @@ struct CameraStructureDetector {
                     metadata: [:],
                     volumeURL: volume,
                     cameraType: detection.cameraType,
-                    mediaPath: detection.mediaPath
+                    // Auto-select copies mediaPath, so it is always the card
+                    // root: a detector's media subfolder (PRIVATE/, DCIM/)
+                    // would silently leave the rest of the card behind.
+                    mediaPath: volume
                 )
             }
         }

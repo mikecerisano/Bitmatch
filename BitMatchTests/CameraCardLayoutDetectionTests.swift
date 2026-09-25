@@ -94,16 +94,17 @@ struct CameraCardLayoutDetectionTests {
     // MARK: - Mac auto-detect (CameraStructureDetector): known issues
 
     /// Auto-select (Mac, opt-in) uses `mediaPath` as the transfer source.
-    /// It must be the card root, or part of the card is silently left out.
-    /// Today the Sony detector returns PRIVATE/, dropping DCIM stills.
+    /// It must be the card root, or part of the card is silently left out
+    /// (Promise 1). The Sony detector used to return PRIVATE/, dropping
+    /// DCIM stills. Fails if `performDetection` passes `detection.mediaPath`
+    /// instead of the volume.
     @Test func sonyAlphaMediaPathIsCardRoot() async throws {
         let layout = CameraCardLayouts.sonyAlpha
         let root = try layout.build()
         defer { try? FileManager.default.removeItem(at: root) }
         let card = await CameraStructureDetector.detectCameraType(at: root)
-        await withKnownIssue("mediaPath is PRIVATE/, not the card root") {
-            #expect(samePath(card?.mediaPath, root))
-        }
+        #expect(card != nil)
+        #expect(samePath(card?.mediaPath, root))
     }
 
     /// Canon C70 on SD: the MP4 in DCIM matches the Sony detector, whose
@@ -113,9 +114,9 @@ struct CameraCardLayoutDetectionTests {
         let root = try layout.build()
         defer { try? FileManager.default.removeItem(at: root) }
         let card = await CameraStructureDetector.detectCameraType(at: root)
-        await withKnownIssue("detected as Sony with mediaPath PRIVATE/") {
+        #expect(samePath(card?.mediaPath, root))
+        await withKnownIssue("detected as Sony") {
             #expect(card?.cameraType == .canon)
-            #expect(samePath(card?.mediaPath, root))
         }
     }
 
