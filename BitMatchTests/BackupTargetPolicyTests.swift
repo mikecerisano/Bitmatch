@@ -186,6 +186,98 @@ struct BackupTargetPolicyTests {
         }
     }
 
+    // MARK: - Follow-ups, 2026-09-25
+
+    /// A NAS or SMB share: not local, and macOS may not say whether it is
+    /// internal.
+    private static func networkShare(_ root: String, isInternal: Bool? = nil) -> Facts {
+        Facts(volumeRootPath: root, volumeID: nil, volumeName: (root as NSString).lastPathComponent,
+              isRootFileSystem: false, isInternal: isInternal, isRemovable: false, isEjectable: false,
+              isLocal: false)
+    }
+
+    /// A NAS share root saved as last-used comes back at launch, even when
+    /// macOS does not report whether it is internal (or calls it internal).
+    /// Plant: in `BackupTargetPolicy.refusal`, delete the automatic
+    /// `if targetFacts.isNetwork { ... }` block (the share then falls into
+    /// "is an internal volume").
+    @Test func networkShareRootIsRestoredAtLaunch() {
+        let nas = Self.networkShare("/Volumes/Footage")
+        #expect(refusal("/Volumes/Footage", .restored, volumes: [nas]) == nil)
+        let saysInternal = Self.networkShare("/Volumes/Footage", isInternal: true)
+        #expect(refusal("/Volumes/Footage", .restored, volumes: [saysInternal]) == nil)
+        #expect(refusal("/Volumes/Footage", .userChoice, volumes: [nas]) == nil)
+    }
+
+    /// The exception is for network shares only: a local volume whose
+    /// internal flag is unknown is still not restored.
+    /// Plant: in `BackupTargetPolicy.VolumeFacts.isNetwork`, return
+    /// `isLocal != true` instead of `isLocal == false`.
+    @Test func unknownLocalVolumeRootIsStillNotRestored() {
+        let unknown = Facts(volumeRootPath: "/Volumes/Media", volumeID: "M", volumeName: "Media",
+                            isRootFileSystem: false, isInternal: nil, isRemovable: false, isEjectable: false)
+        #expect(refusal("/Volumes/Media", .restored, volumes: [unknown]) != nil)
+    }
+
+    /// Discovery offers local drives only; a share is never added by itself.
+    /// Plant: in `BackupTargetPolicy.refusal`, change
+    /// `return origin == .discovered ? "... network share." : nil` to
+    /// `return nil`.
+    @Test func discoveryNeverAddsANetworkShare() {
+        #expect(refusal("/Volumes/Footage", .discovered, volumes: [Self.networkShare("/Volumes/Footage")]) != nil)
+    }
+
+    /// Neither side's volume facts can be read, and both are on the same
+    /// /Volumes mount: the backup may be on the source card, so a pick is
+    /// refused.
+    /// Plant: in `BackupTargetPolicy.refusal`, change
+    /// `guard let volumeFacts = sourceFacts ?? targetFacts else { return "... cannot read ..." }`
+    /// to `... else { return nil }`.
+    @Test func pickOnTheSourceDriveFailsClosedWithoutVolumeFacts() {
+        #expect(refusal("/Volumes/EOS_DIGITAL/Backup", .userChoice, source: "/Volumes/EOS_DIGITAL/DCIM") != nil)
+        #expect(refusal("/Volumes/EOS_DIGITAL", .userChoice, source: "/Volumes/EOS_DIGITAL/DCIM") != nil)
+    }
+
+    /// Only the target's facts are missing; the source card, mounted outside
+    /// /Volumes (a disk image in the temp folders), reports its mount.
+    /// Plant: in `BackupTargetPolicy.sharedVolume`, delete the
+    /// `if let root = sourceFacts?.volumeRootPath, root != "/", isWithin(targetPath, root: root)`
+    /// branch.
+    @Test func pickInsideTheSourceCardMountIsRefusedWithoutTargetFacts() {
+        let mount = "/private/var/folders/xy/abc/T/bitmatch_card"
+        let card = Self.card(mount)
+        let facts: (URL) -> Facts? = { $0.lastPathComponent == "DCIM" ? card : nil }
+        let refusal = BackupTargetPolicy.refusal(
+            for: URL(fileURLWithPath: mount + "/Backup"), origin: .userChoice,
+            source: URL(fileURLWithPath: mount + "/DCIM"), facts: facts,
+            temporaryDirectory: URL(fileURLWithPath: "/private/var/folders/xy/abc/T")
+        )
+        #expect(refusal != nil)
+    }
+
+    /// Failing closed must not refuse what is clearly elsewhere: another
+    /// /Volumes drive, with or without the source's facts.
+    /// Plant: in `BackupTargetPolicy.sharedVolume`, change
+    /// `return targetRoot == sourceRoot ? targetRoot : nil` to
+    /// `return targetRoot`.
+    @Test func pickOnAnotherDriveIsAllowedWithoutVolumeFacts() {
+        #expect(refusal("/Volumes/T7/Backup", .userChoice, source: "/Volumes/EOS_DIGITAL/DCIM") == nil)
+        let t7 = Self.external("/Volumes/T7", ejectable: false)
+        #expect(refusal("/Volumes/EOS_DIGITAL/Backup", .userChoice, source: "/Volumes/T7/Shoot",
+                        volumes: [t7]) == nil)
+    }
+
+    /// Plant: in `BackupTargetPolicy.isSystemVolumeName`, delete
+    /// `let name = name.lowercased()`.
+    @Test func systemVolumeNamesIgnoreLetterCase() {
+        for name in ["RECOVERY", "recovery 2", "macintosh hd - data", "PREBOOT", "Macintosh HD - DATA"] {
+            #expect(BackupTargetPolicy.isSystemVolumeName(name), "\(name)")
+        }
+        #expect(!BackupTargetPolicy.isSystemVolumeName("RECOVERY DRIVE"))
+        let recovery = Self.internalRoot("/Volumes/RECOVERY", name: "RECOVERY")
+        #expect(refusal("/Volumes/RECOVERY", .userChoice, volumes: [recovery]) != nil)
+    }
+
     // MARK: - Restore
 
     /// One refused backup restores none (all or nothing, S-3).
