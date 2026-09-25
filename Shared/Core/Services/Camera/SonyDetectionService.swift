@@ -1,7 +1,7 @@
 // Core/Services/Camera/SonyDetectionService.swift
 import Foundation
 
-/// Specialized service for detecting Sony cameras via MEDIAPRO.XML and folder structure
+/// Reads the Sony model from MEDIAPRO.XML. The brand itself comes from CardLayoutClassifier.
 final class SonyDetectionService {
     static let shared = SonyDetectionService()
     private init() {}
@@ -9,29 +9,32 @@ final class SonyDetectionService {
     // MARK: - Public Interface
     
     func detectSonyCamera(at url: URL) -> String? {
-        if let xmlInfo = checkSonyMediaProXML(at: url) {
-            return xmlInfo
-        }
-        
-        if let folderInfo = checkSonyFolderStructure(at: url) {
-            return folderInfo
-        }
-        
-        return nil
+        // Folder shape is CardLayoutClassifier's job; this stage only
+        // reads MEDIAPRO.XML for the model.
+        return checkSonyMediaProXML(at: url)
     }
     
     // MARK: - MEDIAPRO.XML Detection
     
     private func checkSonyMediaProXML(at url: URL) -> String? {
-        // Check both consumer (M4ROOT) and pro (XDROOT) locations
+        // Consumer (M4ROOT), pro XAVC (XDROOT, or PRIVATE/XDROOT on SD),
+        // and XDCAM EX (BPAV). VENICE firmware 3.0+ can rename XDROOT to
+        // Cam ID + Reel, so any root folder's MEDIAPRO.XML also counts.
+        let fm = FileManager.default
+        let rootFolders = ((try? fm.contentsOfDirectory(atPath: url.path)) ?? [])
+            .filter { !$0.hasPrefix(".") }
+            .sorted()
+            .map { "\($0)/MEDIAPRO.XML" }
         let candidatePaths = [
             "PRIVATE/M4ROOT/MEDIAPRO.XML",
-            "XDROOT/MEDIAPRO.XML"
-        ]
-        
+            "XDROOT/MEDIAPRO.XML",
+            "PRIVATE/XDROOT/MEDIAPRO.XML",
+            "BPAV/MEDIAPRO.XML"
+        ] + rootFolders
+
         guard let mediaProPath = candidatePaths
                 .map({ url.appendingPathComponent($0) })
-                .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
+                .first(where: { fm.fileExists(atPath: $0.path) }) else { return nil }
         
         do {
             let xmlString = try String(contentsOf: mediaProPath, encoding: .utf8)
@@ -66,40 +69,6 @@ final class SonyDetectionService {
         }
     }
     
-    // MARK: - Sony Folder Structure Detection
-    
-    private func checkSonyFolderStructure(at url: URL) -> String? {
-        let fm = FileManager.default
-        
-        let sonyIndicators = [
-            // Consumer/Prosumer
-            "PRIVATE/M4ROOT",
-            "PRIVATE/AVCHD",
-            "DCIM",
-            "MP_ROOT/101PNV01",
-            // Professional XAVC (FX6/FX9/FS7)
-            "XDROOT",
-            "XDROOT/Clip",
-            "XDROOT/General",
-            "XDROOT/Sub"
-        ]
-        
-        var foundIndicators = 0
-        for indicator in sonyIndicators {
-            let indicatorPath = url.appendingPathComponent(indicator)
-            if fm.fileExists(atPath: indicatorPath.path) {
-                foundIndicators += 1
-            }
-        }
-        
-        // If XDROOT is present at all, treat as Sony XAVC
-        if fm.fileExists(atPath: url.appendingPathComponent("XDROOT").path) {
-            return "Sony"
-        }
-        
-        return foundIndicators >= 2 ? "Sony" : nil
-    }
-    
     // MARK: - System ID/Kind Mapping
     
     private func mapSonySystemId(_ systemId: String) -> String? {
@@ -124,30 +93,37 @@ final class SonyDetectionService {
     }
     
     private func mapSonySystemKind(_ systemKind: String) -> String? {
-        let kindMapping: [String: String] = [
-            "ILCE-7SM3": "A7S III",
-            "ILCE-7SM2": "A7S II",
-            "ILCE-7S": "A7S",
-            "ILCE-7RM5": "A7R V",
-            "ILCE-7RM4": "A7R IV",
-            "ILCE-7M4": "A7 IV",
-            "ILCE-7C": "A7C",
+        // Ordered, and every key comes before any key it is a prefix of
+        // (ILCE-7SM3 before ILCE-7S), so the first match is the right one.
+        // A Dictionary here gave a different answer per process (audit F).
+        let kindMapping: [(key: String, model: String)] = [
+            ("ILCE-7SM3", "A7S III"),
+            ("ILCE-7SM2", "A7S II"),
+            ("ILCE-7S", "A7S"),
+            ("ILCE-7RM5", "A7R V"),
+            ("ILCE-7RM4", "A7R IV"),
+            ("ILCE-7M4", "A7 IV"),
+            ("ILCE-7CM2", "A7C II"),
+            ("ILCE-7C", "A7C"),
             // Cinema line
-            "ILME-FX6": "FX6",
-            "ILME-FX3": "FX3",
-            "ILME-FX30": "FX30",
-            "ILME-FX9": "FX9",
+            ("ILME-FX6", "FX6"),
+            ("ILME-FX30", "FX30"),
+            ("ILME-FX3", "FX3"),
+            ("ILME-FX9", "FX9"),
+            // VENICE model numbers (MPC-3610 VENICE, MPC-3628 VENICE 2)
+            ("MPC-3628", "VENICE 2"),
+            ("MPC-3610", "VENICE"),
             // XDCAM PXW series common on pro media
-            "PXW-FS7": "FS7",
-            "PXW-FS7M2": "FS7 II",
-            "PXW-FS5": "FS5",
-            "ILCE-6700": "A6700",
-            "ILCE-6600": "A6600",
-            "ILCE-6400": "A6400"
+            ("PXW-FS7M2", "FS7 II"),
+            ("PXW-FS7", "FS7"),
+            ("PXW-FS5", "FS5"),
+            ("ILCE-6700", "A6700"),
+            ("ILCE-6600", "A6600"),
+            ("ILCE-6400", "A6400")
         ]
-        // Allow partial match (e.g., "ILME-FX6V ver.5.010" contains "ILME-FX6")
-        for (key, val) in kindMapping {
-            if systemKind.localizedCaseInsensitiveContains(key) { return val }
+        // Partial match (e.g., "ILME-FX6V ver.5.010" contains "ILME-FX6")
+        for entry in kindMapping where systemKind.localizedCaseInsensitiveContains(entry.key) {
+            return entry.model
         }
         return nil
     }

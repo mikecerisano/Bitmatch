@@ -27,8 +27,22 @@ final class CameraDetectionOrchestrator {
     /// next boundary instead of running the full hierarchy. Outside a task
     /// context the checks are always false and behavior is unchanged.
     func detectCamera(at url: URL) -> String? {
-        // Try detection methods in order of reliability
         guard !Task.isCancelled else { return nil }
+        return detectCamera(at: url, layout: CardLayoutClassifier.classify(at: url))
+    }
+
+    /// Same as `detectCamera(at:)` with the card layout already classified,
+    /// so a caller that also needs the layout lists the card once.
+    func detectCamera(at url: URL, layout: CardLayoutMatch?) -> String? {
+        guard !Task.isCancelled else { return nil }
+        // A brand-unique layout marker decides the brand, ahead of
+        // Spotlight and the heuristics below (audit findings C and D). The
+        // stages after this only add a model name.
+        if let layout, let brand = layout.brand {
+            return label(forBrand: brand, cameraType: layout.cameraType, at: url)
+        }
+
+        // No brand marker: try the remaining methods in order of reliability.
         if let metadataInfo = unifiedMetadataDetection.detectCameraFromMetadata(at: url) { return metadataInfo }
         guard !Task.isCancelled else { return nil }
         if let fujiInfo = fujiDetection.detectFujiCamera(at: url) { return fujiInfo }
@@ -52,6 +66,30 @@ final class CameraDetectionOrchestrator {
         return nil
     }
     
+    /// Brand plus model when a model reader for that brand, or Spotlight,
+    /// names one. A reader's answer is used only when it agrees with the
+    /// brand, so the label never contradicts the layout.
+    private func label(forBrand brand: String, cameraType: CameraType, at url: URL) -> String? {
+        let fromCard: String?
+        switch cameraType {
+        case .sony, .sonyFX6, .sonyFX3, .sonyA7S: fromCard = sonyDetection.detectSonyCamera(at: url)
+        case .canon, .canonC70: fromCard = canonDetection.detectCanonCamera(at: url)
+        case .panasonic: fromCard = panasonicDetection.detectPanasonicCamera(at: url)
+        case .fujifilm: fromCard = fujiDetection.detectFujiCamera(at: url)
+        case .arri, .arriAlexa, .arriAmira: fromCard = arriDetection.detectARRICamera(at: url)
+        default: fromCard = nil
+        }
+        if let fromCard, fromCard.count > brand.count, fromCard.hasPrefix(brand + " ") {
+            return fromCard
+        }
+        guard !Task.isCancelled else { return nil }
+        if let metadata = unifiedMetadataDetection.detectCameraFromMetadata(at: url),
+           metadata.range(of: brand, options: .caseInsensitive) != nil {
+            return metadata
+        }
+        return brand
+    }
+
     /// Get clean camera name for folder labeling
     func getCleanCameraName(from fullCameraName: String) -> String {
         return cleanNaming.getCleanCameraName(from: fullCameraName)

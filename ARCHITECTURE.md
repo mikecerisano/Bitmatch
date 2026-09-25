@@ -292,7 +292,8 @@ Both file system services list files through `FileTreeEnumerator`.
 
 ### Camera detection
 
-- **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator` (`Shared/Core/Services/Camera/`), which tries per-manufacturer and heuristic detectors in order and stops at the first match. It then adds its own folder-structure analysis.
+- **One set of layout rules.** `CardLayoutClassifier` (`Shared/Core/Services/Camera/`) decides a card's brand from a bounded listing of its folder tree, brand-unique markers first. `CameraStructureDetector` (Mac auto-detect), the orchestrator and its folder-structure stage all use it, so they name the same brand.
+- **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator`. When the layout names a brand, the orchestrator only adds a model name, from that brand's reader (MEDIAPRO.XML, RAF header, ALE) or from Spotlight when it agrees with the brand. Otherwise it tries the remaining heuristic detectors in order and stops at the first match. A brand from the orchestrator is not overridden by the service's own folder-name and file-extension guesses. Names are cleaned by `CleanCameraNameService` on every platform.
 - **Callers.** `SharedAppCoordinator` calls it when a source is chosen.
 - **Mac-only callers.** `CameraNamingService`, `CameraMemoryService`, and `CameraStructureDetector` are in `Shared/`, but only Mac code calls them: `CameraLabelViewModel`, `FileSelectionViewModel`, and `CameraCardDetectionService`.
 

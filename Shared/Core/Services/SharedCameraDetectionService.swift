@@ -18,22 +18,31 @@ class SharedCameraDetectionService: CameraDetectionService {
                 SharedLogger.debug("Skip SharedCameraDetectionService on large volume: \(ByteCountFormatter.string(fromByteCount: Int64(cap), countStyle: .file)) at \(folderURL.path)", category: .transfer)
                 return CameraDetectionResult(cameraCard: nil, confidence: 0.0, metadata: ["skip": "large_volume"], detectionMethod: "guard", processingTime: Date().timeIntervalSince(startTime))
             }
+            // The card layout decides the brand, through the same classifier
+            // the Mac auto-detect and the orchestrator use (Promise 5).
+            let layout = CardLayoutClassifier.classify(at: folderURL)
+            let layoutType = layout?.brand != nil ? layout?.cameraType : nil
+            // Set when the orchestrator names a known brand. The folder-name
+            // and file-extension guesses below may then raise confidence but
+            // must not replace that brand (a VENICE card is not a
+            // "Professional Camera").
+            var brandLocked = false
             // Fast path: use orchestrator’s folder/name heuristics on every platform.
-            if let orchestrated = CameraDetectionOrchestrator.shared.detectCamera(at: folderURL) {
+            if let orchestrated = CameraDetectionOrchestrator.shared.detectCamera(at: folderURL, layout: layout) {
                 metadata["orchestrator_hint"] = orchestrated
                 // Parse manufacturer/model from the returned string
                 let parts = orchestrated.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
                 let manufacturerFromHint = parts.first.map(String.init)
                 let modelFromHint = parts.count > 1 ? String(parts[1]) : nil
                 // If we recognize a specific make (e.g., Sony/Canon/FUJI/ARRI/RED/etc.), bump confidence
-                if let make = manufacturerFromHint, ["Sony","Canon","FUJIFILM","Fujifilm","ARRI","RED","Blackmagic","Panasonic","DJI","GoPro"].contains(where: { make.localizedCaseInsensitiveContains($0) }) {
+                if let make = manufacturerFromHint, ["Sony","Canon","FUJIFILM","Fujifilm","ARRI","RED","Blackmagic","Panasonic","DJI","GoPro","Nikon","Insta360"].contains(where: { make.localizedCaseInsensitiveContains($0) }) {
                     confidence = max(confidence, 0.9)
                     detectionMethod = "orchestrator_hint"
+                    brandLocked = true
                     // Pre-seed a card so UI can label immediately
                     let fileURLs = try await getFileList(from: folderURL)
-                    // Prefer the model for display if available (e.g., FX3 over SONY)
-                    let preferredLabel = (modelFromHint?.isEmpty == false) ? modelFromHint! : make
-                    let cleanName = Self.cleanCameraName(preferredLabel)
+                    // The cleaner prefers the model when it knows it (FX3 over SONY)
+                    let cleanName = Self.cleanCameraName(orchestrated)
                     detectedCard = CameraCard(
                         name: cleanName,
                         manufacturer: make,
@@ -43,7 +52,7 @@ class SharedCameraDetectionService: CameraDetectionService {
                         detectionConfidence: confidence,
                         metadata: metadata,
                         volumeURL: folderURL,
-                        cameraType: .generic,
+                        cameraType: layoutType ?? .generic,
                         mediaPath: folderURL
                     )
                 }
@@ -113,8 +122,20 @@ class SharedCameraDetectionService: CameraDetectionService {
             
             // Create or update camera card if we have sufficient confidence
             if confidence > 0.5 {
-                let finalManufacturer = manufacturer ?? fileManufacturer ?? detectedCard?.manufacturer ?? "Unknown"
-                let finalModel = model ?? fileModel ?? detectedCard?.model
+                let finalManufacturer: String
+                let finalModel: String?
+                if brandLocked, let card = detectedCard {
+                    finalManufacturer = card.manufacturer
+                    finalModel = card.model
+                } else {
+                    finalManufacturer = manufacturer ?? fileManufacturer ?? detectedCard?.manufacturer ?? "Unknown"
+                    finalModel = model ?? fileModel ?? detectedCard?.model
+                }
+                let cameraType = layoutType ?? Self.inferCameraType(
+                    manufacturer: finalManufacturer,
+                    model: finalModel,
+                    extensions: Array(Set(fileURLs.map { $0.pathExtension.lowercased() }))
+                )
                 
                 if detectedCard == nil {
                     let cleanName = Self.cleanCameraName("\(finalManufacturer) \(finalModel ?? "")")
@@ -127,17 +148,11 @@ class SharedCameraDetectionService: CameraDetectionService {
                         detectionConfidence: confidence,
                         metadata: metadata,
                         volumeURL: folderURL,
-                        cameraType: Self.inferCameraType(
-                            manufacturer: finalManufacturer,
-                            model: finalModel,
-                            extensions: Array(Set(fileURLs.map { $0.pathExtension.lowercased() }))
-                        ),
+                        cameraType: cameraType,
                         mediaPath: folderURL
                     )
                 } else {
-                    // Prefer model when present for the user-facing name
-                    let display = finalModel?.isEmpty == false ? finalModel! : finalManufacturer
-                    let cleanName = Self.cleanCameraName(display)
+                    let cleanName = Self.cleanCameraName("\(finalManufacturer) \(finalModel ?? "")")
                     detectedCard = CameraCard(
                         name: cleanName,
                         manufacturer: finalManufacturer,
@@ -147,11 +162,7 @@ class SharedCameraDetectionService: CameraDetectionService {
                         detectionConfidence: confidence,
                         metadata: metadata.merging(detectedCard?.metadata ?? [:]) { a, _ in a },
                         volumeURL: folderURL,
-                        cameraType: Self.inferCameraType(
-                            manufacturer: finalManufacturer,
-                            model: finalModel,
-                            extensions: Array(Set(fileURLs.map { $0.pathExtension.lowercased() }))
-                        ),
+                        cameraType: cameraType,
                         mediaPath: folderURL
                     )
                 }
@@ -173,16 +184,12 @@ class SharedCameraDetectionService: CameraDetectionService {
         )
     }
 
-    // Lightweight, platform-agnostic camera name cleaner
+    /// The Mac's name cleaner, so a card gets the same name on every
+    /// platform (A7SIII, not A7S3 on one and A7SIII on the other; Promise 5).
     private static func cleanCameraName(_ full: String) -> String {
-        var result = full
-        result = result.replacingOccurrences(of: "-", with: " ")
-        result = result.replacingOccurrences(of: "_", with: " ")
-        result = result.replacingOccurrences(of: "  ", with: " ")
-        result = result.replacingOccurrences(of: "Mark ", with: "MK", options: .caseInsensitive)
-        result = result.replacingOccurrences(of: "III", with: "3")
-        result = result.replacingOccurrences(of: "II", with: "2")
-        return result.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "").prefix(8).description
+        CleanCameraNameService.shared.getCleanCameraName(
+            from: full.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
     
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any] {
