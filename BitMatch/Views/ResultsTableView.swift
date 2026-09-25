@@ -138,15 +138,21 @@ struct ResultsTableView: View {
         }
     }
     
+    /// Verified files only (green means verified); hidden until there is one.
     @ViewBuilder
     private var matchCountView: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(.green)
-                .frame(width: 6, height: 6)
-            Text("\(progress.matchCount)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.green)
+        let verified = LiveResultsCounts.make(rows: results).verified
+        if verified > 0 {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+                Text("\(verified)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.green)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(verified) verified")
         }
     }
     
@@ -177,8 +183,8 @@ struct ResultsTableView: View {
                         .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.white.opacity(0.6))
                         
-                        if progress.matchCount > 0 {
-                            Text("All \(progress.matchCount) files verified successfully")
+                        if let message = LiveResultsCounts.make(rows: results).noIssuesMessage {
+                            Text(message)
                                 .font(.system(size: 11))
                                 .foregroundColor(.white.opacity(0.4))
                         }

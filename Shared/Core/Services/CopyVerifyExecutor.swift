@@ -432,7 +432,8 @@ final class CopyVerifyExecutor {
         handoffSummary: String? = nil
     ) async throws -> String? {
         try checkCancellation()
-        let matchCount = results.filter { $0.isSuccessStatus }.count
+        // Matches are verified files only; a Quick copy is not a match.
+        let matchCount = results.filter { TransferOutcomePresentation.isVerified($0) }.count
         // Evidence (Promise 3): bytes actually copied, one row per file per
         // backup. config.estimatedBytes is a progress estimate that falls
         // back to a placeholder when the source was not measured.

@@ -258,3 +258,35 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         }
     }
 }
+
+/// Counts for a live results list, taken from the rows themselves.
+struct LiveResultsCounts: Equatable {
+    let verified: Int
+    let copiedNotVerified: Int
+    let issues: Int
+
+    static func make(rows: [ResultRow]) -> Self {
+        var verified = 0, copied = 0, issues = 0
+        for row in rows {
+            if !row.isSuccessStatus {
+                issues += 1
+            } else if TransferOutcomePresentation.isVerified(row) {
+                verified += 1
+            } else {
+                copied += 1
+            }
+        }
+        return Self(verified: verified, copiedNotVerified: copied, issues: issues)
+    }
+
+    /// What the "no issues" view says: "all verified" only when every row
+    /// was verified (Promise 2).
+    var noIssuesMessage: String? {
+        switch (verified, copiedNotVerified) {
+        case (0, 0): return nil
+        case (_, 0): return "All \(verified) files verified"
+        case (0, _): return "\(copiedNotVerified) files copied, not verified"
+        default: return "\(verified) verified, \(copiedNotVerified) copied but not verified"
+        }
+    }
+}

@@ -650,7 +650,7 @@ final class ReportExporter {
         let dateFormatter = ISO8601DateFormatter()
         dateFormatter.formatOptions = [.withInternetDateTime]
         
-        for (index, result) in results.enumerated() {
+        for result in results {
             let status = result.status
             let path = result.path
             let target = result.destinationPath ?? result.destination ?? "—"
@@ -662,14 +662,11 @@ final class ReportExporter {
             let verified = isMatchStatus(result.status) && result.checksum?.isEmpty == false && prefs?.verificationMode != .quick
             let details = verified ? "Verified" : result.status
             
-            // Calculate estimated timestamp based on processing speed
-            let secondsPerFile = filesPerSecond > 0 ? 1.0 / filesPerSecond : 0
-            let estimatedOffset = Double(index) * secondsPerFile
-            let estimatedTime = started.addingTimeInterval(estimatedOffset)
-            let completionTime = started.addingTimeInterval(duration)
-            let clampedTime = estimatedTime > completionTime ? completionTime : estimatedTime
-            let timestamp = dateFormatter.string(from: clampedTime)
-            
+            // Per-file times are not measured; the column stays for existing
+            // spreadsheets but is empty rather than interpolated (Promise 3).
+            // The run's measured start and finish are in the summary.
+            let timestamp = ""
+
             csvContent += csvRow([
                 status, path, target, job, photographer, camera, card, packagePath, details, timestamp,
                 String(result.size), result.checksum ?? ""
@@ -679,7 +676,12 @@ final class ReportExporter {
         // Add summary at the end
         csvContent += "\n# Summary\n"
         csvContent += csvRow(["Total Files", String(results.count)])
-        csvContent += csvRow(["Matched", String(results.filter { isMatchStatus($0.status) }.count)])
+        csvContent += csvRow(["Started", dateFormatter.string(from: started)])
+        csvContent += csvRow(["Finished", dateFormatter.string(from: started.addingTimeInterval(duration))])
+        // Verified and copied-but-unverified are counted apart (Promise 2):
+        // a Quick copy is not a match.
+        csvContent += csvRow(["Verified", String(results.filter { TransferOutcomePresentation.isVerified($0) }.count)])
+        csvContent += csvRow(["Copied, not verified", String(results.filter { isMatchStatus($0.status) && !TransferOutcomePresentation.isVerified($0) }.count)])
         csvContent += csvRow(["Issues", String(results.filter { !isMatchStatus($0.status) }.count)])
         csvContent += csvRow(["Duration", "\(String(format: "%.2f", duration)) seconds"])
         csvContent += csvRow(["Files/Second", String(format: "%.2f", filesPerSecond)])
@@ -878,7 +880,9 @@ final class ReportExporter {
                 totalFiles: fileCount,
                 totalBytes: totalBytesProcessed,
                 matches: matchCount,
-                issues: fileCount - matchCount,
+                // Failed rows only: a copied-but-unverified file is neither a
+                // match nor an issue.
+                issues: results.filter { !isMatchStatus($0.status) }.count,
                 successRate: fileCount > 0 ? Double(matchCount) / Double(fileCount) * 100 : 100,
                 averageFileSize: averageFileSize,
                 largestFile: largestFile,
@@ -1017,7 +1021,7 @@ extension ReportExporter {
     
     @MainActor
     static func exportChecksumsAsync(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) async {
-        let matches = results.filter { isMatchStatus($0.status) }
+        let matches = results.filter { TransferOutcomePresentation.isVerified($0) }
         guard !matches.isEmpty else {
             showInfoAlert(message: "No verified files to export checksums for.")
             return

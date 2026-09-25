@@ -18,7 +18,6 @@ final class ProgressPresentationModel: ObservableObject {
     // MARK: - File Counting
     @Published var fileCountTotal = 0
     @Published var fileCountCompleted = 0
-    @Published var matchCount = 0
     @Published var reusedFileCopies = 0 // Count of reused copies (across all destinations)
     
     // MARK: - Current File Info
@@ -86,7 +85,6 @@ final class ProgressPresentationModel: ObservableObject {
         interpolatedProgress = 0
         fileCountTotal = 0
         fileCountCompleted = 0
-        matchCount = 0
         bytesPerSecond = 0
         filesPerSecond = 0
         progressMessage = "Ready"

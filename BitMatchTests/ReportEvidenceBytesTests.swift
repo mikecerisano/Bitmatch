@@ -106,4 +106,66 @@ final class ReportEvidenceBytesTests: XCTestCase {
             }
         }
     }
+
+    /// Promise 3 in the CSV: per-file "Timestamp" was interpolated from the
+    /// average rate (never measured), and the summary's "Matched" counted
+    /// copied-but-unverified rows. Fails if either comes back.
+    func testCSVStatesOnlyMeasuredTimesAndSeparatesVerifiedFromCopied() throws {
+        func row(_ outcome: ResultOutcome) -> ResultRow {
+            ResultRow(path: "/card/\(UUID().uuidString).mxf", status: outcome.statusText, size: 10,
+                      checksum: outcome == .verified ? "abc" : nil, destination: "Backup")
+        }
+        let rows = [row(.verified), row(.copiedUnverified), row(.copiedUnverified), row(.failed)]
+        let started = Date(timeIntervalSince1970: 1_800_000_000)
+        let csv = try ReportExporter.makeEnhancedCSV(
+            results: rows, started: started, duration: 60, filesPerSecond: 2,
+            photographerContext: nil, prefs: nil
+        )
+        let lines = csv.components(separatedBy: "\n")
+        let header = try XCTUnwrap(lines.first).components(separatedBy: ",")
+        let timestampColumn = try XCTUnwrap(header.firstIndex(of: "Timestamp"))
+        for line in lines.dropFirst().prefix(rows.count) {
+            let cells = line.components(separatedBy: ",")
+            XCTAssertEqual(cells[timestampColumn], "", "invented per-file timestamp: \(line)")
+        }
+        XCTAssertFalse(csv.contains("Matched,"), "a 'Matched' count mixes copied and verified")
+        XCTAssertTrue(csv.contains("Verified,1"), csv)
+        XCTAssertTrue(csv.contains("\"Copied, not verified\",2"), csv)
+        XCTAssertTrue(csv.contains("Issues,1"), csv)
+        XCTAssertTrue(csv.contains("Started,"), "the measured start belongs in the summary")
+        XCTAssertTrue(csv.contains("Finished,"), "the measured finish belongs in the summary")
+    }
+
+    /// A Quick run verified nothing, so the report's matches are zero, not
+    /// every copied file. Fails if the report counts success rows as matches.
+    func testQuickRunReportsNoMatches() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try DisposableTransferFixture(seed: 20_260_927, fileCount: 3, bytesPerFile: 8 * 1024)
+            defer { fixture.cleanup() }
+            let executor = CopyVerifyExecutor(
+                platformManager: MacOSPlatformManager.shared,
+                timingService: OperationTimingService(),
+                errorService: ErrorReportingService(),
+                stateService: OperationStateService(),
+                backgroundTaskService: IOSBackgroundTaskService.shared
+            )
+            let config = CopyVerifyConfig(
+                operationId: UUID(), sourceURL: fixture.source, destinationURLs: fixture.destinations,
+                verificationMode: .quick, cameraLabelSettings: CameraLabelSettings(),
+                reportSettings: ReportPrefs(makeReport: true), estimatedFiles: fixture.manifest.count,
+                estimatedBytes: 0, currentMode: .copyAndVerify
+            )
+            _ = try await executor.execute(config: config, callbacks: CopyVerifyCallbacks(
+                onProgress: { _ in }, onResult: { _ in }, onStateChange: { _ in }, onAuthoritativeResults: { _ in }
+            ))
+            let reports = fixture.destinations[0].appendingPathComponent("Reports", isDirectory: true)
+            let jsonURL = try XCTUnwrap(try FileManager.default
+                .contentsOfDirectory(at: reports, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "json" })
+            let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: jsonURL)) as? [String: Any])
+            let statistics = try XCTUnwrap(object["statistics"] as? [String: Any])
+            XCTAssertEqual((statistics["matches"] as? NSNumber)?.intValue, 0, "a Quick run verified nothing")
+            XCTAssertEqual((statistics["issues"] as? NSNumber)?.intValue, 0, "copied files are not issues")
+        }
+    }
 }
