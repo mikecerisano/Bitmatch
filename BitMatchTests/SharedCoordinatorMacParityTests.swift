@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import BitMatch
@@ -157,19 +158,125 @@ struct SharedCoordinatorMacParityTests {
         #expect(await waitUntil(timeout: .seconds(5)) { fixture.coordinator.canStartOperation })
     }
 
-    /// The Mac applied the job's folder recipe to the run; shared does not
-    /// yet, so iPad and iPhone project cards run without it (Task 8).
+    /// The Mac applied the job's folder recipe to the run; now every
+    /// platform does, for that run only.
+    /// Plant: in `startProjectOperation`, delete the
+    /// `projectRunCameraSettings = PhotographerDestinationResolver...` assignment.
     @Test func projectRunUsesTheJobsFolderRecipe() async throws {
         let fixture = try await SharedProjectFixture.make()
         defer { fixture.folders.cleanup() }
         let recipe = try #require(fixture.jobs.renderedRecipe)
+        fixture.coordinator.cameraLabelSettings.label = "A Cam"
 
         _ = await fixture.coordinator.startProjectOperation()
         await fixture.waitUntilIdle()
 
         let start = try #require(await fixture.operations.starts.first)
-        withKnownIssue("startProjectOperation does not apply the recipe until Task 8") {
-            #expect(start.destinationPathComponents == recipe.components)
-        }
+        #expect(start.destinationPathComponents == recipe.components)
+        #expect(start.label == "A Cam")
+        // The recipe never becomes the saved label.
+        #expect(fixture.coordinator.cameraLabelSettings.destinationPathComponents == nil)
+        #expect(fixture.coordinator.projectRunCameraSettings == nil)
     }
+
+    /// The one Start runs a prepared card as a project transfer.
+    /// Plant: in `startCurrentMode`, call `startOperation()` for a prepared card.
+    @Test func startRunsAPreparedCardAsAProject() async throws {
+        let fixture = try await SharedProjectFixture.make()
+        defer { fixture.folders.cleanup() }
+
+        await fixture.coordinator.startCurrentMode()
+        await fixture.waitUntilIdle()
+
+        #expect(await fixture.operations.starts.count == 1)
+        // The project lifecycle ran: an unverified finish ends the card in issues.
+        #expect(fixture.cardState == .issues)
+    }
+
+    /// Plant: in `startCurrentMode`, drop `else if canStartOperation` (start
+    /// any ordinary transfer).
+    @Test func startRefusesAnOrdinaryTransferThatIsNotReady() async throws {
+        let fixture = try await SharedProjectFixture.make(prepareCard: false)
+        defer { fixture.folders.cleanup() }
+        fixture.coordinator.destinationURLs = [fixture.folders.source.appendingPathComponent("inside", isDirectory: true)]
+
+        await fixture.coordinator.startCurrentMode()
+
+        #expect(!fixture.coordinator.operationReadinessAssessment.blockingIssues.isEmpty)
+        #expect(await fixture.operations.starts.isEmpty)
+        #expect(!fixture.coordinator.isOperationInProgress)
+    }
+
+    /// Engine progress moves the card, as the Mac's progress sync did.
+    /// Plant: in `executeOperation`'s `onProgress`, delete
+    /// `self.photographerJobViewModel.updateProgressStage(progressUpdate.currentStage)`.
+    @Test func cardFollowsEngineProgressStages() async throws {
+        let fixture = try await SharedProjectFixture.make(blocked: true, reportsStage: .verifying)
+        let start = Task { await fixture.coordinator.startProjectOperation() }
+
+        #expect(await waitUntil(timeout: .seconds(5)) { fixture.cardState == .verifying })
+
+        fixture.coordinator.cancelOperation()
+        _ = await start.value
+        await fixture.cleanup()
+    }
+
+    /// A store that refuses the downgrade still leaves the card in issues.
+    /// Plant: in `PhotographerJobViewModel.operationFailed`'s `catch`, delete
+    /// `forceActiveCardIntoIssuesInMemory()`.
+    @Test func failedFinishFailsClosedWhenTheStoreRefuses() async throws {
+        let fixture = try await SharedProjectFixture.make(blocked: true)
+        let start = Task { await fixture.coordinator.startProjectOperation() }
+        #expect(await waitUntil(timeout: .seconds(5)) { await fixture.operations.starts.count == 1 })
+        fixture.store.errorOnSave = ParityFixtureError.saveFailed
+
+        await fixture.operations.release()
+        _ = await start.value
+        await fixture.waitUntilIdle()
+
+        #expect(fixture.jobs.activeCard?.localState == .issues)
+        #expect(fixture.jobs.activeCardDraft?.localState == .issues)
+        #expect(fixture.jobs.activeJob?.cardIngests.first?.localState == .issues)
+        fixture.store.errorOnSave = nil
+        fixture.folders.cleanup()
+    }
+
+    /// A finished card does not arm the lifecycle for a later ordinary copy.
+    /// Plant: in `updateProjectLifecycle`, delete
+    /// `guard activeProjectCardID != nil else { return }`.
+    @Test func laterOrdinaryCopyLeavesTheFinishedCardAlone() async throws {
+        let fixture = try await SharedProjectFixture.make()
+        defer { fixture.folders.cleanup() }
+        _ = await fixture.coordinator.startProjectOperation()
+        await fixture.waitUntilIdle()
+        #expect(fixture.cardState == .issues)
+        #expect(!fixture.jobs.hasPreparedIngestAwaitingStart)
+        let savesAfterCard = fixture.store.saveCount
+
+        await fixture.coordinator.startCurrentMode()
+        await fixture.waitUntilIdle()
+
+        #expect(await fixture.operations.starts.count == 2)
+        #expect(fixture.cardState == .issues)
+        #expect(fixture.store.saveCount == savesAfterCard)
+    }
+
+    /// Views read the job view model through the coordinator.
+    /// Plant: in `SharedAppCoordinator.init`, delete the
+    /// `photographerJobViewModel.objectWillChange` forward.
+    @Test func jobViewModelChangesReachCoordinatorObservers() async throws {
+        let fixture = try await SharedProjectFixture.make(prepareCard: false)
+        defer { fixture.folders.cleanup() }
+        var notified = false
+        let subscription = fixture.coordinator.objectWillChange.sink { _ in notified = true }
+        defer { subscription.cancel() }
+
+        fixture.jobs.createWeddingJob(clientName: "Acme", jobName: "Campaign", eventDate: Date(timeIntervalSince1970: 100))
+
+        #expect(notified)
+    }
+}
+
+private enum ParityFixtureError: Error {
+    case saveFailed
 }

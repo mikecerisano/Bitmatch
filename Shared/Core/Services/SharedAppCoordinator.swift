@@ -206,6 +206,9 @@ class SharedAppCoordinator: ObservableObject {
             .store(in: &cancellables)
         cameraLabels.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        // Views read the job view model through this coordinator too.
+        self.photographerJobViewModel.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
         setupProgressPresentation()
         stateService.automaticPauseHandler = { [weak self] reason in
             Task { await self?.pauseOperation(reason: reason) }
@@ -535,7 +538,6 @@ class SharedAppCoordinator: ObservableObject {
             photographerReportFinalizer = nil
             activeProjectCardID = nil
             projectRunCameraSettings = nil
-            NotificationCenter.default.post(name: .init("BitMatchQueuedTransferSelected"), object: self)
             await executeOperation(journalRecordID: record.id)
         } catch {
             queueIsRunning = false
@@ -720,12 +722,33 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
 
+    /// The one Start, for every platform's Start button and keyboard
+    /// shortcut. A prepared project card starts through
+    /// `startProjectOperation()`; any other transfer starts only when the
+    /// readiness rule allows it; Compare runs the compare.
+    func startCurrentMode() async {
+        switch currentMode {
+        case .copyAndVerify:
+            if photographerJobViewModel.hasPreparedIngestAwaitingStart {
+                await startProjectOperation()
+            } else if canStartOperation {
+                await startOperation()
+            }
+        case .compareFolders:
+            await compareFolders()
+        case .masterReport:
+            break
+        }
+    }
+
     /// Starts a prepared project ingest only after the ordinary transfer
     /// preflight is safe. The project finalizer remains attached through
-    /// verification, so mobile completion retains its local evidence.
+    /// verification, so completion retains its local evidence on every
+    /// platform, and the run uses the job's folder recipe.
     @discardableResult
     func startProjectOperation() async -> Bool {
-        guard operationReadinessAssessment.isReady,
+        guard activeStartID == nil, !isOperationInProgress,
+              operationReadinessAssessment.isReady,
               photographerJobViewModel.hasPreparedIngestAwaitingStart,
               let jobID = photographerJobViewModel.activeJob?.id,
               let cardID = photographerJobViewModel.activeCard?.id,
@@ -751,7 +774,22 @@ class SharedAppCoordinator: ObservableObject {
             return try photographerJobViewModel.completeIngest(results: results)
         }
         activeProjectCardID = cardID
+        // The job's folder recipe applies to this run only; the saved label
+        // stays the user's. (Until now only the Mac applied it.)
+        if let renderedRecipe = photographerJobViewModel.renderedRecipe {
+            projectRunCameraSettings = PhotographerDestinationResolver.operationSettings(
+                base: cameraLabelSettings,
+                renderedRecipe: renderedRecipe
+            )
+        }
         await startOperation()
+        // Every terminal state clears `activeProjectCardID`. A start that
+        // returned without one must not leave the card copying.
+        if activeProjectCardID == cardID, !isOperationInProgress {
+            photographerJobViewModel.operationFailed()
+            activeProjectCardID = nil
+            photographerReportFinalizer = nil
+        }
         return true
     }
 

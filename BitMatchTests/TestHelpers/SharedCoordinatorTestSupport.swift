@@ -55,10 +55,15 @@ actor RecordingOperationsGate {
 
 /// Records each start and returns no results, so a run it finishes always
 /// ends unverified. When `blocked`, it waits until released or cancelled.
+/// `reportsStage` is reported once as engine progress before waiting.
 final class RecordingFileOperations: FileOperationsService, @unchecked Sendable {
     let gate: RecordingOperationsGate
+    private let reportsStage: ProgressStage?
 
-    init(blocked: Bool = false) { gate = RecordingOperationsGate(blocked: blocked) }
+    init(blocked: Bool = false, reportsStage: ProgressStage? = nil) {
+        gate = RecordingOperationsGate(blocked: blocked)
+        self.reportsStage = reportsStage
+    }
 
     var starts: [RecordedStart] { get async { await gate.starts } }
     func release() async { await gate.release() }
@@ -72,6 +77,12 @@ final class RecordingFileOperations: FileOperationsService, @unchecked Sendable 
         progressCallback: @escaping ProgressCallback,
         onFileResult: FileResultCallback?
     ) async throws -> FileOperation {
+        if let reportsStage {
+            progressCallback(OperationProgress(
+                overallProgress: 0.5, currentFile: "A.ARW", filesProcessed: 0, totalFiles: 1,
+                currentStage: reportsStage, speed: nil, timeRemaining: nil
+            ))
+        }
         await gate.record(RecordedStart(
             source: sourceURL,
             destinations: destinationURLs,
@@ -137,10 +148,15 @@ final class SharedProjectFixture {
 
     /// Waits for the source scan before preparing, so the coordinator's
     /// launch-time source events have all been delivered.
-    static func make(blocked: Bool = false, corruptJournal: Bool = false, prepareCard: Bool = true) async throws -> SharedProjectFixture {
+    static func make(
+        blocked: Bool = false,
+        reportsStage: ProgressStage? = nil,
+        corruptJournal: Bool = false,
+        prepareCard: Bool = true
+    ) async throws -> SharedProjectFixture {
         let folders = try CoordinatorFolders()
         if corruptJournal { try Data("corrupt history".utf8).write(to: folders.journalURL) }
-        let operations = RecordingFileOperations(blocked: blocked)
+        let operations = RecordingFileOperations(blocked: blocked, reportsStage: reportsStage)
         let store = InMemoryPhotographerJobStore()
         let fixture = SharedProjectFixture(
             folders: folders,

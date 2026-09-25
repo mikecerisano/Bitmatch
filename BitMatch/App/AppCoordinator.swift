@@ -25,7 +25,11 @@ final class AppCoordinator: ObservableObject {
     var hostTrustPrompt: MacRemoteBackupController.HostTrustPrompt? { remoteBackups.hostTrustPrompt }
 
     // MARK: - Delegated State
-    @Published var currentMode: AppMode = .copyAndVerify
+    /// The mode lives in the shared coordinator (one mode, one lock).
+    var currentMode: AppMode {
+        get { sharedCoordinator.currentMode }
+        set { sharedCoordinator.currentMode = newValue }
+    }
     /// Mac-only benchmark estimate shown above Start.
     let estimate = TransferEstimateModel()
     var timeEstimate: TimeEstimate? { estimate.estimate }
@@ -35,19 +39,7 @@ final class AppCoordinator: ObservableObject {
     var isOperationInProgress: Bool { sharedCoordinator.isOperationInProgress }
     var completionState: CompletionState { sharedCoordinator.completionState }
     var results: [ResultRow] { sharedCoordinator.results }
-    /// The shared readiness rules, for this object's mode (Task 8 makes the
-    /// mode shared too).
-    var canStartOperation: Bool {
-        switch currentMode {
-        case .copyAndVerify:
-            return sharedCoordinator.operationReadinessAssessment.isReady && !isOperationInProgress
-        case .compareFolders:
-            guard let leftURL, let rightURL, !isOperationInProgress else { return false }
-            return CompareBlock.check(left: leftURL, right: rightURL) == nil
-        case .masterReport:
-            return false
-        }
-    }
+    var canStartOperation: Bool { sharedCoordinator.canStartOperation }
     // The selection lives in the shared coordinator.
     var sourceURL: URL? {
         get { sharedCoordinator.sourceURL }
@@ -91,85 +83,10 @@ final class AppCoordinator: ObservableObject {
     }
 
     // MARK: - Actions (delegated)
+    /// The shared Start: a prepared project card, an ordinary transfer when
+    /// ready, or the compare.
     func startOperation() {
-        if currentMode == .copyAndVerify {
-            let preflightReady = sharedCoordinator.operationReadinessAssessment.isReady
-            guard preflightReady else { return }
-            if photographerJobViewModel.hasPreparedIngestAwaitingStart {
-                guard photographerJobViewModel.isStartEligible(
-                    preflightReady: preflightReady,
-                    sourceURL: sourceURL,
-                    destinationCount: destinationURLs.count,
-                    verificationMode: verificationMode
-                ) else { return }
-            }
-        }
-        // Sync macOS VM state into SharedAppCoordinator
-        sharedCoordinator.currentMode = currentMode
-        // The job's folder recipe applies to this run only; the saved label
-        // is left as the user set it.
-        if currentMode == .copyAndVerify,
-           photographerJobViewModel.hasPreparedIngestAwaitingStart,
-           let renderedRecipe = photographerJobViewModel.renderedRecipe {
-            sharedCoordinator.projectRunCameraSettings = PhotographerDestinationResolver.operationSettings(
-                base: sharedCoordinator.cameraLabelSettings,
-                renderedRecipe: renderedRecipe
-            )
-        } else {
-            sharedCoordinator.projectRunCameraSettings = nil
-        }
-        configurePhotographerReportLifecycle()
-
-        Task { @MainActor in
-            switch currentMode {
-            case .copyAndVerify:
-                await sharedCoordinator.startOperation()
-                if photographerJobViewModel.activeCard?.localState == .notStarted {
-                    photographerJobViewModel.operationFailed()
-                }
-            case .compareFolders: await sharedCoordinator.compareFolders()
-            case .masterReport: break
-            }
-        }
-    }
-
-    private func makePhotographerReportContext() -> PhotographerReportContext? {
-        guard currentMode == .copyAndVerify,
-              photographerJobViewModel.hasPreparedIngestAwaitingStart,
-              let job = photographerJobViewModel.activeJob,
-              let card = photographerJobViewModel.activeCard,
-              let analysis = photographerJobViewModel.preliminaryAnalysis else { return nil }
-        let warnings = photographerJobViewModel.duplicateWarning.map { [$0.message] } ?? []
-        return PhotographerReportContext(
-            job: job,
-            cardIngestID: card.id,
-            analysis: analysis,
-            verifiedDestinationCount: card.verifiedDestinationCount,
-            warnings: warnings
-        )
-    }
-
-    private func configurePhotographerReportLifecycle() {
-        guard currentMode == .copyAndVerify,
-              photographerJobViewModel.hasPreparedIngestAwaitingStart,
-              let jobID = photographerJobViewModel.activeJob?.id,
-              let cardID = photographerJobViewModel.activeCard?.id,
-              photographerJobViewModel.preliminaryAnalysis != nil else {
-            sharedCoordinator.photographerReportFinalizer = nil
-            return
-        }
-
-        sharedCoordinator.photographerReportFinalizer = { [weak self, jobID, cardID] results in
-            guard let self,
-                  self.photographerJobViewModel.activeJob?.id == jobID,
-                  self.photographerJobViewModel.activeCard?.id == cardID,
-                  self.photographerJobViewModel.preliminaryAnalysis != nil,
-                  let state = self.photographerJobViewModel.activeCard?.localState,
-                  state == .copying || state == .verifying else {
-                throw PhotographerReportError.cardNotReady
-            }
-            return try self.photographerJobViewModel.completeIngest(results: results)
-        }
+        Task { @MainActor in await sharedCoordinator.startCurrentMode() }
     }
 
     func cancelOperation() {
@@ -193,8 +110,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     func switchMode(to mode: AppMode) {
-        guard !isOperationInProgress else { return }
-        currentMode = mode
+        sharedCoordinator.switchMode(to: mode)
     }
 
     func resetForNewOperation() {
@@ -274,67 +190,12 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - Shared Core Bindings
     private func setupSharedCoordinatorBindings() {
-        NotificationCenter.default.publisher(for: .init("BitMatchQueuedTransferSelected"))
-            .sink { [weak self] notification in
-                guard let self, (notification.object as? SharedAppCoordinator) === self.sharedCoordinator else { return }
-                self.currentMode = .copyAndVerify
-            }.store(in: &cancellables)
-        // Lifecycle consumes every authoritative progress publication. The
-        // throttled subscription above exists only to pace presentation work.
-        sharedCoordinator.$progress.compactMap { $0 }
-            .sink { [weak self] progress in
-                guard let self, self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer else { return }
-                self.photographerJobViewModel.updateProgressStage(progress.currentStage)
-            }
-            .store(in: &cancellables)
-
         // Views read shared state through this object until they observe
         // SharedAppCoordinator directly (Task 9). Relayed on the next run-loop
-        // turn, as the per-property relays it replaces were.
+        // turn, as the per-property relays it replaced were.
         sharedCoordinator.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
-
-        // The project lifecycle half of the operation-state mapping (the
-        // progress timer half is in SharedAppCoordinator).
-        sharedCoordinator.operationStatePublisher.sink { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .inProgress, .copying, .verifying:
-                if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer {
-                    switch state {
-                    case .inProgress, .copying:
-                        self.photographerJobViewModel.beginIngest(
-                            destinationCount: self.sharedCoordinator.destinationURLs.count,
-                            sourceURL: self.sharedCoordinator.sourceURL,
-                            verificationMode: self.verificationMode
-                        )
-                    case .verifying:
-                        self.photographerJobViewModel.updateProgressStage(.verifying)
-                    default:
-                        break
-                    }
-                }
-            case .completed(let info):
-                if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer, !info.success {
-                    self.photographerJobViewModel.operationFailed()
-                }
-            case .failed, .cancelled:
-                if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer {
-                    if state == .cancelled {
-                        self.photographerJobViewModel.cancelIngest()
-                    } else {
-                        self.photographerJobViewModel.operationFailed()
-                    }
-                }
-            default: break
-            }
-        }.store(in: &cancellables)
-
-        photographerJobViewModel.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
-
     }
 }
