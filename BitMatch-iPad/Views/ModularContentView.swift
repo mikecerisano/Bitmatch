@@ -251,6 +251,7 @@ struct MasterReportView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var isScanning = false
     @State private var discoveredTransfers: [TransferCard] = []
+    @State private var skippedReports: [ReportScanner.SkippedReport] = []
     @State private var selectedTransfers = Set<UUID>()
     @State private var volumeScanTask: Task<Void, Never>?
     @State private var activeVolumeScanID: UUID?
@@ -268,6 +269,10 @@ struct MasterReportView: View {
                 showingVolumeSelector: $showingVolumeSelector
             )
             
+            if !isScanning {
+                SkippedReportsNotice(reports: skippedReports)
+            }
+
             // Main content area
             if isScanning {
                 MasterReportScanningView()
@@ -341,11 +346,13 @@ struct MasterReportView: View {
 
             // Use real IOSDriverScanner to discover transfers
             let volumeURL = URL(fileURLWithPath: volume.path)
-            let transfers = await IOSDriverScanner.scanForBitMatchReports(at: volumeURL)
+            let result = await ReportScanner.scanReports(at: volumeURL)
+            let transfers = result.cards
 
             // A newer volume scan supersedes this one.
             guard activeVolumeScanID == scanID else { return }
             discoveredTransfers = transfers
+            skippedReports = result.skipped
 
             // Select all discovered transfers by default
             selectedTransfers = Set(transfers.map { $0.id })

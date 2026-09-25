@@ -10,12 +10,39 @@ enum ReportScanner {
     /// A JSON report lists every file, so this allows roughly 150,000 files.
     static let maxReportBytes = 64 * 1024 * 1024
 
+    /// A report from the chosen day that was found but not listed, so the
+    /// Master Report can say so instead of leaving it only in the log.
+    struct SkippedReport: Equatable, Identifiable, Sendable {
+        enum Reason: Equatable, Sendable {
+            case tooLarge
+            case unreadable
+        }
+        let url: URL
+        /// The path under the scanned folder, e.g. `Backup/Reports/BitMatch_Report_….json`.
+        /// Exporter filenames repeat across backups, so the folder is part of the name.
+        let displayName: String
+        let reason: Reason
+        var id: URL { url }
+    }
+
+    struct ScanResult {
+        let cards: [TransferCard]
+        let skipped: [SkippedReport]
+    }
+
     /// Scans `root` recursively for reports last written on the same calendar
     /// day as `day` (today unless the caller picks another day). Starts
     /// security-scoped access around the scan, which iOS needs for a folder
     /// from the document picker and which is harmless elsewhere. Stops early,
     /// returning what it found so far, when the task is cancelled.
     static func scan(at root: URL, day: Date = Date(), calendar: Calendar = .current) async -> [TransferCard] {
+        await scanReports(at: root, day: day, calendar: calendar).cards
+    }
+
+    /// `scan`, plus the reports from that day that were skipped because they
+    /// were too large or could not be read. `maxBytes` exists for tests.
+    static func scanReports(at root: URL, day: Date = Date(), calendar: Calendar = .current,
+                            maxBytes: Int = maxReportBytes) async -> ScanResult {
         let scoped = root.startAccessingSecurityScopedResource()
         defer { if scoped { root.stopAccessingSecurityScopedResource() } }
 
@@ -26,10 +53,14 @@ enum ReportScanner {
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
             SharedLogger.error("Failed to create enumerator for: \(root.path)", category: .transfer)
-            return []
+            return ScanResult(cards: [], skipped: [])
         }
 
         var cards: [TransferCard] = []
+        var skipped: [SkippedReport] = []
+        func skip(_ url: URL, _ reason: SkippedReport.Reason) {
+            skipped.append(SkippedReport(url: url, displayName: displayName(of: url, under: root), reason: reason))
+        }
         var filesChecked = 0
         while let fileURL = enumerator.nextObject() as? URL {
             if Task.isCancelled { break }
@@ -42,20 +73,39 @@ enum ReportScanner {
                 guard let modified = values.contentModificationDate,
                       calendar.isDate(modified, inSameDayAs: day) else { continue }
                 let size = values.fileSize ?? 0
-                guard size <= maxReportBytes else {
+                guard size <= maxBytes else {
                     SharedLogger.warning("Skipping oversized report \(fileURL.path) (\(size) bytes)", category: .transfer)
+                    skip(fileURL, .tooLarge)
                     continue
                 }
-                if let card = try transferCard(reportData: Data(contentsOf: fileURL), reportURL: fileURL) {
+                let data = try Data(contentsOf: fileURL)
+                if let card = transferCard(reportData: data, reportURL: fileURL) {
                     cards.append(card)
+                } else if isBitMatchNamed(fileURL.lastPathComponent) {
+                    // A file BitMatch named that does not parse is a damaged
+                    // report. Other apps' `*_report.json` files are ignored.
+                    skip(fileURL, .unreadable)
                 }
             } catch {
                 SharedLogger.error("Error reading report at \(fileURL.path): \(error)", category: .transfer)
+                skip(fileURL, .unreadable)
             }
         }
 
-        SharedLogger.info("Report scan finished: \(filesChecked) files checked, \(cards.count) reports found", category: .transfer)
-        return cards.sorted { $0.timestamp > $1.timestamp }
+        SharedLogger.info("Report scan finished: \(filesChecked) files checked, \(cards.count) reports found, \(skipped.count) skipped", category: .transfer)
+        return ScanResult(
+            cards: cards.sorted { $0.timestamp > $1.timestamp },
+            skipped: skipped.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        )
+    }
+
+    /// The path of `url` under `root`, or its filename when it is not under it.
+    static func displayName(of url: URL, under root: URL) -> String {
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard path.hasPrefix(prefix) else { return url.lastPathComponent }
+        return String(path.dropFirst(prefix.count))
     }
 
     // MARK: - Rules
@@ -70,6 +120,12 @@ enum ReportScanner {
             || lower == "bitmatch_report.json"
             || lower.hasPrefix("bitmatch_report_")
             || lower.hasSuffix("_report.json")
+    }
+
+    /// Names only BitMatch writes, as opposed to the generic `*_report.json`
+    /// that `isReportFilename` also accepts for older reports.
+    static func isBitMatchNamed(_ name: String) -> Bool {
+        name.lowercased().hasPrefix("bitmatch")
     }
 
     /// Reads the verification mode the report recorded. `nil` means the report

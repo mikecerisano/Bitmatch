@@ -41,8 +41,8 @@ class SharedCameraDetectionService: CameraDetectionService {
                     brandLocked = true
                     // Pre-seed a card so UI can label immediately
                     let fileURLs = try await getFileList(from: folderURL)
-                    // The cleaner prefers the model when it knows it (FX3 over SONY)
-                    let cleanName = Self.cleanCameraName(orchestrated)
+                    // The model when known (FX3 over SONY), else the brand
+                    let cleanName = Self.cameraCardName(manufacturer: make, model: modelFromHint)
                     detectedCard = CameraCard(
                         name: cleanName,
                         manufacturer: make,
@@ -152,7 +152,7 @@ class SharedCameraDetectionService: CameraDetectionService {
                         mediaPath: folderURL
                     )
                 } else {
-                    let cleanName = Self.cleanCameraName("\(finalManufacturer) \(finalModel ?? "")")
+                    let cleanName = Self.cameraCardName(manufacturer: finalManufacturer, model: finalModel)
                     detectedCard = CameraCard(
                         name: cleanName,
                         manufacturer: finalManufacturer,
@@ -184,12 +184,28 @@ class SharedCameraDetectionService: CameraDetectionService {
         )
     }
 
-    /// The Mac's name cleaner, so a card gets the same name on every
-    /// platform (A7SIII, not A7S3 on one and A7SIII on the other; Promise 5).
-    private static func cleanCameraName(_ full: String) -> String {
-        CleanCameraNameService.shared.getCleanCameraName(
-            from: full.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+    /// A detected card's name: the model when there is
+    /// one, else the brand. iPad and iPhone use it as the default destination
+    /// folder label, so it must not change between versions: a card that
+    /// went into "GOPRO" yesterday goes there today, not into "GP".
+    static func cameraCardName(manufacturer: String, model: String?) -> String {
+        if let model, !model.isEmpty { return cleanCameraName(model) }
+        return cleanCameraName(manufacturer)
+    }
+
+    /// The folder-name cleaner iPad and iPhone have always used: uppercase,
+    /// no spaces, at most 8 characters ("GoPro" → "GOPRO", "A7S III" → "A7S3").
+    /// It is deliberately not `CleanCameraNameService` (the Mac's label
+    /// cleaner), which would rename existing folders ("GoPro" → "GP").
+    static func cleanCameraName(_ full: String) -> String {
+        var result = full
+        result = result.replacingOccurrences(of: "-", with: " ")
+        result = result.replacingOccurrences(of: "_", with: " ")
+        result = result.replacingOccurrences(of: "  ", with: " ")
+        result = result.replacingOccurrences(of: "Mark ", with: "MK", options: .caseInsensitive)
+        result = result.replacingOccurrences(of: "III", with: "3")
+        result = result.replacingOccurrences(of: "II", with: "2")
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "").prefix(8).description
     }
     
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any] {

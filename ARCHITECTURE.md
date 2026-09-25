@@ -223,7 +223,7 @@ For each operation, in order:
   - Always written: CSV and JSON.
   - Written when the full report is on: a checksum `.txt` list, and a PDF rendered from `BitMatch/Views/ReportView.swift` on macOS only (iOS writes no PDF).
 - **`SharedReportGenerationService`** (`Shared/Core/Services/SharedReportGenerationService.swift`): the Master Report PDF and JSON, built from scanned transfer reports.
-  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). `DriveScanner` (Mac) and `IOSDriverScanner` (iOS) are thin entry points; each platform picks the folder its own way.
+  - Scanning: `Shared/Core/Services/ReportScanner.swift` on every platform (filenames, size limit, day, and what "verified" means). `DriveScanner` (Mac) and `IOSDriverScanner` (iOS) are thin entry points; each platform picks the folder its own way. `scanReports` also returns the reports it skipped (too large or unreadable), which `SkippedReportsNotice` (`Shared/Views/`) names on every platform.
   - Saving: through a save panel on Mac, or shared from a temporary file on iOS.
 - **Other exports.** Transfer history and the iOS completion summary export JSON/CSV through `TransferHistoryDocument` (`Shared/Views/TransferLibraryView.swift`).
 
@@ -293,7 +293,7 @@ Both file system services list files through `FileTreeEnumerator`.
 ### Camera detection
 
 - **One set of layout rules.** `CardLayoutClassifier` (`Shared/Core/Services/Camera/`) decides a card's brand from a bounded listing of its folder tree, brand-unique markers first. `CameraStructureDetector` (Mac auto-detect), the orchestrator and its folder-structure stage all use it, so they name the same brand.
-- **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator`. When the layout names a brand, the orchestrator only adds a model name, from that brand's reader (MEDIAPRO.XML, RAF header, ALE) or from Spotlight when it agrees with the brand. Otherwise it tries the remaining heuristic detectors in order and stops at the first match. A brand from the orchestrator is not overridden by the service's own folder-name and file-extension guesses. Names are cleaned by `CleanCameraNameService` on every platform.
+- **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator`. When the layout names a brand, the orchestrator only adds a model name, from that brand's reader (MEDIAPRO.XML, RAF header, ALE) or from Spotlight when it agrees with the brand. Otherwise it tries the remaining heuristic detectors in order and stops at the first match. A brand from the orchestrator is not overridden by the service's own folder-name and file-extension guesses. Its card name (the iPad/iPhone destination folder label) keeps the service's own cleaner, so folder names stay as they were (GOPRO, not the Mac label cleaner's GP); `CameraFolderNameTests` pins them. The Mac's labels use `CleanCameraNameService`.
 - **Callers.** `SharedAppCoordinator` calls it when a source is chosen.
 - **Mac-only callers.** `CameraNamingService`, `CameraMemoryService`, and `CameraStructureDetector` are in `Shared/`, but only Mac code calls them: `CameraLabelViewModel`, `FileSelectionViewModel`, and `CameraCardDetectionService`.
 
