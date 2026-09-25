@@ -198,9 +198,11 @@ handoff, and progress callbacks. It calls the shared file-operation service,
 which performs the real preflight and transfer. Do not add a platform-only
 transfer path or rely on UI validation as the safety boundary.
 
-The macOS `TransferPlanView` and iPad transfer-plan cards must describe the
-same presentation model. Keep platform interaction styles appropriate to mouse
-and touch, but keep their readiness meaning aligned.
+Setup is one shared screen, `Shared/Views/Setup/SetupScreen.swift`, built from
+`SetupPresentation` by `CoordinatorSetupScreen`. The Mac (`MacSetupView`) and
+iOS (`CopyAndVerifyView`) pass only platform slots: the source and backup
+boxes, problem banners, project setup, the camera label editor and project
+evidence. Keep readiness and Start rules in the shared model.
 
 ## Development Workflow
 

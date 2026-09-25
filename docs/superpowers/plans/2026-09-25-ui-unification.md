@@ -653,6 +653,16 @@ Written on branch `cloud/history-screen` without Xcode: reviewed, not compiled o
 - [ ] Project presets: bring the Mac preset picker to iPad (`PhotographerJobSetupView.swift:180-215`) or remove it from the Mac. Recommended: share it.
 - [ ] Check drag-and-drop on the Mac, and picking on iPhone and iPad with the Files app and an external drive (a physical device is needed for real removable media; the simulator only proves the picker flow).
 
+**Status of 4.8 (branch `cloud/setup-screen`, not compiled):** implemented, with these differences from the text above:
+- Same shape as 4.7: `SetupPresentation` and `StartButtonPresentation` (`Shared/Core/Models/SetupPresentation.swift`), `SetupScreen` and one adapter, `CoordinatorSetupScreen` (`Shared/Views/Setup/`). The Mac `MacSetupView` (was `TransferPlanView`) and iOS `CopyAndVerifyView` pass only slots, so no shell routing changed.
+- The slots are `locations` (Mac `HorizontalFlowView` with drag and drop and drive discovery; iOS the Files-picker boxes), `problems` (Mac `UnreadableMediaBanner`), `projectSetup` (Mac `PhotographerJobSetupView` with presets and `RemoteBackupDestinationView`; iOS `MobileProjectSetupCard`), `labelContent` and `projectEvidence`. The source and backup boxes are therefore still two implementations; the shared screen owns the glow through `SetupLocationsContext.nextStep`.
+- S-2 is decided and done: the Quick/Project choice is `SharedAppCoordinator.usesProjectWorkflow`, and `startCurrentMode()` starts nothing while Project is chosen without a prepared card, so ⌘R obeys it too. Start names the step ("Set up the card to start") and the project setup box glows.
+- S-3 is decided and done: `MacVolumeAccessModel` restores last-used backups at launch only when all of them exist (`LastBackupsRestorePolicy`), before discovery can overwrite the saved list.
+- Readiness is still the one rule on main (`operationReadinessAssessment`); `TransferReadiness` (§4.3) was not added. The estimate line sits above Start on every platform (Mac: drive benchmark; iOS: per-mode estimate).
+- Presets are not shared yet: the Mac keeps its preset picker inside its project slot. `DestinationSelectionPolicy` (4.5) is not done.
+- Deleted: `TransferPlanView`, `TransferPlanSourceCard`, `TransferPlanDestinationsCard`, `TransferPlanPreflightCard`, `TransferOptionsView` (Mac); `StartTransferButtonView`, `ReadinessBannerView`, `MobileTransferWorkflowPicker`, `IpadTransferPlanPreflightCard`, `IpadTransferPlanOptionSummary`, `EnhancedDestinationCard`, `CopyAndVerifyHeaderView`, `MobileWorkflowHeader` (iOS).
+- Tests: `BitMatchTests/SetupPresentationTests.swift`, each with its **Plant:** line.
+
 ### Step 4.9: `ProgressScreen` (after S2 and R7)
 
 - [ ] With `ProgressPresentationModel` in Shared (R7) and one operation state (S2), add `TransferProgressPresentation` and `ProgressScreen` (§3.3). Replace Mac `compactOperationView`/`TransferQueueView`/`CompactTransferCard` and iOS `OperationProgressView`.

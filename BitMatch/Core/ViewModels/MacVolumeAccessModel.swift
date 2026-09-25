@@ -43,6 +43,12 @@ final class MacVolumeAccessModel: ObservableObject {
     init(shared: SharedAppCoordinator, enableVolumeMonitoring: Bool = true) {
         self.shared = shared
         loadRecentFolders()
+        // Decision S-3: before anything can overwrite the saved list, put
+        // back last time's backups, but only if every one is still mounted.
+        // The real app only (tests build the model without monitoring).
+        if enableVolumeMonitoring {
+            restoreLastDestinations()
+        }
         observeSelection(of: shared)
         if enableVolumeMonitoring {
             setupVolumeMonitoring()
@@ -378,19 +384,18 @@ final class MacVolumeAccessModel: ObservableObject {
         UserDefaults.standard.set(paths, forKey: lastDestinationsKey)
     }
     
+    /// Last time's backups, all or nothing (`LastBackupsRestorePolicy`):
+    /// empty when any of them is not mounted now.
     func loadLastDestinations() -> [URL] {
-        guard let paths = UserDefaults.standard.stringArray(forKey: lastDestinationsKey) else {
-            return []
-        }
-        
-        return paths.compactMap { path in
-            let url = URL(fileURLWithPath: path)
-            // Only return if the path still exists
-            return FileManager.default.fileExists(atPath: path) ? url : nil
-        }
+        LastBackupsRestorePolicy.backupsToRestore(
+            savedPaths: UserDefaults.standard.stringArray(forKey: lastDestinationsKey) ?? [],
+            exists: { FileManager.default.fileExists(atPath: $0) }
+        )
     }
-    
+
+    /// Called once at launch, while no backup is chosen yet.
     func restoreLastDestinations() {
+        guard destinationURLs.isEmpty else { return }
         for dest in loadLastDestinations() {
             shared?.addDestination(dest)
         }

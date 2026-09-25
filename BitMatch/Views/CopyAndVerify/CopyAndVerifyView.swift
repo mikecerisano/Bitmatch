@@ -9,38 +9,13 @@ struct CopyAndVerifyView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var plan: TransferPlanPresentation {
-        // The shared readiness rule (the same strings on every platform). A
-        // source or backup not chosen yet is the next step, not an error;
-        // TransferPlanPresentation.nextStep highlights it instead.
-        let readiness = coordinator.operationReadinessAssessment
-        return TransferPlanPresentation.make(
-            sourceURL: coordinator.sourceURL,
-            sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
-            destinationURLs: coordinator.destinationURLs,
-            verificationMode: coordinator.verificationMode,
-            cameraSettings: coordinator.cameraLabelSettings,
-            reportSettings: coordinator.reportSettings,
-            isAnalyzing: coordinator.isAnalysingSource,
-            blockingIssues: readiness.blockingIssues,
-            warnings: readiness.warnings
-        )
-    }
-
     var body: some View {
         Group {
             if coordinator.isOperationInProgress {
                 compactOperationView
             } else {
-                TransferPlanView(
-                    coordinator: coordinator,
-                    plan: plan,
-                    optionsExpanded: $optionsExpanded,
-                    selectionView: { presentation in
-                        AnyView(HorizontalFlowView(coordinator: coordinator, presentation: presentation, nextStep: plan.nextStep))
-                    },
-                    onStart: start
-                )
+                // The shared Setup screen with the Mac's slots (step 4.8).
+                MacSetupView(coordinator: coordinator, optionsExpanded: $optionsExpanded)
             }
         }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.84), value: coordinator.isOperationInProgress)
@@ -102,10 +77,5 @@ struct CopyAndVerifyView: View {
                 .padding(.bottom, DesignSystem.Spacing.sm)
             }
         }
-    }
-
-    private func start() {
-        coordinator.switchMode(to: .copyAndVerify)
-        Task { await coordinator.startCurrentMode() }
     }
 }

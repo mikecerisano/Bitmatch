@@ -1,97 +1,46 @@
-// CopyAndVerifyView.swift - Main copy and verify interface for iPad
+// CopyAndVerifyView.swift - the iPad and iPhone setup
 import SwiftUI
 
+/// The iPad and iPhone slots for the shared Setup screen (UI plan step
+/// 4.8): the Files-picker source and backup boxes, the project setup form,
+/// the camera label editor and this job's cards. Readiness, the workflow
+/// choice, the preflight card, Advanced and Start are the screen the Mac
+/// shows. Needs no environment objects.
 struct CopyAndVerifyView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var cameraLabelExpanded = false
     @State private var optionsExpanded = false
-    @State private var usesProjectWorkflow = false
 
-    private var hasPreparedProjectTransfer: Bool {
-        coordinator.photographerJobViewModel.hasPreparedIngestAwaitingStart
-    }
-
-    private var plan: TransferPlanPresentation {
-        let readiness = coordinator.operationReadinessAssessment
-        var blockingIssues = readiness.issues
-        if coordinator.sourceURL == nil || coordinator.destinationURLs.isEmpty {
-            // TransferPlanPresentation renders missing locations as setup states.
-            // Preserve only actual validation findings as blocked states.
-            blockingIssues.removeAll {
-                $0 == "No source folder selected" || $0 == "No destination folders selected"
-            }
-        }
-        return TransferPlanPresentation.make(
-            sourceURL: coordinator.sourceURL,
-            sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
-            destinationURLs: coordinator.destinationURLs,
-            verificationMode: coordinator.verificationMode,
-            cameraSettings: coordinator.cameraLabelSettings,
-            reportSettings: coordinator.reportSettings,
-            isAnalyzing: coordinator.sourceURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
-            blockingIssues: blockingIssues,
-            warnings: readiness.warnings
-        )
-    }
-    
     var body: some View {
-        VStack(spacing: 20) {
-            // Enhanced header with professional branding
-            CopyAndVerifyHeaderView()
-            
-            // Full interface
-            VStack(spacing: 20) {
-                // The selection cards remain the owner of iPad Files picker actions.
-                EnhancedSourceDestinationView(coordinator: coordinator, nextStep: plan.nextStep)
-
-                MobileTransferWorkflowPicker(
-                    usesProjectWorkflow: $usesProjectWorkflow,
-                    isProjectPrepared: hasPreparedProjectTransfer
+        CoordinatorSetupScreen(
+            coordinator: coordinator,
+            optionsExpanded: $optionsExpanded,
+            estimateText: coordinator.sourceFolderInfo.map {
+                "Estimated time: \(coordinator.verificationMode.estimatedTime(fileCount: $0.fileCount))"
+            }
+        ) { context in
+            EnhancedSourceDestinationView(
+                coordinator: coordinator,
+                nextStep: context.nextStep,
+                sideBySide: context.layout != .compact
+            )
+        } problems: {
+            // iOS reports no unreadable cards: the Files app shows only what
+            // it can read.
+            EmptyView()
+        } projectSetup: {
+            MobileProjectSetupCard(coordinator: coordinator)
+        } labelContent: {
+            CollapsibleLabelingSection(
+                coordinator: coordinator,
+                isExpanded: $cameraLabelExpanded
+            )
+        } projectEvidence: {
+            if let job = coordinator.photographerJobViewModel.dashboardJob {
+                MobileProjectEvidenceView(
+                    viewModel: coordinator.photographerJobViewModel,
+                    job: job
                 )
-
-                if usesProjectWorkflow || hasPreparedProjectTransfer {
-                    MobileProjectSetupCard(coordinator: coordinator)
-                }
-
-                if plan.showsStatusBanner {
-                    IpadTransferPlanPreflightCard(plan: plan)
-                }
-
-                TransferOptionsSection(
-                    isExpanded: $optionsExpanded,
-                    verificationMode: $coordinator.verificationMode,
-                    generateASCMHL: $coordinator.generateASCMHL,
-                    makeReport: $coordinator.reportSettings.makeReport,
-                    cameraLabel: coordinator.cameraLabelSettings.label,
-                    estimateText: coordinator.sourceFolderInfo.map {
-                        "Estimated time: \(coordinator.verificationMode.estimatedTime(fileCount: $0.fileCount))"
-                    }
-                ) {
-                    CollapsibleLabelingSection(
-                        coordinator: coordinator,
-                        isExpanded: $cameraLabelExpanded
-                    )
-                }
-                .padding(14)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.white.opacity(0.035))
-                )
-
-                StartTransferButtonView(
-                    coordinator: coordinator,
-                    plan: plan,
-                    showsReadinessBanner: false,
-                    startsProjectTransfer: usesProjectWorkflow || hasPreparedProjectTransfer
-                )
-
-                if let job = coordinator.photographerJobViewModel.dashboardJob,
-                   !job.cardIngests.isEmpty {
-                    MobileProjectEvidenceView(
-                        viewModel: coordinator.photographerJobViewModel,
-                        job: job
-                    )
-                }
             }
         }
         .padding(.horizontal, 20)
@@ -153,65 +102,6 @@ private struct MobileProjectEvidenceView: View {
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.035)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08))))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project media. \(presentation.requiredCopyTitle)")
-    }
-}
-
-private struct MobileTransferWorkflowPicker: View {
-    @Binding var usesProjectWorkflow: Bool
-    let isProjectPrepared: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { buttons }
-            VStack(spacing: 8) { buttons }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Transfer workflow")
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: usesProjectWorkflow)
-    }
-
-    @ViewBuilder private var buttons: some View {
-        workflowButton(.quick, selected: !usesProjectWorkflow && !isProjectPrepared) {
-            usesProjectWorkflow = false
-        }
-        .disabled(isProjectPrepared)
-        workflowButton(.project, selected: usesProjectWorkflow || isProjectPrepared) {
-            usesProjectWorkflow = true
-        }
-    }
-
-    private func workflowButton(
-        _ workflow: TransferWorkflowPresentation,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2), action)
-        } label: {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: workflow.symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(selected ? .green : .white.opacity(0.55))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(workflow.title).font(.system(size: 12, weight: .semibold))
-                    Text(workflow.detail).font(.system(size: 10)).foregroundColor(.white.opacity(0.58))
-                }
-                Spacer(minLength: 0)
-                if selected { Image(systemName: "checkmark.circle.fill").foregroundColor(.green) }
-            }
-            .foregroundColor(.white)
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(selected ? Color.green.opacity(0.09) : Color.white.opacity(0.035))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.green.opacity(0.25) : Color.white.opacity(0.08)))
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(workflow.title)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
     }
 }
 
@@ -416,120 +306,17 @@ private struct MobileProjectSetupCard: View {
     }
 }
 
-// MARK: - Enhanced Components (matching macOS sophistication)
-
-struct CopyAndVerifyHeaderView: View {
-    var body: some View {
-        MobileWorkflowHeader(
-            title: "Copy & verify",
-            detail: "Copy a card or folder to your backups.",
-            symbol: "doc.on.doc",
-            tint: .green
-        )
-    }
-}
-
-/// A consistent, compact heading for each mobile workspace.
-struct MobileWorkflowHeader: View {
-    let title: String
-    let detail: String
-    let symbol: String
-    let tint: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(title, systemImage: symbol)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white)
-                .labelStyle(MobileWorkflowLabelStyle(tint: tint))
-                .accessibilityAddTraits(.isHeader)
-            Text(detail)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct MobileWorkflowLabelStyle: LabelStyle {
-    let tint: Color
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            configuration.icon.foregroundStyle(tint)
-            configuration.title
-        }
-    }
-}
-
-private struct IpadTransferPlanPreflightCard: View {
-    let plan: TransferPlanPresentation
-
-    var body: some View {
-        let display = TransferPlanStatusDisplay.make(plan.status)
-        let tint = color(for: display.tone)
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: display.symbol).font(.system(size: 17, weight: .semibold)).foregroundColor(tint)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(display.title).font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
-                Text(display.detail).font(.system(size: 13)).foregroundColor(.white.opacity(0.68)).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-        }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12).fill(tint.opacity(0.1)).overlay(RoundedRectangle(cornerRadius: 12).stroke(tint.opacity(0.2), lineWidth: 1)))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Preflight: \(display.title). \(display.detail)")
-    }
-
-    private func color(for tone: TransferPlanStatusTone) -> Color {
-        switch tone {
-        case .success: .green
-        case .info: .blue
-        case .warning: .orange
-        case .error: .red
-        }
-    }
-}
-
-private struct IpadTransferPlanOptionSummary: View {
-    let plan: TransferPlanPresentation
-    let isQuickMode: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(plan.optionSummary, id: \.self) { summary in
-                        Text(summary)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white.opacity(0.76))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(Color.white.opacity(0.07)))
-                    }
-                }
-            }
-
-            if isQuickMode {
-                Label("Quick mode does not use checksum verification.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.orange)
-                    .accessibilityLabel("Warning: Quick mode does not use checksum verification")
-            }
-        }
-    }
-}
-
 struct EnhancedSourceDestinationView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     /// The step to highlight, from `TransferPlanPresentation.nextStep`.
     var nextStep: TransferPlanPresentation.NextStep? = nil
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    
+    /// From the Setup screen's own width, not the size class: an iPad split
+    /// view can be narrow while its size class is regular.
+    var sideBySide = false
+
     var body: some View {
         Group {
-            if horizontalSizeClass == .regular {
+            if sideBySide {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 16) {
                         ProfessionalSourceCard(coordinator: coordinator, isNextStep: nextStep == .chooseSource)
@@ -568,8 +355,6 @@ struct EnhancedSourceDestinationView: View {
         }
     }
 }
-
-// CompactOperationView removed as it is handled by ModularContentView switching to OperationProgressView
 
 struct ProfessionalSourceCard: View {
     @ObservedObject var coordinator: SharedAppCoordinator
@@ -789,69 +574,6 @@ struct DestinationsFlowView: View {
                 }
             }
         }
-    }
-}
-
-struct EnhancedDestinationCard: View {
-    let url: URL
-    @ObservedObject var coordinator: SharedAppCoordinator
-    
-    var body: some View {
-        VStack(spacing: 10) {
-            // Header with remove button
-            HStack {
-                Spacer()
-                if !coordinator.isOperationInProgress {
-                    Button {
-                        coordinator.removeDestinationFolder(url)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.red.opacity(0.6))
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Remove destination \(url.lastPathComponent)")
-                    .accessibilityHint("Removes \(url.lastPathComponent) from the backup destinations.")
-                }
-            }
-            .frame(height: 14)
-            
-            // Drive icon
-            Image(systemName: "externaldrive.fill")
-                .font(.system(size: 32))
-                .foregroundColor(.blue)
-            
-            // Drive info
-            VStack(spacing: 4) {
-                Text(url.lastPathComponent)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                
-                Text("Backup folder")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.6))
-                
-                // Path preview
-                Text(url.path)
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.4))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.blue.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.blue.opacity(0.15), lineWidth: 1)
-                )
-        )
     }
 }
 
@@ -1118,196 +840,5 @@ struct CollapsibleLabelingSection: View {
                 )
         }
         .buttonStyle(.plain)
-    }
-}
-
-struct StartTransferButtonView: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    var plan: TransferPlanPresentation? = nil
-    var showsReadinessBanner = true
-    var startsProjectTransfer = false
-
-    private var projectStartPresentation: PhotographerStartPresentation {
-        coordinator.photographerJobViewModel.startPresentation(
-            preflightReady: plan?.canStart ?? coordinator.operationReadinessAssessment.isReady,
-            sourceURL: coordinator.sourceURL,
-            destinationCount: coordinator.destinationURLs.count,
-            verificationMode: coordinator.verificationMode
-        )
-    }
-    
-    private var canStartTransfer: Bool {
-        (plan?.canStart ?? coordinator.operationReadinessAssessment.isReady) &&
-        (!startsProjectTransfer || projectStartPresentation.canStart) &&
-        !coordinator.isOperationInProgress
-    }
-    
-    private var buttonText: String {
-        if coordinator.isOperationInProgress {
-            return "Transfer in Progress..."
-        } else if let plan, plan.nextStep != nil {
-            return plan.actionTitle
-        } else if coordinator.sourceURL == nil {
-            return "Choose a source to start"
-        } else if coordinator.destinationURLs.isEmpty {
-            return "Add a backup to start"
-        } else if startsProjectTransfer, let blocker = projectStartPresentation.blocker {
-            return blocker
-        } else if startsProjectTransfer {
-            return "Start Project Transfer"
-        } else {
-            return plan?.actionTitle ?? "Start Copy & Verify"
-        }
-    }
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            if showsReadinessBanner && (coordinator.sourceURL != nil || !coordinator.destinationURLs.isEmpty) {
-                ReadinessBannerView(assessment: coordinator.operationReadinessAssessment)
-            }
-
-            // Transfer summary when ready
-            if canStartTransfer, let sourceInfo = coordinator.sourceFolderInfo {
-                HStack {
-                    Text("Ready to copy \(sourceInfo.formattedFileCount) files (\(sourceInfo.formattedSize)) to \(coordinator.destinationURLs.count) destination\(coordinator.destinationURLs.count == 1 ? "" : "s")")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                    
-                    Spacer()
-                }
-            }
-            
-            // Main button
-            Button {
-                Task {
-                    if startsProjectTransfer {
-                        _ = await coordinator.startProjectOperation()
-                    } else {
-                        await coordinator.startOperation()
-                    }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    if coordinator.isOperationInProgress {
-                        ProgressView()
-                            .scaleEffect(0.9)
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else {
-                        Image(systemName: canStartTransfer ? "play.fill" : (plan?.nextStep != nil ? "arrow.up" : "exclamationmark.triangle.fill"))
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    
-                    Text(buttonText)
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(canStartTransfer ? 
-                              LinearGradient(colors: [Color.green, Color.green.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                              LinearGradient(colors: [Color.white.opacity(0.1), Color.white.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(canStartTransfer ? Color.green.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                        )
-                )
-                .opacity(canStartTransfer ? 1.0 : 0.6)
-            }
-            .disabled(!canStartTransfer)
-            .buttonStyle(.plain)
-        }
-    }
-}
-
-struct ReadinessBannerView: View {
-    let assessment: OperationReadinessAssessment
-
-    private var title: String {
-        assessment.isReady ? "Ready Check" : "Needs Attention"
-    }
-
-    private var accessibilitySummary: String {
-        var parts = [title]
-        if !assessment.issues.isEmpty {
-            parts.append("Issues: \(assessment.issues.joined(separator: ". "))")
-        }
-        if !assessment.warnings.isEmpty {
-            parts.append("Warnings: \(assessment.warnings.joined(separator: ". "))")
-        }
-        if let duration = assessment.estimatedDuration, assessment.isReady {
-            parts.append("Estimated duration \(duration)")
-        }
-        return parts.joined(separator: ". ")
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: assessment.statusIcon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(assessment.statusColor)
-                .frame(width: 20, height: 20)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-
-                if !assessment.issues.isEmpty {
-                    readinessMessages(assessment.issues, tint: .red)
-                }
-
-                if !assessment.warnings.isEmpty {
-                    readinessMessages(assessment.warnings, tint: .orange)
-                }
-
-                if assessment.issues.isEmpty && assessment.warnings.isEmpty {
-                    Text(assessment.statusMessage)
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.68))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let duration = assessment.estimatedDuration, assessment.isReady {
-                    Text("Estimated duration \(duration)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-            }
-
-            Spacer()
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(assessment.statusColor.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(assessment.statusColor.opacity(0.18), lineWidth: 1)
-                )
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
-    }
-
-    private func readinessMessages(_ messages: [String], tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 4))
-                        .foregroundColor(tint)
-                        .padding(.top, 5)
-
-                    Text(message)
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.68))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
     }
 }

@@ -63,6 +63,10 @@ class SharedAppCoordinator: ObservableObject {
     private var isProcessingQueue = false
     private var activeJournalRecordID: UUID?
     @Published var photographerJobViewModel: PhotographerJobViewModel
+    /// Setup's Quick/Project choice. Held here, not in a view, so every
+    /// Start (button, ⌘R) obeys it: choosing Project blocks Start until a
+    /// card is prepared (thesis decision S-2).
+    @Published var usesProjectWorkflow = false
     var photographerReportFinalizer: PhotographerReportFinalizer?
 
     // MARK: - Operation State
@@ -726,13 +730,16 @@ class SharedAppCoordinator: ObservableObject {
 
     /// The one Start, for every platform's Start button and keyboard
     /// shortcut. A prepared project card starts through
-    /// `startProjectOperation()`; any other transfer starts only when the
+    /// `startProjectOperation()`; with Project chosen and no card prepared
+    /// nothing starts (S-2); any other transfer starts only when the
     /// readiness rule allows it; Compare runs the compare.
     func startCurrentMode() async {
         switch currentMode {
         case .copyAndVerify:
             if photographerJobViewModel.hasPreparedIngestAwaitingStart {
                 await startProjectOperation()
+            } else if usesProjectWorkflow {
+                return
             } else if canStartOperation {
                 await startOperation()
             }
