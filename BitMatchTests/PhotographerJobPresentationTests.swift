@@ -153,6 +153,19 @@ struct PhotographerJobPresentationTests {
         #expect(unverified.isWarning)
     }
 
+    /// Audit M11: "Remote Failed" used the same orange as a retry-pending
+    /// warning; a failed off-site backup needs the red error tint.
+    /// Plant: in `RemoteBackupStatusPresentation.make`, change the `.failed`
+    /// case to `isError: false`.
+    @Test func remoteFailedIsErrorNotWarning() {
+        let failed = RemoteBackupStatusPresentation.make(state: .failed, evidence: .none)
+        #expect(failed.isError)
+
+        let retrying = RemoteBackupStatusPresentation.make(state: .retrying, evidence: .none)
+        #expect(!retrying.isError)
+        #expect(retrying.isWarning)
+    }
+
     @Test func sessionShowsRequiredAndVerifiedCopyCounts() {
         var completed = card(number: 1, state: .locallySafe)
         completed.verifiedDestinationCount = 3

@@ -121,6 +121,9 @@ struct CameraLabelView: View {
                                 )
                         )
                         .frame(width: 180) // Fixed width for consistency
+                        // Audit H4: the visible title is a separate Text, so
+                        // without this VoiceOver reads only the placeholder.
+                        .accessibilityLabel("Custom camera label")
                 }
                 
                 Spacer() // Push everything to the left
@@ -133,11 +136,12 @@ struct CameraLabelView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
                     
-                    Picker("", selection: $settings.position) {
+                    Picker("Label position", selection: $settings.position) {
                         ForEach(CameraLabelSettings.LabelPosition.allCases, id: \.self) { pos in
                             Text(pos.rawValue).tag(pos)
                         }
                     }
+                    .labelsHidden()
                     .pickerStyle(.segmented)
                     .background(Color.white.opacity(0.05))
                     .cornerRadius(6)
@@ -168,11 +172,13 @@ struct CameraLabelView: View {
                                     )
                             }
                             .buttonStyle(.plain)
+                            // Audit M1: selection was shown by fill color alone.
+                            .accessibilityAddTraits(settings.separator == sep ? .isSelected : [])
                         }
                     }
                 }
             }
-            
+
             // Live Preview - adaptive width
             if !settings.label.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -261,8 +267,10 @@ struct CameraLabelView: View {
                 )
         }
         .buttonStyle(.plain)
+        // Audit M1: selection was shown by fill color alone.
+        .accessibilityAddTraits(settings.label == preset ? .isSelected : [])
     }
-    
+
     // MARK: - Helper Methods
     private func formatFolderName(settings: CameraLabelSettings, baseName: String) -> String {
         let formatted = settings.formattedFolderName(for: baseName)

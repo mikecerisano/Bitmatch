@@ -86,6 +86,8 @@ struct PreferencesWindow: View {
                         .fill(Color.accentColor.opacity(0.1)) :
                     nil
                 )
+                // Audit M1: selection was shown by tint color alone.
+                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
             }
             
             Spacer()

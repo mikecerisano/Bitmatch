@@ -129,6 +129,9 @@ struct RemoteBackupStatusPresentation: Equatable, Sendable {
     let symbol: String
     let isFullyBackedUp: Bool
     let isWarning: Bool
+    /// Audit M11: a failed off-site backup is an error, not merely a
+    /// warning like "retrying" or "unverified" — it needs the red tint.
+    var isError: Bool = false
     /// The underlying item state, so views can offer valid next actions
     /// (retry for parked/failed work, cancel for runnable work).
     let state: RemoteBackupState
@@ -159,7 +162,7 @@ struct RemoteBackupStatusPresentation: Equatable, Sendable {
         case .verified:
             return Self(title: "Verification Evidence Missing", symbol: "exclamationmark.shield", isFullyBackedUp: false, isWarning: true, state: state)
         case .failed:
-            return Self(title: "Remote Failed", symbol: "exclamationmark.triangle.fill", isFullyBackedUp: false, isWarning: true, state: state)
+            return Self(title: "Remote Failed", symbol: "exclamationmark.triangle.fill", isFullyBackedUp: false, isWarning: false, isError: true, state: state)
         case .cancelled:
             return Self(title: "Remote Cancelled", symbol: "xmark.circle.fill", isFullyBackedUp: false, isWarning: true, state: state)
         case .conflict:

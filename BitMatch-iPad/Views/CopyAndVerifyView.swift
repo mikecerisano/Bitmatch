@@ -244,6 +244,10 @@ struct CollapsibleLabelingSection: View {
                                         )
                                 )
                                 .foregroundColor(.white)
+                                // Audit H4: the visible title is a separate
+                                // Text, so VoiceOver would otherwise read
+                                // only the example text.
+                                .accessibilityLabel("Camera label")
                         }
                         
                         // Quick presets (wrapped layout)
@@ -347,6 +351,9 @@ struct CollapsibleLabelingSection: View {
     }
     
     // MARK: - Helpers
+
+    // Audit M1/M7: chips showed selection by fill color alone, at well
+    // under the 44pt touch target, and (for separators) with no spoken name.
     private func positionChip(title: String, position: CameraLabelSettings.LabelPosition) -> some View {
         let selected = coordinator.cameraLabelSettings.position == position
         return Button {
@@ -356,15 +363,17 @@ struct CollapsibleLabelingSection: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(selected ? .black : .white.opacity(0.8))
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .fill(selected ? Color.orange : Color.white.opacity(0.06))
                 )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
-    
+
     private func separatorChip(_ sep: CameraLabelSettings.Separator) -> some View {
         let selected = coordinator.cameraLabelSettings.separator == sep
         return Button {
@@ -374,12 +383,15 @@ struct CollapsibleLabelingSection: View {
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundColor(selected ? .black : .white.opacity(0.8))
                 .padding(.horizontal, 6)
-                .padding(.vertical, 4)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
                         .fill(selected ? Color.orange : Color.white.opacity(0.06))
                 )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(sep.displayName)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

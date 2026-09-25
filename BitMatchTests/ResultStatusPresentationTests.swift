@@ -27,10 +27,14 @@ final class ResultStatusPresentationTests: XCTestCase {
         XCTAssertEqual(ResultStatusPresentation.make(status: status).symbol, "doc.on.doc")
     }
 
-    func testChecksumMismatchEngineStatusIsWarning() {
+    /// Audit H2: a checksum mismatch is corrupted data, not a minor warning.
+    /// It must not share the orange triangle used for "missing" or a
+    /// generic warning, and must be at least as severe as a plain failure.
+    func testChecksumMismatchEngineStatusIsFailure() {
         let status = engineStatus(success: true, matches: false)
         XCTAssertEqual(status, "⚠️ Checksum Mismatch")
-        XCTAssertEqual(ResultStatusPresentation.make(status: status).tone, .warning)
+        XCTAssertEqual(ResultStatusPresentation.make(status: status).tone, .failure)
+        XCTAssertEqual(ResultStatusPresentation.make(status: status).symbol, "xmark.octagon.fill")
     }
 
     func testFailedEngineStatusIsFailure() {

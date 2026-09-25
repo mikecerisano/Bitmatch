@@ -36,7 +36,10 @@ struct ResultStatusPresentation: Equatable, Sendable {
             switch outcome {
             case .verified: return Self(tone: .verified, symbol: "checkmark.circle")
             case .copiedUnverified: return Self(tone: .unverified, symbol: "doc.on.doc")
-            case .checksumMismatch: return Self(tone: .warning, symbol: "exclamationmark.triangle")
+            // Audit H2: corrupted data is at least as severe as an I/O
+            // error, and must not share the orange "missing"/warning
+            // triangle. A distinct red glyph tells the two apart.
+            case .checksumMismatch: return Self(tone: .failure, symbol: "xmark.octagon.fill")
             case .failed: return Self(tone: .failure, symbol: "xmark.circle")
             }
         }

@@ -204,3 +204,37 @@ struct NewTransferSelectionTests {
         #expect(coordinator.destinationURLs == [backup])
     }
 }
+
+/// Audit H12: one composed VoiceOver label per file result row, so a row
+/// isn't four or five separate stops (icon, name, size, destination) with
+/// no column header to say what a bare number means.
+struct ResultRowAccessibilityLabelTests {
+    private func row(status: ResultOutcome, size: Int64 = 2_048, destination: String?) -> ResultRow {
+        ResultRow(path: "/Card/DCIM/A001.MOV", status: status.statusText, size: size, checksum: nil, destination: destination)
+    }
+
+    /// Plant: in `TransferOutcomePresentation.accessibilityLabel(for:)`,
+    /// drop the status segment (`"\(name), \(size)"`).
+    @Test func labelNamesFileStatusSizeAndDestination() {
+        let size = ByteCountFormatter.string(fromByteCount: 2_048, countStyle: .file)
+        let label = TransferOutcomePresentation.accessibilityLabel(for: row(status: .checksumMismatch, size: 2_048, destination: "Backup A"))
+        #expect(label == "A001.MOV, Checksum mismatch, \(size), Backup A")
+    }
+
+    /// A row with no destination (still processing, or a legacy record)
+    /// must not read a dangling comma.
+    @Test func labelOmitsMissingDestination() {
+        let size = ByteCountFormatter.string(fromByteCount: 2_048, countStyle: .file)
+        let label = TransferOutcomePresentation.accessibilityLabel(for: row(status: .verified, destination: nil))
+        #expect(label == "A001.MOV, Verified, \(size)")
+    }
+
+    /// Plant: in `TransferOutcomePresentation.accessibilityLabel(for:)`,
+    /// call `row.status` directly instead of `statusLabel(for:)`, so the
+    /// emoji status string is read aloud (audit L7).
+    @Test func labelUsesPlainWordsNotEmoji() {
+        let label = TransferOutcomePresentation.accessibilityLabel(for: row(status: .copiedUnverified, destination: "Backup B"))
+        #expect(!label.contains("✅"))
+        #expect(label.contains("Copied, not verified"))
+    }
+}

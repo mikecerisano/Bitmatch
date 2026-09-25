@@ -113,19 +113,17 @@ struct ResultsTableView: View {
         // Speed, time left and Cancel (with its confirmation) are on the
         // shared progress screen above; one of each, one formula.
         HStack(spacing: 8) {
-                // Filter toggle that changes label based on state
-                Toggle(isOn: $showOnlyIssues) {
-                    Label(showOnlyIssues ? "Show All" : "Issues Only",
-                          systemImage: showOnlyIssues ? "list.bullet" : "exclamationmark.triangle")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.6))
-                }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .buttonStyle(CustomButtonStyle())
+                // Audit M12: a stable label (VoiceOver says "on"/"off",
+                // not a label that flips with its own state).
+                Toggle("Issues only", systemImage: "exclamationmark.triangle", isOn: $showOnlyIssues)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.6))
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .buttonStyle(CustomButtonStyle())
         }
     }
-    
+
     @ViewBuilder
     private var fileCountView: some View {
         HStack(spacing: 4) {
@@ -136,36 +134,34 @@ struct ResultsTableView: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.white.opacity(0.7))
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(progress.fileCountCompleted) of \(progress.fileCountTotal) files processed")
     }
-    
+
     /// Verified files only (green means verified); hidden until there is one.
+    /// Audit H1: a distinct symbol, not only a colored dot, so a red/green
+    /// colorblind user can tell this apart from `issueCountView`.
     @ViewBuilder
     private var matchCountView: some View {
         let verified = LiveResultsCounts.make(rows: results).verified
         if verified > 0 {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 6, height: 6)
-                Text("\(verified)")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.green)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(verified) verified")
+            Label("\(verified)", systemImage: "checkmark.circle.fill")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.green)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(verified) verified")
         }
     }
-    
+
+    /// Audit H1: distinct shape from `matchCountView`, and a spoken label
+    /// (previously a bare number with no accessibility label at all).
     @ViewBuilder
     private var issueCountView: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(.orange)
-                .frame(width: 6, height: 6)
-            Text("\(issueCount)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.orange)
-        }
+        Label("\(issueCount)", systemImage: "exclamationmark.triangle.fill")
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundColor(.orange)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(issueCount == 1 ? "1 issue" : "\(issueCount) issues")
     }
     
     @ViewBuilder
@@ -276,6 +272,9 @@ struct ResultsTableView: View {
         .background(
             row.isSuccessStatus ? Color.clear : ResultStatusPresentation.make(status: row.status).color.opacity(0.1)
         )
+        // Audit H12: one VoiceOver stop per row, not five.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(TransferOutcomePresentation.accessibilityLabel(for: row))
     }
 
     @ViewBuilder
