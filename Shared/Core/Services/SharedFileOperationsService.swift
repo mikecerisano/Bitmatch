@@ -217,24 +217,9 @@ class SharedFileOperationsService: FileOperationsService {
     /// (nil); tests use it to block or fail destination setup deterministically.
     private let destinationSetupHook: (@Sendable (URL) throws -> Void)?
     private let activeOperations = ActiveOperationRegistry()
-    private let pauseState = PauseState()
+    private let pauseGate = PauseGate()
     private let verifyCounter = VerifyCounter()
 
-    /// Thread-safe pause state management
-    private actor PauseState {
-        private var paused = false
-        func isPaused() -> Bool { paused }
-        func pause() { paused = true }
-        func resume() { paused = false }
-
-        func waitIfPaused() async throws {
-            while paused && !Task.isCancelled {
-                try Task.checkCancellation()
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-            }
-        }
-    }
-    
     init(
         fileSystem: FileSystemService,
         checksum: any ChecksumService,
@@ -262,7 +247,8 @@ class SharedFileOperationsService: FileOperationsService {
         }
         defer { activeOperations.clear(operationID) }
 
-        await pauseState.resume()
+        // A pause left over from an earlier run never holds this one (I5).
+        pauseGate.resume()
         
         let operation = FileOperation(
             sourceURL: sourceURL,
@@ -292,15 +278,15 @@ class SharedFileOperationsService: FileOperationsService {
     }
     
     func pauseOperation() async {
-        await pauseState.pause()
+        pauseGate.pause()
     }
 
     func resumeOperation() async {
-        await pauseState.resume()
+        pauseGate.resume()
     }
 
     private func waitIfPaused() async throws {
-        try await pauseState.waitIfPaused()
+        try await pauseGate.wait()
     }
 
     private func finishVerificationTasks(
@@ -343,9 +329,9 @@ class SharedFileOperationsService: FileOperationsService {
         ))
 
         await verifyCounter.reset()
-        let pauseState = self.pauseState
+        let pauseGate = self.pauseGate
         SharedChecksumService.pauseCheck = {
-            try await pauseState.waitIfPaused()
+            try await pauseGate.wait()
         }
         let didStartSourceScope = fileSystem.startAccessing(url: operation.sourceURL)
         var destinationScopes: [URL: Bool] = [:]
@@ -528,7 +514,7 @@ class SharedFileOperationsService: FileOperationsService {
                 checksumService: self.checksumService,
                 preEnumeratedFiles: sourceFileURLs,
                 pauseCheck: {
-                    try await pauseState.waitIfPaused()
+                    try await pauseGate.wait()
                 },
                 onProgress: { fileName, fileSize in
                     let copyUpdate = await progressState.recordCopy(
