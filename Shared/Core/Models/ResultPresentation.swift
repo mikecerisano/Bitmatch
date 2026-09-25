@@ -85,6 +85,13 @@ enum CompletionVerdict: Equatable {
             return .issues
         }
 
+        // Green means verified (Promise 2): a row that was copied but never
+        // checksum- or byte-verified keeps the run out of success, whatever
+        // the run itself reported.
+        if rows.contains(where: { ResultOutcome(statusText: $0.status) == .copiedUnverified }) {
+            return .issues
+        }
+
         return .success
     }
 }
