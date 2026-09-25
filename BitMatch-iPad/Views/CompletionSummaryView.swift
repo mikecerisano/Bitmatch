@@ -278,7 +278,12 @@ struct ErrorDetailsView: View {
                     }
                 }
                 
-                Text(CompletionVerdictPresentation.make(verdict).sourceGuidance ?? "Review transfer evidence before clearing source media.")
+                Text(CompletionVerdictPresentation.make(
+                    state: coordinator.operationState,
+                    rows: coordinator.results,
+                    hasErrors: coordinator.hasErrors,
+                    hasCriticalErrors: coordinator.hasCriticalErrors
+                ).sourceGuidance ?? "Review transfer evidence before clearing source media.")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white.opacity(0.85))
             }

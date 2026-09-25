@@ -142,13 +142,13 @@ private struct MobileProjectEvidenceView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
                         Image(systemName: row.statusSymbol)
-                            .foregroundColor(statusColor(row.statusTitle))
+                            .foregroundColor(row.status.color)
                         Text("\(row.photographerName) · \(row.cameraName)")
                             .font(.system(size: 13, weight: .semibold))
                         Spacer()
                         Text(row.statusTitle)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(statusColor(row.statusTitle))
+                            .foregroundColor(row.status.color)
                     }
                     Text("\(row.cardTitle) · \(row.fileCountTitle) · \(row.verifiedCopyTitle)")
                         .font(.system(size: 12)).foregroundColor(.white.opacity(0.66))
@@ -175,15 +175,6 @@ private struct MobileProjectEvidenceView: View {
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.035)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08))))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Project media. \(presentation.requiredCopyTitle)")
-    }
-
-    private func statusColor(_ title: String) -> Color {
-        switch title {
-        case "Locally Safe": .green
-        case "Issues": .red
-        case "Copying", "Verifying": .blue
-        default: .white.opacity(0.6)
-        }
     }
 }
 

@@ -376,17 +376,18 @@ struct ResultsTableView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(
-            row.isSuccessStatus ? Color.clear : statusColor(for: row.status).opacity(0.1)
+            row.isSuccessStatus ? Color.clear : ResultStatusPresentation.make(status: row.status).color.opacity(0.1)
         )
     }
 
     @ViewBuilder
     private func detailedResultRow(for row: ResultRow) -> some View {
+        let status = ResultStatusPresentation.make(status: row.status)
         HStack(spacing: 8) {
             // Status icon
-            Image(systemName: statusSymbol(for: row.status))
+            Image(systemName: status.symbol)
                 .font(.system(size: 12))
-                .foregroundColor(statusColor(for: row.status))
+                .foregroundColor(status.color)
                 .frame(width: 16)
 
             // File name
@@ -418,17 +419,18 @@ struct ResultsTableView: View {
             // Status text
             Text(row.status)
                 .font(.system(size: 10))
-                .foregroundColor(statusColor(for: row.status).opacity(0.85))
+                .foregroundColor(status.color.opacity(0.85))
                 .frame(width: 120, alignment: .trailing)
         }
     }
 
     @ViewBuilder
     private func compactResultRow(for row: ResultRow) -> some View {
+        let status = ResultStatusPresentation.make(status: row.status)
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: statusSymbol(for: row.status))
+            Image(systemName: status.symbol)
                 .font(.system(size: 12))
-                .foregroundColor(statusColor(for: row.status))
+                .foregroundColor(status.color)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 3) {
                 Text(URL(fileURLWithPath: row.path).lastPathComponent)
@@ -449,7 +451,7 @@ struct ResultsTableView: View {
             Spacer(minLength: 8)
             Text(row.status)
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(statusColor(for: row.status).opacity(0.9))
+                .foregroundColor(status.color.opacity(0.9))
                 .lineLimit(2)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 86, alignment: .trailing)
@@ -481,37 +483,6 @@ struct ResultsTableView: View {
             let hours = Int(seconds / 3600)
             let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
             return "\(hours)h \(minutes)m"
-        }
-    }
-    
-    // MARK: - Status Helper Methods
-    private func statusSymbol(for status: String) -> String {
-        let lowercased = status.lowercased()
-        if ResultRow.isSuccessStatus(status) {
-            return "checkmark.circle"
-        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
-            return "xmark.circle"
-        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
-            return "exclamationmark.triangle"
-        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
-            return "arrow.clockwise"
-        } else {
-            return "questionmark.circle"
-        }
-    }
-    
-    private func statusColor(for status: String) -> Color {
-        let lowercased = status.lowercased()
-        if ResultRow.isSuccessStatus(status) {
-            return .green
-        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
-            return .red
-        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
-            return .yellow
-        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
-            return .blue
-        } else {
-            return .gray
         }
     }
 
