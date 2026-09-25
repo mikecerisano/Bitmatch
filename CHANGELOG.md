@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Fix: On iPad and iPhone, switching apps no longer labels a running transfer "Paused" while it keeps copying. Low battery (under 15%) now actually pauses the copy.
 - Fix: Report totals (data processed, throughput, average file size) come from the files copied, not an estimate that could read 1 GB when the source had not been measured.
 - Presentation: Only rows that were checksum- or byte-verified show a green check; a Quick copy's "Copied" rows are neutral. On iPad and iPhone, a cancelled transfer's guidance now says it was cancelled.
+- Interface: Mac, iPad and iPhone share one Advanced section for verification mode, ASC MHL and reports. Its label now names only settings changed from their defaults (for example "Quick mode · Reports off") instead of always repeating the mode. iPad and iPhone pick the mode from one menu instead of a nested list with "MHL" badges. The report switch names the formats actually written: "PDF, CSV and JSON" on the Mac, "CSV and JSON" on iPad and iPhone, which write no PDF. Mac Preferences gains the ASC MHL switch that iOS Settings already had. Defaults are unchanged.
 
 ## [0.1.6] - 2026-09-25
 

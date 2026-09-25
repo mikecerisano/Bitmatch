@@ -1070,13 +1070,13 @@ struct SettingsSheetView: View {
                         .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
                         Text(coordinator.verificationMode.description).font(.footnote)
                         Toggle("ASC MHL handoff record", isOn: $coordinator.generateASCMHL)
-                            .disabled(coordinator.verificationMode == .quick)
-                        Text("Creates an interoperable checksum record for verified copies.").font(.footnote)
+                            .disabled(!TransferOptionsPresentation.ascMHLEnabled(for: coordinator.verificationMode))
+                        Text(TransferOptionsPresentation.ascMHLFootnote(for: coordinator.verificationMode)).font(.footnote)
                     }
                 }
 
                 Section("Reports") {
-                    Toggle("Generate PDF & JSON reports", isOn: $coordinator.reportSettings.makeReport)
+                    Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.reportSettings.makeReport)
                     Button(role: .destructive) {
                         clearReportInfo()
                     } label: {

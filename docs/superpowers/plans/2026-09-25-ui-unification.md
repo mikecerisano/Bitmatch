@@ -596,14 +596,16 @@ Each step ships on its own: it builds both schemes, passes both test suites, and
 
 ### Step 4.6: Shared Advanced options, and the rest of P4 (no locked files)
 
-- [ ] Add `TransferOptionsSection` (§6). Mac `TransferOptionsView` (`TransferPlanView.swift:264-298`) and the iPad Advanced block (`CopyAndVerifyView.swift:65-99`) both use it. Delete `CollapsibleVerificationSection`, `VerificationModeRow` and `ReportToggleCard` once they are unused.
-- [ ] The Advanced label shows only non-default settings. One report label comes from `reportFormatsDescription`, in Setup, iOS Settings and Mac Preferences.
-- [ ] Add the ASC MHL toggle to Mac Preferences → "Advanced verification" (`PreferencesWindow.swift:106-124`) (§6.5).
+- [x] Add `TransferOptionsSection` (§6). Mac `TransferOptionsView` (`TransferPlanView.swift:264-298`) and the iPad Advanced block (`CopyAndVerifyView.swift:65-99`) both use it. Delete `CollapsibleVerificationSection`, `VerificationModeRow` and `ReportToggleCard` once they are unused.
+- [x] The Advanced label shows only non-default settings. One report label comes from `reportFormatsDescription`, in Setup, iOS Settings and Mac Preferences.
+- [x] Add the ASC MHL toggle to Mac Preferences → "Advanced verification" (`PreferencesWindow.swift:106-124`) (§6.5).
 - [ ] Compare uses the section with only the verification picker (already done in 4.2 if 4.6 lands first; otherwise 4.2 uses a temporary private disclosure).
-- [ ] Tests (`BitMatchTests/TransferOptionsPresentationTests.swift`):
+- [x] Tests (`BitMatchTests/TransferOptionsPresentationTests.swift`):
   - `advancedLabelHidesDefaults`: Standard mode, reports on → empty trailing note. **Plant:** always return `"\(mode.rawValue) · Reports on"`.
   - `ascMHLUnavailableInQuick`. **Plant:** make `ascMHLEnabled` return `true` for every mode.
   - `iOSReportLabelDoesNotPromisePDF` (iOS test target). **Plant:** return `"PDF & CSV"` unconditionally.
+
+- Done on branch `cloud/advanced-options` (not compiled; no Xcode). Differences from §6: the camera label is a platform slot (`labelContent`) rather than a `Binding<CameraLabelSettings>`, because `CameraLabelView` (Mac) and `CollapsibleLabelingSection` (iOS) are target-specific; `estimateText` is only passed on iOS (the Mac keeps its drive-benchmark estimate above Start); a set camera label also appears in the Advanced note. Compare adoption is left to the Compare branch: `TransferOptionsSection(isExpanded:verificationMode:)` is the picker-only form.
 
 ### Step 4.7: `OutcomeScreen` (after S2)
 
