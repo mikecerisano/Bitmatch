@@ -73,20 +73,6 @@ final class CameraDetectionRaceTests: XCTestCase {
         await MainActor.run { service.detectedCameraCards.map { ($0.volumeURL.path, $0.model) } }
     }
 
-    private func poll(
-        timeoutNanoseconds: UInt64 = 5_000_000_000,
-        _ condition: @escaping () -> Bool
-    ) async -> Bool {
-        let step: UInt64 = 10_000_000
-        var waited: UInt64 = 0
-        while !condition() {
-            if waited >= timeoutNanoseconds { return false }
-            try? await Task.sleep(nanoseconds: step)
-            waited += step
-        }
-        return true
-    }
-
     private func makeService(gate: Gate, volumes: [URL]) async -> CameraCardDetectionService {
         await MainActor.run {
             let service = CameraCardDetectionService()
@@ -121,7 +107,7 @@ final class CameraDetectionRaceTests: XCTestCase {
             Task { @MainActor [service] in service.stopMonitoring() }
         }
         await MainActor.run { service.startMonitoring() }
-        let firstScanStarted = await poll { gate.callCount == 1 }
+        let firstScanStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 1 }
         XCTAssertTrue(firstScanStarted)
 
         // Replace the volume list, then rescan: the first scan is now stale.
@@ -129,20 +115,20 @@ final class CameraDetectionRaceTests: XCTestCase {
             service.listVolumes = { [volB] }
             service.rescanVolumes()
         }
-        let secondScanStarted = await poll { gate.callCount == 2 }
+        let secondScanStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 2 }
         XCTAssertTrue(secondScanStarted)
 
         // The stale scan finishes first: the post-detection cancellation
         // check must drop it.
         gate.resumeNext(returning: card(for: volA))
-        let staleSettled = await poll { gate.settledCount == 1 }
+        let staleSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(staleSettled)
         let stalePaths = await cardInfo(of: service)
         XCTAssertFalse(stalePaths.map(\.path).contains(volA.path))
 
         // The live scan publishes normally.
         gate.resumeNext(returning: card(for: volB))
-        let liveSettled = await poll { gate.settledCount == 2 }
+        let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let paths = await cardInfo(of: service)
         XCTAssertEqual(paths.map(\.path), [volB.path])
@@ -160,7 +146,7 @@ final class CameraDetectionRaceTests: XCTestCase {
             Task { @MainActor [service] in service.stopMonitoring() }
         }
         await MainActor.run { service.startMonitoring() }
-        let scanReachedDetector = await poll { gate.callCount == 1 }
+        let scanReachedDetector = await waitUntil(timeout: .seconds(5)) { gate.callCount == 1 }
         XCTAssertTrue(scanReachedDetector)
 
         await unmount(service, volume: volX)
@@ -168,9 +154,9 @@ final class CameraDetectionRaceTests: XCTestCase {
 
         // The scan provably moved past volX (it reached volY's detection),
         // and volX was never re-added.
-        let scanReachedNext = await poll { gate.callCount == 2 }
+        let scanReachedNext = await waitUntil(timeout: .seconds(5)) { gate.callCount == 2 }
         XCTAssertTrue(scanReachedNext)
-        let scanSettled = await poll { gate.settledCount == 1 }
+        let scanSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(scanSettled)
         let scanPaths = await cardInfo(of: service)
         XCTAssertFalse(scanPaths.map(\.path).contains(volX.path))
@@ -191,24 +177,24 @@ final class CameraDetectionRaceTests: XCTestCase {
         await MainActor.run { service.startMonitoring() }
 
         await mount(service, volume: vol)
-        let firstDetectionStarted = await poll { gate.callCount == 1 }
+        let firstDetectionStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 1 }
         XCTAssertTrue(firstDetectionStarted)
         // Second mount supersedes the first detection (500ms apart inside).
         await mount(service, volume: vol)
-        let secondDetectionStarted = await poll { gate.callCount == 2 }
+        let secondDetectionStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 2 }
         XCTAssertTrue(secondDetectionStarted)
 
         // The superseded detection finishes with no card. Its handle
         // release must not touch the replacement's entry.
         gate.resumeNext(returning: nil)
-        let supersededSettled = await poll { gate.settledCount == 1 }
+        let supersededSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(supersededSettled)
         await unmount(service, volume: vol)
 
         // Even though the live detection now completes with a card, the
         // unmounted volume must stay absent.
         gate.resumeNext(returning: card(for: vol))
-        let liveSettled = await poll { gate.settledCount == 2 }
+        let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let finalPaths = await cardInfo(of: service)
         XCTAssertTrue(finalPaths.isEmpty)
@@ -227,14 +213,14 @@ final class CameraDetectionRaceTests: XCTestCase {
         await MainActor.run { service.startMonitoring() }
 
         await mount(service, volume: vol)
-        let firstStarted = await poll { gate.callCount == 1 }
+        let firstStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 1 }
         XCTAssertTrue(firstStarted)
         await mount(service, volume: vol)
-        let secondStarted = await poll { gate.callCount == 2 }
+        let secondStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 2 }
         XCTAssertTrue(secondStarted)
 
         gate.resumeNext(returning: nil)
-        let settled = await poll { gate.settledCount == 1 }
+        let settled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(settled)
         let tracked = await MainActor.run { service.trackedDetectionCountForTests }
         XCTAssertEqual(tracked, 1)
@@ -260,21 +246,21 @@ final class CameraDetectionRaceTests: XCTestCase {
         }
         await MainActor.run { service.startMonitoring() }
 
-        let scanReachedDetector = await poll { gate.callCount == 1 }
+        let scanReachedDetector = await waitUntil(timeout: .seconds(5)) { gate.callCount == 1 }
         XCTAssertTrue(scanReachedDetector)
         await unmount(service, volume: vol)
         await mount(service, volume: vol)
-        let remountDetectionStarted = await poll { gate.callCount == 2 }
+        let remountDetectionStarted = await waitUntil(timeout: .seconds(5)) { gate.callCount == 2 }
         XCTAssertTrue(remountDetectionStarted)
 
         // The pre-remount scan iteration finishes first with a stale card.
         gate.resumeNext(returning: card(for: vol, model: "M1"))
-        let staleSettled = await poll { gate.settledCount == 1 }
+        let staleSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(staleSettled)
 
         // The post-remount detection publishes the fresh card.
         gate.resumeNext(returning: card(for: vol, model: "M2"))
-        let liveSettled = await poll { gate.settledCount == 2 }
+        let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let cards = await cardInfo(of: service)
         XCTAssertEqual(cards.count, 1)
@@ -293,6 +279,8 @@ final class CameraDetectionRaceTests: XCTestCase {
         }
 
         await MainActor.run { service.rescanVolumes() }
+        // Quiet window: the test asserts nothing starts, so there is no
+        // condition to poll for.
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(gate.callCount, 0)
         let cards = await cardInfo(of: service)

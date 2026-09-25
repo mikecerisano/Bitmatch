@@ -63,10 +63,7 @@ struct CameraDetectionCancellationTests {
         }
         // Prove execution started: the task entered the enumeration before
         // it is cancelled, so this is a mid-flight abort by construction.
-        for _ in 0..<500 {
-            if started.get() { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await waitUntil(timeout: .seconds(5)) { started.get() }
         try #require(started.get(), "detection never entered its enumeration")
         #expect(!finished.get())
         task.cancel()

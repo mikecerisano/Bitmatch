@@ -21,12 +21,12 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
-        let finished = await queueWaitUntil(timeoutNanoseconds: 15_000_000_000) { @MainActor in
+        let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in
             !coordinator.queueIsRunning && !coordinator.isOperationInProgress
         }
         if !finished {
             coordinator.cancelOperation()
-            _ = await queueWaitUntil(timeoutNanoseconds: 5_000_000_000) { @MainActor in !coordinator.isOperationInProgress }
+            _ = await waitUntil(timeout: .seconds(5)) { @MainActor in !coordinator.isOperationInProgress }
         }
         XCTAssertTrue(finished, coordinator.queueMessage ?? "Queue did not finish")
         let first = try XCTUnwrap(journal.records.first { $0.id == firstID })
@@ -62,7 +62,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
-        let finished = await queueWaitUntil(timeoutNanoseconds: 15_000_000_000) { @MainActor in
+        let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in
             !coordinator.queueIsRunning && !coordinator.isOperationInProgress
         }
         XCTAssertTrue(finished, coordinator.queueMessage ?? "Queue did not finish")
@@ -92,7 +92,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
-        let finished = await queueWaitUntil(timeoutNanoseconds: 15_000_000_000) { @MainActor in
+        let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in
             !coordinator.queueIsRunning && !coordinator.isOperationInProgress
         }
         XCTAssertTrue(finished, coordinator.queueMessage ?? "Queue did not finish")
@@ -150,7 +150,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         coordinator.sourceURL = f.destination
         coordinator.destinationURLs = [f.source]
         coordinator.startQueue()
-        let finished = await queueWaitUntil { @MainActor in
+        let finished = await waitUntil { @MainActor in
             !coordinator.queueIsRunning && !coordinator.isOperationInProgress
         }
         XCTAssertTrue(finished)
@@ -194,14 +194,14 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let service = QueueRecordingOperations(blocked: true)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: service), transferJournal: journal)
         coordinator.startQueue()
-        let started = await queueWaitUntil { await service.starts.count == 1 }
+        let started = await waitUntil { await service.starts.count == 1 }
         XCTAssertTrue(started)
         XCTAssertThrowsError(try coordinator.completionExportDocument(asCSV: false),
                              "A running journal record is not a finished report")
         coordinator.cancelOperation()
         XCTAssertTrue(coordinator.isOperationInProgress, "Restart must stay disabled until cancellation unwinds")
         await service.release()
-        let finished = await queueWaitUntil { @MainActor in !coordinator.isOperationInProgress }
+        let finished = await waitUntil { @MainActor in !coordinator.isOperationInProgress }
         XCTAssertTrue(finished)
         XCTAssertFalse(coordinator.queueIsRunning)
         let starts = await service.starts
@@ -219,7 +219,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let service = QueueRecordingOperations()
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: service), transferJournal: journal)
         coordinator.startQueue()
-        let stopped = await queueWaitUntil { @MainActor in !coordinator.queueIsRunning }
+        let stopped = await waitUntil { @MainActor in !coordinator.queueIsRunning }
         XCTAssertTrue(stopped)
         let starts = await service.starts
         XCTAssertTrue(starts.isEmpty)
@@ -236,7 +236,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let service = QueueRecordingOperations()
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: service), transferJournal: journal)
         coordinator.startQueue()
-        let stopped = await queueWaitUntil { @MainActor in !coordinator.queueIsRunning }
+        let stopped = await waitUntil { @MainActor in !coordinator.queueIsRunning }
         XCTAssertTrue(stopped)
         let starts = await service.starts
         XCTAssertTrue(starts.isEmpty)
@@ -364,17 +364,4 @@ private final class QueueCameraDetectionService: CameraDetectionService {
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any] { [:] }
     func extractVideoMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
     func parseXMLMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
-}
-
-private func queueWaitUntil(
-    timeoutNanoseconds: UInt64 = 2_000_000_000,
-    condition: @escaping () async -> Bool
-) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .nanoseconds(Int64(timeoutNanoseconds)))
-    while clock.now < deadline {
-        if await condition() { return true }
-        try? await Task<Never, Never>.sleep(nanoseconds: 10_000_000)
-    }
-    return await condition()
 }

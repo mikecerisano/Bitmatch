@@ -30,10 +30,9 @@ struct FolderInfoServiceStalenessTests {
         await service.updateSource(second)
 
         // Fast and full results publish in two phases; wait for both.
-        for _ in 0..<200 {
-            if service.sourceFolderInfo?.url == second,
-               service.folderInfoLoadingState[second] == false { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil {
+            service.sourceFolderInfo?.url == second
+                && service.folderInfoLoadingState[second] == false
         }
         #expect(service.sourceFolderInfo?.url == second)
         #expect(service.sourceFolderInfo?.fileCount == 5)
