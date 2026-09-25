@@ -13,10 +13,9 @@ final class PanasonicDetectionService {
             return metadataInfo
         }
         
-        if let folderInfo = checkPanasonicFolderStructure(at: url) {
-            return folderInfo
-        }
-        
+        // Folder shape is CardLayoutClassifier's job. The old rule here
+        // counted DCIM + MISC as Panasonic, which almost every DCIM card
+        // writes (audit finding D).
         return nil
     }
     
@@ -64,45 +63,6 @@ final class PanasonicDetectionService {
         }
         
         return nil
-    }
-    
-    // MARK: - Panasonic Folder Structure Detection
-    
-    private func checkPanasonicFolderStructure(at url: URL) -> String? {
-        let fm = FileManager.default
-        
-        let panasonicIndicators = [
-            "DCIM",
-            "MISC",
-            "PRIVATE/PANASONIC",
-            "PRIVATE/MISC"
-        ]
-        
-        var foundIndicators = 0
-        for indicator in panasonicIndicators {
-            let indicatorPath = url.appendingPathComponent(indicator)
-            if fm.fileExists(atPath: indicatorPath.path) {
-                foundIndicators += 1
-            }
-        }
-        
-        // Check for Panasonic-specific DCIM folder patterns (e.g., 100_PANA)
-        let dcimPath = url.appendingPathComponent("DCIM")
-        if fm.fileExists(atPath: dcimPath.path) {
-            do {
-                let dcimContents = try fm.contentsOfDirectory(atPath: dcimPath.path)
-                for folder in dcimContents {
-                    if folder.contains("PANA") || folder.range(of: "^[0-9]{3}_PANA$", options: .regularExpression) != nil {
-                        foundIndicators += 1
-                        break
-                    }
-                }
-            } catch {
-                SharedLogger.debug("Could not read Panasonic DCIM contents: \(error.localizedDescription)", category: .transfer)
-            }
-        }
-        
-        return foundIndicators >= 2 ? "Panasonic" : nil
     }
     
     // MARK: - Metadata Extraction

@@ -13,10 +13,9 @@ final class CanonDetectionService {
             return metadataInfo
         }
         
-        if let folderInfo = checkCanonFolderStructure(at: url) {
-            return folderInfo
-        }
-        
+        // Folder shape is CardLayoutClassifier's job. The old DCIM + MISC
+        // rule here called GoPro, DJI and Lumix cards by this brand
+        // (audit finding D).
         return nil
     }
     
@@ -64,45 +63,6 @@ final class CanonDetectionService {
         }
         
         return nil
-    }
-    
-    // MARK: - Canon Folder Structure Detection
-    
-    private func checkCanonFolderStructure(at url: URL) -> String? {
-        let fm = FileManager.default
-        
-        let canonIndicators = [
-            "DCIM",
-            "MISC",
-            "PRIVATE/CANON",
-            "CANONMSC"
-        ]
-        
-        var foundIndicators = 0
-        for indicator in canonIndicators {
-            let indicatorPath = url.appendingPathComponent(indicator)
-            if fm.fileExists(atPath: indicatorPath.path) {
-                foundIndicators += 1
-            }
-        }
-        
-        // Check for Canon-specific DCIM folder patterns (e.g., 100CANON, 101CANON)
-        let dcimPath = url.appendingPathComponent("DCIM")
-        if fm.fileExists(atPath: dcimPath.path) {
-            do {
-                let dcimContents = try fm.contentsOfDirectory(atPath: dcimPath.path)
-                for folder in dcimContents {
-                    if folder.contains("CANON") || folder.range(of: "^[0-9]{3}CANON$", options: .regularExpression) != nil {
-                        foundIndicators += 1
-                        break
-                    }
-                }
-            } catch {
-                SharedLogger.debug("Could not read Canon DCIM contents: \(error.localizedDescription)", category: .transfer)
-            }
-        }
-        
-        return foundIndicators >= 2 ? "Canon" : nil
     }
     
     // MARK: - Metadata Extraction

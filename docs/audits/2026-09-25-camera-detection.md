@@ -4,6 +4,8 @@ Scope: `Shared/Core/Services/Camera/` (the orchestrator and its 11 stage service
 
 **Method.** I read the code and traced each layout through each detector by hand. Nothing was compiled or run: this was a Linux session with no Xcode. Layouts come from public sources, listed per brand below. Most of those pages were read through search summaries, not opened. Anything not confirmed is marked *inferred*. The fixtures in `BitMatchTests/TestHelpers/CameraCardLayouts.swift` carry the same source and inferred notes.
 
+**Status, 2026-09-25 (later):** items 2–6 are fixed. `CardLayoutClassifier` (`Shared/Core/Services/Camera/CardLayoutClassifier.swift`) is now the one set of card-layout rules. `CameraStructureDetector`, the orchestrator's first step and its folder-structure stage, and through them `SharedCameraDetectionService`, all take the brand from it. The brand stages only read models. Finding C's `(null)` is treated as missing. Findings F (Canon, Fuji and Panasonic tables), G, H (folder-name substrings when no brand marker is found) and I remain open. The tables below describe the code before the fix.
+
 ## Summary
 
 1. **On Mac, auto-select can pick part of a card as the source.** When "Auto-populate source" is on (off by default), the Mac app uses `CameraCard.mediaPath` as the transfer source (`BitMatch/App/AppCoordinator.swift:660`). `CameraStructureDetector` sets `mediaPath` to a subfolder, not the card root.

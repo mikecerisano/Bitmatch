@@ -23,9 +23,13 @@ final class CleanCameraNameService {
             if cleaned.contains("A7 III") || cleaned.contains("A7M3") { return "A7III" }
             if cleaned.contains("A7C II") || cleaned.contains("A7CM2") { return "A7CII" }
             if cleaned.contains("A7C") || cleaned.contains("A7CM") { return "A7C" }
+            if cleaned.contains("VENICE 2") { return "VENICE2" }
+            if cleaned.contains("VENICE") { return "VENICE" }
             if cleaned.contains("FX-6") || cleaned.contains("FX6") { return "FX6" }
-            if cleaned.contains("FX-3") || cleaned.contains("FX3") { return "FX3" }
+            if cleaned.contains("FX-9") || cleaned.contains("FX9") { return "FX9" }
+            // FX30 before FX3: "FX30" contains "FX3".
             if cleaned.contains("FX-30") || cleaned.contains("FX30") { return "FX30" }
+            if cleaned.contains("FX-3") || cleaned.contains("FX3") { return "FX3" }
             if cleaned.contains("A6700") { return "A6700" }
             if cleaned.contains("A6600") { return "A6600" }
             if cleaned.contains("A6400") { return "A6400" }

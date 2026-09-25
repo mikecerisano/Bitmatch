@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Fix: A transfer's state is stored once, so the screen and pause/resume can no longer disagree. A resumed transfer no longer shows "Resuming" indefinitely, and a transfer that finishes while paused shows how it ended.
 - Fix: On iPad and iPhone, switching apps no longer labels a running transfer "Paused" while it keeps copying. Low battery (under 15%) now actually pauses the copy.
 - Fix: Report totals (data processed, throughput, average file size) come from the files copied, not an estimate that could read 1 GB when the source had not been measured.
+- Fix: Camera detection no longer calls GoPro, DJI, Nikon, Fujifilm, Lumix and Canon video cards "Sony" or "Canon", and now recognises pro cinema cards: Sony VENICE (AXS and SxS), FX6/FX9 XDROOT, XDCAM EX, Canon XF-AVC, ARRI, RED, Blackmagic and Panasonic P2. The Mac card detection, the source label and the iPad/iPhone camera name now come from one set of card-layout rules, so they agree. A card's camera name is the same on every platform (for example A7SIII, not A7S3 on iPad).
 - Presentation: Only rows that were checksum- or byte-verified show a green check; a Quick copy's "Copied" rows are neutral. On iPad and iPhone, a cancelled transfer's guidance now says it was cancelled.
 
 ## [0.1.6] - 2026-09-25

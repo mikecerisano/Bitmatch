@@ -235,7 +235,14 @@ final class UnifiedMetadataDetectionService {
     }
     
     private func formatCameraInfo(make: String?, model: String?) -> String? {
-        switch (make, model) {
+        // mdls prints "(null)" for a missing attribute; that is no answer,
+        // not a camera named "(null)" (audit finding C).
+        func present(_ value: String?) -> String? {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty, trimmed != "(null)" else { return nil }
+            return trimmed
+        }
+        switch (present(make), present(model)) {
         case (let m?, let mod?):
             return "\(m) \(mod)"
         case (let m?, nil):
