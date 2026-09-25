@@ -32,7 +32,8 @@ class IOSPlatformManager: PlatformManager {
     private init() {
         self._fileOperations = SharedFileOperationsService(
             fileSystem: IOSFileSystemService.shared,
-            checksum: SharedChecksumService.shared
+            checksum: SharedChecksumService.shared,
+            pipelinedVerification: !UserDefaults.standard.bool(forKey: "DisablePipelinedVerify")
         )
         self._cameraDetection = SharedCameraDetectionService()
     }

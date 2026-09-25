@@ -99,6 +99,29 @@ struct EngineGuardTests {
         }
     }
 
+    /// With pipelining off (the hidden `DisablePipelinedVerify` default),
+    /// the sequential pass still verifies every file on every backup.
+    /// Plant: in `executeOperation`, change the sequential pass's condition
+    /// to `shouldPipelineVerify == true`.
+    @Test func sequentialVerificationVerifiesEveryFile() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try DisposableTransferFixture(seed: 62, fileCount: 6, bytesPerFile: 8 * 1024)
+            defer { fixture.cleanup() }
+            let service = SharedFileOperationsService(
+                fileSystem: MacOSFileSystemService.shared,
+                checksum: SharedChecksumService.shared,
+                pipelinedVerification: false
+            )
+            let operation = try await service.performFileOperation(
+                sourceURL: fixture.source, destinationURLs: fixture.destinations,
+                verificationMode: .standard, settings: CameraLabelSettings(),
+                estimatedTotalBytes: nil, progressCallback: { _ in }, onFileResult: nil
+            )
+            #expect(operation.results.count == fixture.manifest.count * fixture.destinations.count)
+            #expect(operation.results.allSatisfy { $0.verificationResult?.matches == true })
+        }
+    }
+
     // MARK: T7 / I7
 
     /// Verification never runs more than `max(2, cores/2)` checksums at once.

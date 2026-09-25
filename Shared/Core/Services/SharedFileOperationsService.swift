@@ -216,6 +216,10 @@ class SharedFileOperationsService: FileOperationsService {
     /// destination is pinned. It performs no filesystem work in production
     /// (nil); tests use it to block or fail destination setup deterministically.
     private let destinationSetupHook: (@Sendable (URL) throws -> Void)?
+    /// Verify each file while later files copy (checksum modes only). The
+    /// platform managers turn it off with the hidden `DisablePipelinedVerify`
+    /// default; the engine itself reads no settings.
+    private let pipelinedVerification: Bool
     private let activeOperations = ActiveOperationRegistry()
     private let pauseGate = PauseGate()
     private let verifyCounter = VerifyCounter()
@@ -223,10 +227,12 @@ class SharedFileOperationsService: FileOperationsService {
     init(
         fileSystem: FileSystemService,
         checksum: any ChecksumService,
+        pipelinedVerification: Bool = true,
         destinationSetupHook: (@Sendable (URL) throws -> Void)? = nil
     ) {
         self.fileSystem = fileSystem
         self.checksumService = checksum
+        self.pipelinedVerification = pipelinedVerification
         self.destinationSetupHook = destinationSetupHook
     }
     
@@ -415,7 +421,7 @@ class SharedFileOperationsService: FileOperationsService {
         let startTime = Date()
         // Perf 5: pipelined verification on by default for checksum/byte-compare modes; user can disable
         let shouldPipelineVerify = operation.verificationMode != .quick
-            && !UserDefaults.standard.bool(forKey: "DisablePipelinedVerify")
+            && pipelinedVerification
         // Perf 6: adaptive concurrency based on CPU count
         let verifyConcurrency = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
         let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? verifyConcurrency : 0)
