@@ -46,6 +46,8 @@ struct MacMainView: View {
     @State private var showCancelNotice = false
     @State private var showDropRejection = false
     @State private var dropRejectionMessage = ""
+    /// Cancel asks once (thesis decision), from the button or ⌘.
+    @State private var confirmingTransferCancel = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     
@@ -102,6 +104,7 @@ struct MacMainView: View {
     @ViewBuilder
     private var configuredMainContentView: some View {
         keyboardShortcutsView
+            .focusedSceneValue(\.canCancelOperation, coordinator.isOperationInProgress)
             .sheet(isPresented: $showingTransfers) {
                 TransferLibraryView(coordinator: coordinator, journal: coordinator.transferJournal)
             }
@@ -204,6 +207,11 @@ struct MacMainView: View {
         // a finished compare is never shown as the transfer completion.
         if coordinator.currentMode == .compareFolders || coordinator.lastOperationWasCompare {
             modeSpecificView
+                .padding(.top, 16)
+        } else if showsTransferProgress {
+            // The shared progress screen (UI plan 4.9); it observes progress
+            // ticks itself, so this shell does not redraw on each one.
+            MacTransferProgressView(coordinator: coordinator, confirmingCancel: $confirmingTransferCancel)
                 .padding(.top, 16)
         } else {
             transferContentSwitch
@@ -372,6 +380,10 @@ struct MacMainView: View {
     }
     
     // MARK: - Helpers
+
+    private var showsTransferProgress: Bool {
+        coordinator.currentMode == .copyAndVerify && coordinator.isOperationInProgress
+    }
 
     private var isModeSwitchLocked: Bool {
         ModeSwitchPolicy.isLocked(
@@ -558,7 +570,14 @@ struct MacMainView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelOperation)) { _ in
-                coordinator.cancelOperation()
+                // ⌘. does nothing when nothing runs. A transfer asks first,
+                // like its Cancel button; Compare cancels at once as before.
+                guard coordinator.isOperationInProgress else { return }
+                if showsTransferProgress {
+                    confirmingTransferCancel = true
+                } else {
+                    coordinator.cancelOperation()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showPreferences)) { _ in
                 openPreferences()

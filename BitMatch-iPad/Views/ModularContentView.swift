@@ -89,8 +89,9 @@ extension ModularContentView {
             if coordinator.currentMode == .compareFolders {
                 IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation)
             } else if coordinator.isOperationInProgress {
-                // OPERATION STATE: Show progress interface
-                OperationProgressView(coordinator: coordinator)
+                // OPERATION STATE: the shared progress screen, scrolled so
+                // many backups never clip in a short split view.
+                ScrollView { OperationProgressView(coordinator: coordinator) }
                     .onAppear {
                         SharedLogger.debug("UI switched to OPERATION view")
                     }
@@ -191,7 +192,15 @@ struct IdleStateView: View {
 /// Compare never routes to the transfer progress or completion screens.
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    /// Compare draws its progress inline; the coordinator does not republish
+    /// progress ticks, so this view observes them itself.
+    @ObservedObject private var liveProgress: LiveProgressFeed
     @State private var advancedExpanded = false
+
+    init(coordinator: SharedAppCoordinator) {
+        _coordinator = ObservedObject(wrappedValue: coordinator)
+        _liveProgress = ObservedObject(wrappedValue: coordinator.liveProgress)
+    }
 
     static func presentation(for coordinator: SharedAppCoordinator) -> ComparePresentation {
         ComparePresentation.make(
