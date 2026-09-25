@@ -1,13 +1,5 @@
 // Core/Services/ReportExporter.swift - Enhanced
 import Foundation
-import SwiftUI
-import UniformTypeIdentifiers
-
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 // MARK: - Export Outcome
 
@@ -359,92 +351,6 @@ final class ReportExporter {
         }
     }
     
-    // Keep original function for manual export if needed elsewhere
-    #if os(macOS)
-    private static func showSavePanel(mode: AppMode,
-                                     destinationURLs: [URL],
-                                     pdfData: Data?,
-                                     results: [ResultRow],
-                                     finished: Date,
-                                     checksumAlgorithm: ChecksumAlgorithm?,
-                                     jobID: UUID,
-                                     started: Date,
-                                     duration: TimeInterval,
-                                     sourceURL: URL?,
-                                     fileCount: Int,
-                                     matchCount: Int,
-                                     totalBytesProcessed: Int64,
-                                     workers: Int,
-                                     filesPerSecond: Double,
-                                     prefs: ReportPrefs) {
-        
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.pdf]
-        panel.canCreateDirectories = true
-        
-        panel.nameFieldStringValue = reportFileName(finished: finished, pathExtension: "pdf")
-        
-        // Set default location
-        if mode == .copyAndVerify, let firstDestination = destinationURLs.first {
-            let reportsFolder = firstDestination.appendingPathComponent("Reports", isDirectory: true)
-            try? FileManager.default.createDirectory(at: reportsFolder, withIntermediateDirectories: true)
-            panel.directoryURL = reportsFolder
-        } else {
-            panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-        }
-        
-        // Show panel and save files
-        if panel.runModal() == .OK, let pdfURL = panel.url {
-            do {
-                if let pdfData {
-                    try pdfData.write(to: pdfURL)
-                }
-                
-                // Save CSV manifest with enhanced data
-                let csvURL = pdfURL.deletingPathExtension().appendingPathExtension("csv")
-                try exportEnhancedCSV(results: results,
-                                     to: csvURL,
-                                     started: started,
-                                     duration: duration,
-                                     filesPerSecond: filesPerSecond, prefs: prefs)
-                
-                // Save enhanced JSON report
-                let jsonURL = pdfURL.deletingPathExtension().appendingPathExtension("json")
-                try exportEnhancedJSONReport(
-                    results: results,
-                    to: jsonURL,
-                    jobID: jobID,
-                    started: started,
-                    finished: finished,
-                    mode: mode,
-                    sourceURL: sourceURL,
-                    destinationURLs: destinationURLs,
-                    fileCount: fileCount,
-                    matchCount: matchCount,
-                    totalBytesProcessed: totalBytesProcessed,
-                    duration: duration,
-                    workers: workers,
-                    prefs: prefs
-                )
-                
-                // If checksums were used, offer to export checksum file
-                if let algorithm = checksumAlgorithm, let _ = pdfData {
-                    askToExportChecksums(results: results, algorithm: algorithm, baseURL: pdfURL)
-                }
-                
-                SharedLogger.info("Report exported successfully to: \(pdfURL.path)")
-                
-                // Show success notification
-                showInfoAlert(message: "Report exported successfully to:\n\(pdfURL.lastPathComponent)")
-                
-            } catch {
-                SharedLogger.info("Report export error: \(error.localizedDescription)")
-                showErrorAlert(message: "Failed to save report: \(error.localizedDescription)")
-            }
-        }
-    }
-    #endif
-    
     // MARK: - Enhanced CSV Export
     private static func exportEnhancedCSV(results: [ResultRow],
                                           to url: URL,
@@ -765,25 +671,6 @@ final class ReportExporter {
         try content.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    #if os(macOS)
-    private static func askToExportChecksums(results: [ResultRow], algorithm: ChecksumAlgorithm, baseURL: URL) {
-        let alert = NSAlert()
-        alert.messageText = "Export Checksums?"
-        alert.informativeText = "Would you like to export a checksum manifest file for the verified files?"
-        alert.addButton(withTitle: "Export")
-        alert.addButton(withTitle: "Skip")
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let checksumURL = baseURL.deletingPathExtension()
-                .appendingPathExtension("\(algorithm.rawValue.lowercased()).txt")
-            
-            Task { @MainActor in
-                await exportChecksumsAsync(results: results, algorithm: algorithm, to: checksumURL)
-            }
-        }
-    }
-    #endif
-    
     private static func csvRow(_ values: [String]) -> String {
         values.map(escapeCSV).joined(separator: ",") + "\n"
     }
@@ -810,166 +697,11 @@ final class ReportExporter {
         return "'\(string)"
     }
     
-    private static func showErrorAlert(message: String) {
-        #if os(macOS)
-        let alert = NSAlert()
-        alert.messageText = "Export Error"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-        #else
-        // iOS doesn't have NSAlert - use SharedLogger for now
-        SharedLogger.error("Export Error: \(message)", category: .transfer)
-        #endif
-    }
-    
-    private static func showInfoAlert(message: String) {
-        #if os(macOS)
-        let alert = NSAlert()
-        alert.messageText = "Export Complete"
-        alert.informativeText = message
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-        #else
-        // iOS doesn't have NSAlert - use SharedLogger for now
-        SharedLogger.info("Export Complete: \(message)", category: .transfer)
-        #endif
-    }
-    
     private static func isMatchStatus(_ status: String) -> Bool {
         ResultRow.isSuccessStatus(status)
     }
     
     private static func normalizedStatus(_ status: String) -> String {
         status.isEmpty ? "Unknown" : status
-    }
-}
-
-#if os(macOS)
-// MARK: - Async Checksum Export
-extension ReportExporter {
-    
-    @MainActor
-    static func exportChecksumsAsync(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) async {
-        let matches = results.filter { TransferOutcomePresentation.isVerified($0) }
-        guard !matches.isEmpty else {
-            showInfoAlert(message: "No verified files to export checksums for.")
-            return
-        }
-        
-        do {
-            var content = "# BitMatch Checksum Manifest\n"
-            content += "# Algorithm: \(algorithm.rawValue)\n"
-            content += "# Generated: \(Date().formatted())\n"
-            content += "# Format: CHECKSUM  FILENAME\n\n"
-            
-            var checksums: [(URL, String)] = []
-            for match in matches {
-                let pathString = match.destinationPath ?? match.destination ?? match.path
-                let fileURL = URL(fileURLWithPath: pathString)
-                guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                    continue
-                }
-                
-                // Exports must hash the current bytes, not a cached digest keyed
-                // on size/mtime metadata that may be unchanged while content
-                // differs. Core copy/compare verification already bypasses
-                // the cache; this path did not.
-                let checksum = try await SharedChecksumService.shared.generateChecksum(
-                    for: fileURL,
-                    type: algorithm,
-                    useCache: false
-                )
-                checksums.append((fileURL, checksum))
-            }
-            
-            for (url, checksum) in checksums {
-                content += "\(checksum)  \(url.lastPathComponent)\n"
-            }
-            
-            try content.write(to: url, atomically: true, encoding: .utf8)
-            
-            SharedLogger.info("Checksum manifest exported successfully to \(url.path)", category: .transfer)
-            
-        } catch {
-            showErrorAlert(message: "Failed to export checksums: \(error.localizedDescription)")
-        }
-    }
-}
-#endif
-
-// MARK: - Quick Export Functions
-extension ReportExporter {
-    
-    /// Quick export for just the issues (errors/mismatches)
-    #if os(macOS)
-    static func exportIssuesOnly(results: [ResultRow], to url: URL? = nil) {
-        let issues = results.filter { !isMatchStatus($0.status) }
-        guard !issues.isEmpty else {
-            showInfoAlert(message: "No issues to export - all files matched perfectly!")
-            return
-        }
-        
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "BitMatch_Issues_\(Date().formatted()).txt"
-        
-        if let url = url {
-            panel.directoryURL = url
-        }
-        
-        if panel.runModal() == .OK, let saveURL = panel.url {
-            var content = "BitMatch Issues Report\n"
-            content += "Generated: \(Date().formatted())\n"
-            content += "Total Issues: \(issues.count)\n"
-            content += String(repeating: "=", count: 50) + "\n\n"
-            
-            let grouped = Dictionary(grouping: issues) { $0.status }
-            
-            for (status, items) in grouped.sorted(by: { $0.key.issueSortPriority < $1.key.issueSortPriority }) {
-                content += "\n\(status) (\(items.count) files):\n"
-                content += String(repeating: "-", count: 30) + "\n"
-                
-                for item in items.prefix(100) {
-                    content += "  • \(item.path)\n"
-                    if let destination = item.destination {
-                        content += "    → \(destination)\n"
-                    }
-                }
-                
-                if items.count > 100 {
-                    content += "  ... and \(items.count - 100) more\n"
-                }
-            }
-            
-            do {
-                try content.write(to: saveURL, atomically: true, encoding: .utf8)
-                showInfoAlert(message: "Issues exported successfully!")
-            } catch {
-                showErrorAlert(message: "Failed to export issues: \(error.localizedDescription)")
-            }
-        }
-    }
-    #endif
-}
-
-private extension String {
-    var issueSortPriority: Int {
-        let lower = self.lowercased()
-        if lower.contains("error") || lower.contains("failed") || lower.contains("❌") {
-            return 0
-        }
-        if lower.contains("warning") || lower.contains("missing") || lower.contains("⚠") {
-            return 1
-        }
-        if lower.contains("pending") || lower.contains("processing") || lower.contains("⏳") {
-            return 2
-        }
-        if lower.contains("match") || lower.contains("✅") {
-            return 3
-        }
-        return 4
     }
 }
