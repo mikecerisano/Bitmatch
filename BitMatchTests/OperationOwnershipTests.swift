@@ -108,15 +108,14 @@ final class OperationOwnershipTests: XCTestCase {
             XCTAssertTrue(verifierStarted)
 
             caller.cancel()
-            let verifierSawCancellation = await waitUntil(
-                timeoutNanoseconds: 300_000_000,
-                condition: { await checksum.didObserveCancellation }
-            )
+            let verifierSawCancellation = await waitUntil(timeout: .milliseconds(300)) { await checksum.didObserveCancellation }
             let callerReturnedBeforeRelease = await callerFinished.value
             let callbacksBeforeRelease = await callbackCount.value
 
             await checksum.release()
             let callerResult = await caller.value
+            // Quiet window: no callback may arrive after return, so there is
+            // no condition to poll for.
             try? await Task<Never, Never>.sleep(nanoseconds: 100_000_000)
             let callbacksAfterReturn = await callbackCount.value
 
@@ -181,14 +180,13 @@ final class OperationOwnershipTests: XCTestCase {
             service.cancelOperation()
             fileSystem.releaseFailingDirectory()
 
-            let returnedBeforeVerifierRelease = await waitUntil(
-                timeoutNanoseconds: 300_000_000,
-                condition: { await operationFinished.value }
-            )
+            let returnedBeforeVerifierRelease = await waitUntil(timeout: .milliseconds(300)) { await operationFinished.value }
             let verifierSawCancellation = await checksum.didObserveCancellation
             let callbacksBeforeVerifierRelease = await callbackCount.value
             await checksum.release()
             _ = await operation.value
+            // Quiet window: no callback may arrive after return, so there is
+            // no condition to poll for.
             try? await Task<Never, Never>.sleep(nanoseconds: 100_000_000)
             let callbacksAfterReturn = await callbackCount.value
 
@@ -250,10 +248,7 @@ final class OperationOwnershipTests: XCTestCase {
 
         coordinator.cancelOperation()
         let second = Task { @MainActor in await coordinator.startOperation() }
-        let startedTwiceBeforeUnwind = await waitUntil(
-            timeoutNanoseconds: 300_000_000,
-            condition: { await fileOperations.startCount == 2 }
-        )
+        let startedTwiceBeforeUnwind = await waitUntil(timeout: .milliseconds(300)) { await fileOperations.startCount == 2 }
 
         await fileOperations.release()
         await first.value
@@ -562,17 +557,4 @@ private final class OwnershipCameraDetectionService: CameraDetectionService {
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any] { [:] }
     func extractVideoMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
     func parseXMLMetadata(from fileURL: URL) async throws -> [String: Any] { [:] }
-}
-
-private func waitUntil(
-    timeoutNanoseconds: UInt64 = 2_000_000_000,
-    condition: @escaping () async -> Bool
-) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: .nanoseconds(Int64(timeoutNanoseconds)))
-    while clock.now < deadline {
-        if await condition() { return true }
-        try? await Task<Never, Never>.sleep(nanoseconds: 10_000_000)
-    }
-    return await condition()
 }

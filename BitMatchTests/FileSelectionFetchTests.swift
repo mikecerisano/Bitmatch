@@ -40,10 +40,8 @@ struct FileSelectionFetchTests {
         viewModel.sourceURL = first
         viewModel.sourceURL = second
 
-        for _ in 0..<300 {
-            if viewModel.sourceFolderInfo?.url == second,
-               !viewModel.isFetchingSourceInfo { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil(timeout: .seconds(3)) {
+            viewModel.sourceFolderInfo?.url == second && !viewModel.isFetchingSourceInfo
         }
         #expect(viewModel.sourceFolderInfo?.url == second)
         #expect(viewModel.sourceFolderInfo?.fileCount == 2)
@@ -66,10 +64,7 @@ struct FileSelectionFetchTests {
 
         viewModel.sourceURL = dir
 
-        for _ in 0..<500 {
-            if viewModel.sourceCameraLabel != nil { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(5)) { viewModel.sourceCameraLabel != nil }
         #expect(viewModel.sourceFolderInfo?.url == dir)
         let label = viewModel.sourceCameraLabel
         #expect(label != nil && !(label?.isEmpty ?? true))
@@ -87,10 +82,8 @@ struct FileSelectionFetchTests {
         viewModel.sourceURL = camDir
         viewModel.sourceURL = plainDir
 
-        for _ in 0..<300 {
-            if viewModel.sourceFolderInfo?.url == plainDir,
-               !viewModel.isFetchingSourceInfo { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil(timeout: .seconds(3)) {
+            viewModel.sourceFolderInfo?.url == plainDir && !viewModel.isFetchingSourceInfo
         }
         #expect(viewModel.sourceFolderInfo?.url == plainDir)
         // Let any superseded hint finish; it must not publish over nil.
@@ -106,10 +99,7 @@ struct FileSelectionFetchTests {
         viewModel.sourceURL = dir
         viewModel.sourceURL = nil
 
-        for _ in 0..<300 {
-            if !viewModel.isFetchingSourceInfo { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil(timeout: .seconds(3)) { !viewModel.isFetchingSourceInfo }
         #expect(viewModel.sourceFolderInfo == nil)
         #expect(!viewModel.isFetchingSourceInfo)
         // Let any in-flight scan finish; nothing may republish.
