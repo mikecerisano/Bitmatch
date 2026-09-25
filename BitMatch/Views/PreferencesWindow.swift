@@ -161,25 +161,25 @@ struct PreferencesWindow: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.settingsViewModel.prefs.makeReport)
+            Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.reportSettings.makeReport)
                 .toggleStyle(.checkbox)
 
-            if coordinator.settingsViewModel.prefs.makeReport {
+            if coordinator.reportSettings.makeReport {
                 GroupBox("Project Metadata") {
                     VStack(alignment: .leading, spacing: 10) {
-                        TextField("Client Name", text: $coordinator.settingsViewModel.prefs.clientName)
+                        TextField("Client Name", text: $coordinator.reportSettings.clientName)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Project Name", text: $coordinator.settingsViewModel.prefs.projectName)
+                        TextField("Project Name", text: $coordinator.reportSettings.projectName)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Production Title", text: $coordinator.settingsViewModel.prefs.production)
+                        TextField("Production Title", text: $coordinator.reportSettings.production)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Production Company", text: $coordinator.settingsViewModel.prefs.company)
+                        TextField("Production Company", text: $coordinator.reportSettings.company)
                             .textFieldStyle(.roundedBorder)
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Notes")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            TextEditor(text: $coordinator.settingsViewModel.prefs.notes)
+                            TextEditor(text: $coordinator.reportSettings.notes)
                                 .font(.system(size: 12))
                                 .frame(minHeight: 80)
                                 .overlay(
@@ -193,7 +193,7 @@ struct PreferencesWindow: View {
 
                 GroupBox("Output") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Include Thumbnails", isOn: $coordinator.settingsViewModel.prefs.includeThumbnails)
+                        Toggle("Include Thumbnails", isOn: $coordinator.reportSettings.includeThumbnails)
                             .toggleStyle(.checkbox)
                     }
                     .padding(8)
@@ -207,7 +207,7 @@ struct PreferencesWindow: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut, value: coordinator.settingsViewModel.prefs.makeReport)
+        .animation(.easeInOut, value: coordinator.reportSettings.makeReport)
     }
     
     // MARK: - Camera Detection Preferences
@@ -225,13 +225,13 @@ struct PreferencesWindow: View {
                     .foregroundColor(.secondary)
                 
                 // Main detection toggle
-                Toggle("Enable automatic camera card detection", isOn: $coordinator.settingsViewModel.prefs.enableAutoCameraDetection)
+                Toggle("Enable automatic camera card detection", isOn: $coordinator.reportSettings.enableAutoCameraDetection)
                     .toggleStyle(.checkbox)
-                    .onChange(of: coordinator.settingsViewModel.prefs.enableAutoCameraDetection) { oldValue, newValue in
+                    .onChange(of: coordinator.reportSettings.enableAutoCameraDetection) { oldValue, newValue in
                         coordinator.toggleCameraDetection(newValue)
                     }
                 
-                if coordinator.settingsViewModel.prefs.enableAutoCameraDetection {
+                if coordinator.reportSettings.enableAutoCameraDetection {
                     VStack(alignment: .leading, spacing: 12) {
                         
                         Divider()
@@ -240,11 +240,11 @@ struct PreferencesWindow: View {
                             .font(.headline)
                             .padding(.top, 8)
                         
-                        Toggle("Automatically set detected cameras as source", isOn: $coordinator.settingsViewModel.prefs.autoPopulateSource)
+                        Toggle("Automatically set detected cameras as source", isOn: $coordinator.reportSettings.autoPopulateSource)
                             .toggleStyle(.checkbox)
                             .help("When enabled, detected camera cards will automatically be set as the source folder")
                         
-                        Toggle("Show notifications when cameras are detected", isOn: $coordinator.settingsViewModel.prefs.showCameraDetectionNotifications)
+                        Toggle("Show notifications when cameras are detected", isOn: $coordinator.reportSettings.showCameraDetectionNotifications)
                             .toggleStyle(.checkbox)
                             .help("Display system notifications when camera cards are detected")
                         
@@ -306,7 +306,7 @@ struct PreferencesWindow: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.easeInOut, value: coordinator.settingsViewModel.prefs.enableAutoCameraDetection)
+        .animation(.easeInOut, value: coordinator.reportSettings.enableAutoCameraDetection)
     }
 }
 
@@ -314,13 +314,13 @@ struct PreferencesWindow: View {
 
 private extension PreferencesWindow {
     func clearReportMetadata() {
-        var prefs = coordinator.settingsViewModel.prefs
+        var prefs = coordinator.reportSettings
         prefs.clientName = ""
         prefs.projectName = ""
         prefs.production = ""
         prefs.company = ""
         prefs.notes = ""
-        coordinator.settingsViewModel.prefs = prefs
+        coordinator.reportSettings = prefs
     }
 }
 

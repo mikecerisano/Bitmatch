@@ -9,6 +9,7 @@ struct ContentView: View {
     @ObservedObject private var devModeManager = DevModeManager.shared
 #endif
     @State private var showingTransfers = false
+    @State private var showOnlyIssues = false
     
     // Keep an active transfer visually stable while its queue grows.
     @State private var contentHeight: CGFloat = 900
@@ -85,7 +86,6 @@ struct ContentView: View {
         keyboardShortcutsView
             .sheet(isPresented: $showingTransfers) {
                 TransferLibraryView(coordinator: coordinator.sharedCoordinator, journal: coordinator.sharedCoordinator.transferJournal)
-                    .onAppear { coordinator.sharedCoordinator.reportSettings = coordinator.settingsViewModel.prefs }
             }
             .onAppear {
                 restoreWindowFrame()
@@ -213,10 +213,7 @@ struct ContentView: View {
             (coordinator.completionState != .idle && (coordinator.currentMode == .copyAndVerify || !coordinator.results.isEmpty))) {
             ResultsTableView(
                 coordinator: coordinator,
-                showOnlyIssues: Binding(
-                    get: { coordinator.settingsViewModel.showOnlyIssues },
-                    set: { coordinator.settingsViewModel.showOnlyIssues = $0 }
-                )
+                showOnlyIssues: $showOnlyIssues
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }

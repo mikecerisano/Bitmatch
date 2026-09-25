@@ -35,7 +35,13 @@ class SharedAppCoordinator: ObservableObject {
         didSet { if oldValue != verificationMode { clearCompareOutcome() } }
     }
     @Published var cameraLabelSettings = CameraLabelSettings()
-    @Published var reportSettings = ReportPrefs()
+    /// Saved across launches with the Mac's keys (decision: iPad and iPhone
+    /// remember report settings too). A queued transfer's replay uses its
+    /// record's settings for that run only and never saves them.
+    @Published var reportSettings = ReportPrefs() {
+        didSet { if !isReplayingQueuedTransfer { reportPrefsStore.save(reportSettings) } }
+    }
+    private let reportPrefsStore: ReportPrefsStore
     @Published var generateASCMHL: Bool = UserDefaults.standard.object(forKey: "BitMatchGenerateASCMHL") as? Bool ?? true {
         didSet { UserDefaults.standard.set(generateASCMHL, forKey: "BitMatchGenerateASCMHL") }
     }
@@ -138,13 +144,26 @@ class SharedAppCoordinator: ObservableObject {
         platformManager: PlatformManager,
         transferJournal: LocalTransferJournal? = nil,
         projectStore: (any PhotographerJobStore)? = nil,
-        photographerJobViewModel: PhotographerJobViewModel? = nil
+        photographerJobViewModel: PhotographerJobViewModel? = nil,
+        preferences: UserDefaults? = nil
     ) {
         self.platformManager = platformManager
         let environment = ProcessInfo.processInfo.environment
         let isTesting = environment["XCTestConfigurationFilePath"] != nil || environment["XCTestBundlePath"] != nil
         let testJournalURL = isTesting ? FileManager.default.temporaryDirectory
             .appendingPathComponent("BitMatchTestJournal-\(UUID().uuidString).json") : nil
+        // Tests get a throwaway suite so they never read or change the
+        // user's saved settings; pass `preferences` to test persistence.
+        let selectedPreferences: UserDefaults
+        if let preferences {
+            selectedPreferences = preferences
+        } else if isTesting, let testDefaults = UserDefaults(suiteName: Self.testPreferencesSuite) {
+            testDefaults.removePersistentDomain(forName: Self.testPreferencesSuite)
+            selectedPreferences = testDefaults
+        } else {
+            selectedPreferences = .standard
+        }
+        self.reportPrefsStore = ReportPrefsStore(defaults: selectedPreferences)
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
         // whole app has one; iPad and iPhone build a portable one here.
@@ -157,6 +176,7 @@ class SharedAppCoordinator: ObservableObject {
                 remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore)
             )
         }
+        self.reportSettings = reportPrefsStore.load()
         setupBindings()
         self.transferJournal.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -176,6 +196,8 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
+    private static let testPreferencesSuite = "BitMatchTests.SharedAppCoordinator"
+
     #if os(iOS)
     convenience init() {
         self.init(platformManager: IOSPlatformManager.shared)
@@ -375,10 +397,14 @@ class SharedAppCoordinator: ObservableObject {
             isReplayingQueuedTransfer = false
             if queueIsRunning { Task { await self.processNextQueuedTransfer() } }
         }
+        // The record's settings apply to this run only; the user's return
+        // when it ends (UI plan §8 item 8).
+        let userReportSettings = reportSettings
         do {
             let access = try transferJournal.prepareToRun(id: record.id)
             defer { access.release() }
             isReplayingQueuedTransfer = true
+            defer { reportSettings = userReportSettings }
             sourceURL = access.sourceURL
             destinationURLs = access.destinationURLs
             verificationMode = record.verificationMode

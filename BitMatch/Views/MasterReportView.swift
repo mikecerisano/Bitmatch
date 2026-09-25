@@ -85,7 +85,7 @@ struct MasterReportView: View {
         if panel.runModal() == .OK, let url = panel.url {
             let selectedTransfersArray = foundTransfers.filter { selectedTransfers.contains($0.id) }
             let configuration = SharedReportGenerationService.ReportConfiguration.make(
-                from: coordinator.settingsViewModel.prefs,
+                from: coordinator.reportSettings,
                 productionNotes: productionNotes
             )
             Task {

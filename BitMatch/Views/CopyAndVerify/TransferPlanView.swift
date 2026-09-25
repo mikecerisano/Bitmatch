@@ -266,7 +266,6 @@ struct TransferOptionsView: View {
             coordinator: coordinator,
             shared: coordinator.sharedCoordinator,
             cameraLabels: coordinator.cameraLabelViewModel,
-            settings: coordinator.settingsViewModel,
             isExpanded: $isExpanded
         )
     }
@@ -276,7 +275,6 @@ private struct MacTransferOptionsAdapter: View {
     @ObservedObject var coordinator: AppCoordinator
     @ObservedObject var shared: SharedAppCoordinator
     @ObservedObject var cameraLabels: CameraLabelViewModel
-    @ObservedObject var settings: SettingsViewModel
     @Binding var isExpanded: Bool
 
     var body: some View {
@@ -287,7 +285,7 @@ private struct MacTransferOptionsAdapter: View {
                 get: { coordinator.sharedCoordinator.generateASCMHL },
                 set: { coordinator.sharedCoordinator.generateASCMHL = $0 }
             ),
-            makeReport: $coordinator.settingsViewModel.prefs.makeReport,
+            makeReport: $shared.reportSettings.makeReport,
             cameraLabel: cameraLabels.destinationLabelSettings.label
         ) {
             CameraLabelView(settings: $coordinator.cameraLabelViewModel.destinationLabelSettings,

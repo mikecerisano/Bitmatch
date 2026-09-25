@@ -18,7 +18,6 @@ final class AppCoordinator: ObservableObject {
     @Published var progressViewModel = ProgressViewModel()
     @Published var fileSelectionViewModel: FileSelectionViewModel
     @Published var cameraLabelViewModel = CameraLabelViewModel()
-    @Published var settingsViewModel = SettingsViewModel()
     @Published var cameraDetectionService = CameraCardDetectionService()
     /// The one job view model, owned by the shared coordinator.
     var photographerJobViewModel: PhotographerJobViewModel { sharedCoordinator.photographerJobViewModel }
@@ -56,6 +55,11 @@ final class AppCoordinator: ObservableObject {
         get { sharedCoordinator.verificationMode }
         set { sharedCoordinator.verificationMode = newValue }
     }
+    /// Report settings live (and are saved) in the shared coordinator.
+    var reportSettings: ReportPrefs {
+        get { sharedCoordinator.reportSettings }
+        set { sharedCoordinator.reportSettings = newValue }
+    }
 
     // MARK: - Actions (delegated)
     func startOperation() {
@@ -82,7 +86,6 @@ final class AppCoordinator: ObservableObject {
             )
         }
         sharedCoordinator.cameraLabelSettings = operationSettings
-        sharedCoordinator.reportSettings = settingsViewModel.prefs
         sharedCoordinator.sourceURL = fileSelectionViewModel.sourceURL
         sharedCoordinator.destinationURLs = fileSelectionViewModel.destinationURLs
         sharedCoordinator.leftURL = fileSelectionViewModel.leftURL
@@ -211,7 +214,7 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - Camera Detection
     func toggleCameraDetection(_ enabled: Bool) {
-        settingsViewModel.prefs.enableAutoCameraDetection = enabled
+        sharedCoordinator.reportSettings.enableAutoCameraDetection = enabled
         if enabled { cameraDetectionService.startMonitoring() }
         else { cameraDetectionService.stopMonitoring() }
     }
@@ -413,11 +416,12 @@ final class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Refresh compare results when a comparison publishes retained differences.
-        sharedCoordinator.$lastCompareStats
-            .map { _ in () }
+        // Views read shared state through this object until they observe
+        // SharedAppCoordinator directly (Task 9). Relayed on the next run-loop
+        // turn, as the per-property relays it replaces were.
+        sharedCoordinator.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.objectWillChange.send() }
+            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
         // Map operation state for progress timer management
@@ -467,15 +471,6 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        Publishers.MergeMany(
-            sharedCoordinator.$isOperationInProgress.map { _ in () }.eraseToAnyPublisher(),
-            sharedCoordinator.operationStatePublisher.map { _ in () }.eraseToAnyPublisher(),
-            sharedCoordinator.$results.map { _ in () }.eraseToAnyPublisher(),
-            sharedCoordinator.$verificationMode.map { _ in () }.eraseToAnyPublisher()
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in self?.objectWillChange.send() }
-        .store(in: &cancellables)
     }
 
     private func setupCameraDetection() {
@@ -483,10 +478,10 @@ final class AppCoordinator: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let cameraCard = notification.userInfo?["cameraCard"] as? CameraCard else { return }
-                guard let self, self.settingsViewModel.prefs.enableAutoCameraDetection else { return }
+                guard let self, self.sharedCoordinator.reportSettings.enableAutoCameraDetection else { return }
                 let sourceURL = cameraCard.mediaPath
                 let shouldSelect = AutomaticSourceSelectionPolicy.shouldSelect(
-                    automaticSelectionEnabled: self.settingsViewModel.prefs.autoPopulateSource,
+                    automaticSelectionEnabled: self.sharedCoordinator.reportSettings.autoPopulateSource,
                     hasExistingSource: self.fileSelectionViewModel.sourceURL != nil,
                     isReadable: FileManager.default.isReadableFile(atPath: sourceURL.path)
                 )
@@ -497,7 +492,7 @@ final class AppCoordinator: ObservableObject {
                 self.fileSelectionViewModel.sourceURL = sourceURL
             }.store(in: &cancellables)
 
-        if settingsViewModel.prefs.enableAutoCameraDetection {
+        if sharedCoordinator.reportSettings.enableAutoCameraDetection {
             cameraDetectionService.startMonitoring()
         }
     }

@@ -16,7 +16,7 @@ struct CopyAndVerifyView: View {
             destinationURLs: fileSelection.destinationURLs,
             verificationMode: coordinator.verificationMode,
             cameraSettings: coordinator.cameraLabelViewModel.destinationLabelSettings,
-            reportSettings: coordinator.settingsViewModel.prefs,
+            reportSettings: coordinator.reportSettings,
             isAnalyzing: fileSelection.isFetchingSourceInfo,
             blockingIssues: readinessIssues,
             warnings: readinessWarnings
