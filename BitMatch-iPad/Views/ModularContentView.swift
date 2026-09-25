@@ -74,10 +74,10 @@ extension ModularContentView {
         VStack(spacing: 0) {
             // Header with gear icon (always visible)  
             HeaderSectionView(showingSettings: $showingSettings, showingTransfers: $showingTransfers)
-            if coordinator.transferJournal.records.contains(where: { $0.state == .interrupted }) {
-                Button("Interrupted transfer — review in Transfers") { showingTransfers = true }
-                    .font(.callout).foregroundStyle(.orange).padding(.horizontal)
-            }
+            TransferAttentionBanner(
+                needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.transferJournal.records)
+            ) { showingTransfers = true }
+                .padding(.horizontal)
             
             // Three-state architecture using components
             if coordinator.isOperationInProgress {

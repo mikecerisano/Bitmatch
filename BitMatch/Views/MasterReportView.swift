@@ -83,19 +83,24 @@ struct MasterReportView: View {
         panel.allowedContentTypes = [.pdf]
         
         if panel.runModal() == .OK, let url = panel.url {
+            let selectedTransfersArray = foundTransfers.filter { selectedTransfers.contains($0.id) }
+            let configuration = SharedReportGenerationService.ReportConfiguration.make(
+                from: coordinator.settingsViewModel.prefs,
+                productionNotes: productionNotes
+            )
             Task {
-                let selectedTransfersArray = foundTransfers.filter { selectedTransfers.contains($0.id) }
-                
-                // Generate PDF report
-                await generateMasterReportPDF(transfers: selectedTransfersArray, to: url)
-                
-                // Save JSON metadata
-                let jsonURL = url.deletingPathExtension().appendingPathExtension("json")
-                saveMasterReportJSON(transfers: selectedTransfersArray, to: jsonURL)
-                
-                await MainActor.run {
-                    self.isGeneratingReport = false
-                    self.showSuccessAlert(at: url)
+                do {
+                    try await writeMasterReport(transfers: selectedTransfersArray, configuration: configuration, to: url)
+                    await MainActor.run {
+                        self.isGeneratingReport = false
+                        self.showSuccessAlert(at: url)
+                    }
+                } catch {
+                    AppLogger.error("Failed to generate report: \(error)", category: .general)
+                    await MainActor.run {
+                        self.isGeneratingReport = false
+                        self.showErrorAlert(error: error)
+                    }
                 }
             }
         } else {
@@ -105,47 +110,20 @@ struct MasterReportView: View {
     
     // MARK: - Report Generation
     
-    private func generateMasterReportPDF(transfers: [TransferCard], to url: URL) async {
-        do {
-            let reportService = SharedReportGenerationService()
-            let configuration = SharedReportGenerationService.ReportConfiguration(
-                production: coordinator.settingsViewModel.prefs.production,
-                client: coordinator.settingsViewModel.prefs.clientName,
-                company: coordinator.settingsViewModel.prefs.company,
-                technician: coordinator.settingsViewModel.prefs.notes,
-                productionNotes: productionNotes,
-                includeThumbnails: false,
-                logoPath: nil,
-                primaryColor: "#007AFF",
-                secondaryColor: "#8E8E93",
-                fontFamily: "Helvetica",
-                fontSize: 10,
-                margins: .standard
-            )
-            
-            let result = try await reportService.generateMasterReport(
-                transfers: transfers,
-                configuration: configuration
-            )
-            
-            // Save PDF
-            try result.pdfData.write(to: url)
-            
-            // Save JSON
-            let jsonURL = url.deletingPathExtension().appendingPathExtension("json")
-            try result.jsonData.write(to: jsonURL)
-            
-        } catch {
-            AppLogger.error("Failed to generate report: \(error)", category: .general)
-            await MainActor.run {
-                showErrorAlert(error: error)
-            }
-        }
-    }
-    
-    private func saveMasterReportJSON(transfers: [TransferCard], to url: URL) {
-        // This method is now handled by SharedReportGenerationService
-        // Left empty for compatibility, but generateMasterReportPDF now handles both PDF and JSON
+    /// Writes the PDF and its sibling JSON. Throws on any failure, so the
+    /// success alert only appears after both files are written.
+    private func writeMasterReport(
+        transfers: [TransferCard],
+        configuration: SharedReportGenerationService.ReportConfiguration,
+        to url: URL
+    ) async throws {
+        let reportService = SharedReportGenerationService()
+        let result = try await reportService.generateMasterReport(
+            transfers: transfers,
+            configuration: configuration
+        )
+        try result.pdfData.write(to: url)
+        try result.jsonData.write(to: url.deletingPathExtension().appendingPathExtension("json"))
     }
     
     // MARK: - Alert Helpers

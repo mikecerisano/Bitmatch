@@ -53,6 +53,19 @@ class SharedReportGenerationService: ObservableObject {
                 margins: .standard
             )
         }
+
+        /// Master Report details from the saved report settings. `ReportPrefs`
+        /// has no technician field, so technician stays empty; the settings'
+        /// notes are not a technician name.
+        static func make(from prefs: ReportPrefs, productionNotes: String) -> ReportConfiguration {
+            var configuration = ReportConfiguration.default()
+            configuration.production = prefs.production
+            configuration.client = prefs.clientName
+            configuration.company = prefs.company
+            configuration.technician = ""
+            configuration.productionNotes = productionNotes
+            return configuration
+        }
     }
     
     // MARK: - Master Report Generation

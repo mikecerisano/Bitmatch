@@ -570,13 +570,15 @@ Each step ships on its own: it builds both schemes, passes both test suites, and
 
 ### Step 4.4: History scanner and library presentation (no locked files)
 
-- [ ] Add `Shared/Core/Services/ReportScanner.swift` (§5.3 B). The Mac `DriveScanner` and iOS `IOSDriverScanner.scanForBitMatchReports` both call it; their volume-listing code stays platform-specific.
-- [ ] Tests (`BitMatchTests/ReportScannerTests.swift`, real temp folders written by `ReportExporter`'s JSON encoder):
+Written on branch `cloud/history-screen` without Xcode: reviewed, not compiled or run. The banner counts interrupted transfers only, because a run with issues already showed its verdict and stays in the queue. `LocalTransferState` has no failed state, so no library label is red. Moving `TransferHistoryDocument` out of the view file (§5.3 A) is left for 4.10.
+
+- [x] Add `Shared/Core/Services/ReportScanner.swift` (§5.3 B). The Mac `DriveScanner` and iOS `IOSDriverScanner.scanForBitMatchReports` both call it; their volume-listing code stays platform-specific.
+- [x] Tests (`BitMatchTests/ReportScannerTests.swift`, real temp folders written by `ReportExporter`'s JSON encoder):
   - `findsExporterFilenames`. **Plant:** restore the iOS rule `filename == "BitMatchReport.json" || filename.hasSuffix("_Report.json")`.
   - `quickModeReportIsNotVerified`. **Plant:** `let verified = report.statistics.issues == 0`.
-- [ ] Fix the Mac `technician` mapping and the success-after-failure alert (`MasterReportView.swift:86-99,111-123`).
+- [x] Fix the Mac `technician` mapping and the success-after-failure alert (`MasterReportView.swift:86-99,111-123`).
   - Test `ReportConfigurationTests.technicianIsNotNotes`. **Plant:** `technician: prefs.notes`.
-- [ ] Add `TransferLibraryPresentation` and `needsAttentionCount`, and use them in `TransferLibraryView` and the three banners.
+- [x] Add `TransferLibraryPresentation` and `needsAttentionCount`, and use them in `TransferLibraryView` and the three banners.
   - Test `interruptedIsNotGreen`. **Plant:** map `.interrupted` to the `.verified` tone.
 
 ### Step 4.5: One readiness rule for Setup (touches views only; coordinator delegation waits for S2 and R6)

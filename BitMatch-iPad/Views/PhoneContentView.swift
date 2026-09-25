@@ -20,10 +20,10 @@ struct PhoneContentView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        if coordinator.transferJournal.records.contains(where: { $0.state == .interrupted }) {
-                            Button("Interrupted transfer — review in Transfers") { showingTransfers = true }
-                                .font(.callout).foregroundStyle(.orange).padding(.horizontal)
-                        }
+                        TransferAttentionBanner(
+                            needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.transferJournal.records)
+                        ) { showingTransfers = true }
+                            .padding(.horizontal)
                         // Tabs
                         AdaptiveModeNavigation(coordinator: coordinator, presentation: .compact)
 
