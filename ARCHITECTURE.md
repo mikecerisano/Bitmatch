@@ -156,7 +156,7 @@ For each operation, in order:
   3. Is checked for a source change during the copy (size, modification date, file identity).
   4. Gets the source modification date.
   5. Is published with `linkat` and then the temp file is removed. Publishing cannot replace a file that already exists.
-- **Existing destination files.** An existing file is reused only if it matches the source size and every checksum for the verification mode. Otherwise the file fails with a conflict and is never overwritten. In Quick mode, any existing file is a conflict.
+- **Existing destination files.** An existing file is reused only if it matches the source size and every check for the verification mode (in Paranoid, the byte-by-byte comparison as well as SHA-256). Otherwise the file fails with a conflict and is never overwritten. In Quick mode, any existing file is a conflict.
 - **Verification.** `verifyPinnedDestinationFile` reads the destination through the pinned descriptor. The source is hashed through the injected `ChecksumService` with `useCache: false`. The algorithms come from `VerificationMode.checksumTypes` (`Shared/Core/Models/SharedModels.swift`):
 
   | Mode | Verification | Existing-file reuse check |
@@ -164,7 +164,7 @@ For each operation, in order:
   | Quick | none (size only at copy time) | always a conflict |
   | Standard | SHA-256 | SHA-256 |
   | Thorough | SHA-256 + MD5 | SHA-256 + MD5 |
-  | Paranoid | byte-by-byte comparison, plus SHA-256 (recorded for ASC MHL) | SHA-256 + MD5 + SHA-1 |
+  | Paranoid | byte-by-byte comparison, plus SHA-256 (recorded for ASC MHL) | byte-by-byte comparison + SHA-256 |
 
 ### Checksums
 

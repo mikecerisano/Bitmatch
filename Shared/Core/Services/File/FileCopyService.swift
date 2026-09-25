@@ -587,6 +587,14 @@ final class FileCopyService {
             )
         }
 
+        // Paranoid reuse matches the copy verify path
+        // (`verifyPinnedDestinationFile`): byte-by-byte comparison plus SHA-256.
+        if verificationMode == .paranoid {
+            guard try await byteComparison(source: source, pinnedDestination: destination) else {
+                throw existingDestinationConflictError("Existing destination file bytes differ; refusing to overwrite it")
+            }
+        }
+
         guard try await checksumsMatch(
             source: source,
             pinnedDestination: destination,
