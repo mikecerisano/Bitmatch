@@ -50,13 +50,15 @@ struct ContentView: View {
             if transferOptionsExpanded { totalHeight += 330 }
             
         case .compareFolders:
-            let foldersHeight: CGFloat = 180  // Both folder panels (matches the fixed height in CompareFoldersView)
-            let actionsHeight: CGFloat = 120  // Actions & Options section (same as Copy to Backups base)
-            totalHeight += foldersHeight + actionsHeight
-            
-            // Add height for expanded sections (like Copy to Backups does)
+            // CompareScreen: title, the two folder slots, then checks and the
+            // Compare button. Results scroll below; the window is not grown for them.
+            let headerHeight: CGFloat = 60
+            let foldersHeight: CGFloat = 170
+            let actionsHeight: CGFloat = 170
+            totalHeight += headerHeight + foldersHeight + actionsHeight
+
             if verificationModeExpanded {
-                totalHeight += 150  // Verification mode expanded section
+                totalHeight += 150  // Advanced: verification picker
             }
             
         case .masterReport:
@@ -134,7 +136,11 @@ struct ContentView: View {
             // Lightweight toast overlays
             VStack {
                 if showCancelNotice {
-                    ToastView(icon: "xmark.circle", message: "User cancelled transfer", tint: .red)
+                    ToastView(
+                        icon: "xmark.circle",
+                        message: coordinator.currentMode == .compareFolders ? "Compare cancelled" : "Transfer cancelled",
+                        tint: .red
+                    )
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 if showDropRejection {
@@ -176,6 +182,18 @@ struct ContentView: View {
     
     @ViewBuilder
     private var mainContentSwitch: some View {
+        // Compare shows its own progress and outcome inside CompareScreen, and
+        // a finished compare is never shown as the transfer completion.
+        if coordinator.currentMode == .compareFolders || coordinator.sharedCoordinator.lastOperationWasCompare {
+            modeSpecificView
+                .padding(.top, 16)
+        } else {
+            transferContentSwitch
+        }
+    }
+
+    @ViewBuilder
+    private var transferContentSwitch: some View {
         switch coordinator.completionState {
         case .idle, .inProgress:
             // While in progress, keep showing the active mode's view.
@@ -189,7 +207,8 @@ struct ContentView: View {
     
     @ViewBuilder
     private var resultsArea: some View {
-        if coordinator.currentMode != .masterReport &&
+        if coordinator.currentMode == .copyAndVerify &&
+           !coordinator.sharedCoordinator.lastOperationWasCompare &&
            (coordinator.isOperationInProgress ||
             (coordinator.completionState != .idle && (coordinator.currentMode == .copyAndVerify || !coordinator.results.isEmpty))) {
             ResultsTableView(
@@ -212,7 +231,8 @@ struct ContentView: View {
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundColor(.white.opacity(0.9))
                 Spacer(minLength: 8)
-                if !coordinator.isOperationInProgress {
+                // Decision C-2: no mode switch while anything runs.
+                if !isModeSwitchLocked {
                     if HeaderPresentationPolicy.presentation(for: proxy.size.width) == .expanded {
                         ModeSelectorView(mode: $coordinator.currentMode)
                             .transition(.opacity)
@@ -264,8 +284,7 @@ struct ContentView: View {
             case .compareFolders:
                 CompareFoldersView(
                     coordinator: coordinator,
-                    showReportSettings: .constant(false),
-                    verificationModeExpanded: $verificationModeExpanded
+                    advancedExpanded: $verificationModeExpanded
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.98)),
@@ -339,7 +358,14 @@ struct ContentView: View {
     }
     
     // MARK: - Helpers
-    
+
+    private var isModeSwitchLocked: Bool {
+        ModeSwitchPolicy.isLocked(
+            isOperationInProgress: coordinator.isOperationInProgress,
+            queueIsRunning: coordinator.sharedCoordinator.queueIsRunning
+        )
+    }
+
     private func handleOperationStateChange(oldValue: Bool, newValue: Bool) {
         if newValue && !lockHeight {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) {
@@ -494,17 +520,26 @@ struct ContentView: View {
     private var keyboardShortcutsView: some View {
         notificationObserversView
             .onReceive(NotificationCenter.default.publisher(for: .switchToCopyMode)) { _ in
+                guard !isModeSwitchLocked else { return }
                 withAnimation { coordinator.switchMode(to: .copyAndVerify) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .switchToCompareMode)) { _ in
+                guard !isModeSwitchLocked else { return }
                 withAnimation { coordinator.switchMode(to: .compareFolders) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .switchToMasterReportMode)) { _ in
+                guard !isModeSwitchLocked else { return }
                 withAnimation { coordinator.switchMode(to: .masterReport) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .startVerification)) { _ in
-                if coordinator.currentMode != .masterReport {
+                switch coordinator.currentMode {
+                case .copyAndVerify:
                     coordinator.startOperation()
+                case .compareFolders:
+                    // ⌘R obeys the same readiness rule as the Compare button.
+                    CompareFoldersView.startIfReady(coordinator)
+                case .masterReport:
+                    break
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelOperation)) { _ in

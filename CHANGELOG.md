@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
 - Fix: On iPad and iPhone, switching apps no longer labels a running transfer "Paused" while it keeps copying. Low battery (under 15%) now actually pauses the copy.
 - Fix: Report totals (data processed, throughput, average file size) come from the files copied, not an estimate that could read 1 GB when the source had not been measured.
 - Presentation: Only rows that were checksum- or byte-verified show a green check; a Quick copy's "Copied" rows are neutral. On iPad and iPhone, a cancelled transfer's guidance now says it was cancelled.
+- Compare: One Compare screen on Mac, iPad and iPhone. It refuses to compare a folder with itself or with a folder inside it (that always "matched"), waits for folder details before enabling Compare, and says why the button is disabled. Progress, the outcome and Cancel stay on the Compare screen; a finished compare no longer shows the transfer completion screen, and a cancelled or failed compare says so. The verification choice moved under Advanced.
+- Compare: A clean Quick compare now says "Sizes match, not verified" in amber instead of "Folders match". Paranoid compare now checks byte-by-byte and SHA-256 (it previously did the byte comparison only).
+- Compare: The mode switcher is disabled while a compare, transfer or queue runs, on iPhone too. The cancel notice says "Compare cancelled" or "Transfer cancelled". The Mac accepts dropped folders on either side and explains when a dropped item is not a folder.
 
 ## [0.1.6] - 2026-09-25
 

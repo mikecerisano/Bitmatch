@@ -336,6 +336,309 @@ struct SharedCompareFlowTests {
         let stats = await MainActor.run { coordinator.lastCompareStats }
         #expect(stats == nil)
     }
+
+    // MARK: - UI plan steps 4.1 / 4.2 (each names its plantable bug)
+
+    /// THESIS decision: Paranoid Compare runs a byte-by-byte comparison and
+    /// SHA-256, on every platform, whatever `checksumTypes` lists.
+    /// Plant: in `ComparisonCoordinator.contentsMatch`, change
+    /// `if !identical { return false }` to `return identical`.
+    @Test
+    func testParanoidCompareRunsByteComparisonAndSHA256() async throws {
+        let left = URL(fileURLWithPath: "/paranoid/left")
+        let right = URL(fileURLWithPath: "/paranoid/right")
+        let checksum = RecordingChecksumService()
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run { ComparisonCoordinator(platformManager: platform) }
+
+        let stats = try await coordinator.compareFolders(
+            left: left, right: right, verificationMode: .paranoid, onProgress: { _ in }
+        )
+
+        #expect(stats.isClean)
+        #expect(checksum.byteComparisons == 1)
+        #expect(checksum.verifiedTypes == [.sha256])
+    }
+
+    /// Bytes that agree do not excuse a SHA-256 mismatch in Paranoid mode.
+    /// Plant: same as `testParanoidCompareRunsByteComparisonAndSHA256`.
+    @Test
+    func testParanoidCompareReportsChecksumMismatchEvenWhenBytesAgree() async throws {
+        let left = URL(fileURLWithPath: "/paranoid-sha/left")
+        let right = URL(fileURLWithPath: "/paranoid-sha/right")
+        let checksum = RecordingChecksumService()
+        checksum.checksumMatches = false
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run { ComparisonCoordinator(platformManager: platform) }
+
+        let stats = try await coordinator.compareFolders(
+            left: left, right: right, verificationMode: .paranoid, onProgress: { _ in }
+        )
+
+        #expect(stats.mismatchedPaths == ["clip.mov"])
+    }
+
+    /// A byte difference is a mismatch, and SHA-256 is not needed to find it.
+    /// Plant: in `ComparisonCoordinator.contentsMatch`, delete
+    /// `if !identical { return false }`.
+    @Test
+    func testParanoidCompareReportsByteMismatch() async throws {
+        let left = URL(fileURLWithPath: "/paranoid-bytes/left")
+        let right = URL(fileURLWithPath: "/paranoid-bytes/right")
+        let checksum = RecordingChecksumService()
+        checksum.bytesMatch = false
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run { ComparisonCoordinator(platformManager: platform) }
+
+        let stats = try await coordinator.compareFolders(
+            left: left, right: right, verificationMode: .paranoid, onProgress: { _ in }
+        )
+
+        #expect(stats.mismatchedPaths == ["clip.mov"])
+        #expect(checksum.verifiedTypes.isEmpty)
+    }
+
+    /// Decision C-1, enforced below the screen too: ⌘R, tests or any other
+    /// caller cannot compare a folder with itself and get "Folders match".
+    /// Plant: in `SharedAppCoordinator.compareFolders`, delete the
+    /// `if let block = CompareBlock.check(left: left, right: right) { … }` guard.
+    @Test
+    func testCoordinatorRefusesSameFolderCompare() async throws {
+        let folder = URL(fileURLWithPath: "/same-folder/card")
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: folder, right: folder)
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = folder
+            coordinator.rightURL = folder
+        }
+
+        await coordinator.compareFolders()
+
+        let (stats, end, completed) = await MainActor.run { () -> (CompareStats?, CompareRunEnd?, Bool) in
+            if case .completed = coordinator.operationState {
+                return (coordinator.lastCompareStats, coordinator.lastCompareEnd, true)
+            }
+            return (coordinator.lastCompareStats, coordinator.lastCompareEnd, false)
+        }
+        #expect(stats == nil)
+        #expect(end == nil)
+        #expect(!completed)
+    }
+
+    /// Plant: in `SharedAppCoordinator.canStartOperation`, restore the compare
+    /// branch to `leftURL != nil && rightURL != nil && !isOperationInProgress`.
+    @Test
+    func testCanStartOperationRefusesNestedCompare() async throws {
+        let coordinator = await MainActor.run {
+            SharedAppCoordinator(platformManager: ScopeTrackingPlatformManager(fileSystem: FakeFileSystemService()))
+        }
+        let canStart = await MainActor.run { () -> (nested: Bool, separate: Bool) in
+            coordinator.currentMode = .compareFolders
+            coordinator.leftURL = URL(fileURLWithPath: "/nested/card")
+            coordinator.rightURL = URL(fileURLWithPath: "/nested/card/DCIM")
+            let nested = coordinator.canStartOperation
+            coordinator.rightURL = URL(fileURLWithPath: "/nested/backup")
+            return (nested, coordinator.canStartOperation)
+        }
+        #expect(!canStart.nested)
+        #expect(canStart.separate)
+    }
+
+    /// A finished compare shows in the Compare screen, never as the transfer
+    /// outcome summary (iPad used to show the transfer completion for it).
+    /// Plant: in `SharedAppCoordinator.showsOutcomeSummary`, delete
+    /// `guard !lastOperationWasCompare else { return false }`.
+    @Test
+    func testFinishedCompareIsNotTransferOutcome() async throws {
+        let left = URL(fileURLWithPath: "/outcome/left")
+        let right = URL(fileURLWithPath: "/outcome/right")
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right)
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+
+        await coordinator.compareFolders()
+
+        let (showsTransferOutcome, end) = await MainActor.run {
+            (coordinator.showsOutcomeSummary, coordinator.lastCompareEnd)
+        }
+        #expect(end == .completed)
+        #expect(!showsTransferOutcome)
+    }
+
+    /// A cancelled compare says so on the Compare screen instead of silently
+    /// returning to selection (the old iPhone behaviour).
+    /// Plant: in `SharedAppCoordinator.compareFolders`, delete
+    /// `lastCompareEnd = .cancelled` from the `CancellationError` branch.
+    @Test
+    func testCancelledCompareRecordsCancelledOutcome() async throws {
+        let left = URL(fileURLWithPath: "/cancel-outcome/left")
+        let right = URL(fileURLWithPath: "/cancel-outcome/right")
+        let checksum = CancellingChecksumService()
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right),
+            checksum: checksum
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        checksum.onVerify = { await coordinator.cancelOperation() }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+
+        await coordinator.compareFolders()
+
+        let (end, stats) = await MainActor.run { (coordinator.lastCompareEnd, coordinator.lastCompareStats) }
+        #expect(end == .cancelled)
+        #expect(stats == nil)
+        let outcome = CompareOutcome.resolve(stats: stats, end: end, mode: .standard)
+        #expect(outcome == .cancelled)
+    }
+
+    /// Changing a folder after a compare drops the old outcome with the stats.
+    /// Plant: in `SharedAppCoordinator.clearCompareOutcome`, delete `lastCompareEnd = nil`.
+    @Test
+    func testChangingFolderClearsCompareOutcome() async throws {
+        let left = URL(fileURLWithPath: "/clear-outcome/left")
+        let right = URL(fileURLWithPath: "/clear-outcome/right")
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right)
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .standard
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+        await coordinator.compareFolders()
+        let before = await MainActor.run { coordinator.lastCompareEnd }
+        #expect(before == .completed)
+
+        let after = await MainActor.run { () -> CompareRunEnd? in
+            coordinator.rightURL = URL(fileURLWithPath: "/clear-outcome/other")
+            return coordinator.lastCompareEnd
+        }
+        #expect(after == nil)
+    }
+
+    /// THESIS decision: a clean Quick compare is recorded as "Sizes match,
+    /// not verified", not "Folders match".
+    /// Plant: in `SharedAppCoordinator.compareFolders`, replace the clean-stats
+    /// message with `message = "Folders match"`.
+    @Test
+    func testQuickCompareMessageSaysNotVerified() async throws {
+        let left = URL(fileURLWithPath: "/quick-message/left")
+        let right = URL(fileURLWithPath: "/quick-message/right")
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right)
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .quick
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+
+        await coordinator.compareFolders()
+
+        let message = await MainActor.run { () -> String? in
+            if case .completed(let info) = coordinator.operationState { return info.message }
+            return nil
+        }
+        #expect(message == "Sizes match, not verified")
+    }
+
+    /// Decision C-2: no mode switch while an operation runs.
+    /// Plant: in `SharedAppCoordinator.switchMode`, delete
+    /// `guard !isModeSwitchLocked else { return }`.
+    @Test
+    func testModeSwitchIsLockedWhileRunning() async throws {
+        let coordinator = await MainActor.run {
+            SharedAppCoordinator(platformManager: ScopeTrackingPlatformManager(fileSystem: FakeFileSystemService()))
+        }
+        let (whileRunning, afterwards) = await MainActor.run { () -> (AppMode, AppMode) in
+            coordinator.currentMode = .compareFolders
+            coordinator.isOperationInProgress = true
+            coordinator.switchMode(to: .copyAndVerify)
+            let whileRunning = coordinator.currentMode
+            coordinator.isOperationInProgress = false
+            coordinator.switchMode(to: .copyAndVerify)
+            return (whileRunning, coordinator.currentMode)
+        }
+        #expect(whileRunning == .compareFolders)
+        #expect(afterwards == .copyAndVerify)
+    }
+}
+
+/// Records which content checks Compare ran.
+private final class RecordingChecksumService: ChecksumService, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _byteComparisons = 0
+    private var _verifiedTypes: [ChecksumAlgorithm] = []
+    var bytesMatch = true
+    var checksumMatches = true
+
+    var byteComparisons: Int { lock.withLock { _byteComparisons } }
+    var verifiedTypes: [ChecksumAlgorithm] { lock.withLock { _verifiedTypes } }
+
+    func generateChecksum(
+        for fileURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> String {
+        "hash"
+    }
+
+    func verifyFileIntegrity(
+        sourceURL: URL,
+        destinationURL: URL,
+        type: ChecksumAlgorithm,
+        useCache: Bool,
+        progressCallback: ProgressCallback?
+    ) async throws -> VerificationResult {
+        lock.withLock { _verifiedTypes.append(type) }
+        return VerificationResult(
+            sourceChecksum: "hash",
+            destinationChecksum: checksumMatches ? "hash" : "other",
+            matches: checksumMatches,
+            checksumType: type,
+            processingTime: 0,
+            fileSize: 10
+        )
+    }
+
+    func performByteComparison(
+        sourceURL: URL,
+        destinationURL: URL,
+        progressCallback: ProgressCallback?
+    ) async throws -> Bool {
+        lock.withLock { _byteComparisons += 1 }
+        return bytesMatch
+    }
 }
 
 private final class CancellingCompareFileSystem: FakeFileSystemService {

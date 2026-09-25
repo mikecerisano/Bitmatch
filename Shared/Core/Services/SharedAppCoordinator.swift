@@ -32,7 +32,7 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - Published State
     @Published var currentMode: AppMode = .copyAndVerify
     @Published var verificationMode: VerificationMode = .standard {
-        didSet { if oldValue != verificationMode { lastCompareStats = nil } }
+        didSet { if oldValue != verificationMode { clearCompareOutcome() } }
     }
     @Published var cameraLabelSettings = CameraLabelSettings()
     @Published var reportSettings = ReportPrefs()
@@ -88,10 +88,10 @@ class SharedAppCoordinator: ObservableObject {
     @Published var sourceURL: URL?
     @Published var destinationURLs: [URL] = []
     @Published var leftURL: URL? { // For folder comparison
-        didSet { if oldValue != leftURL { lastCompareStats = nil } }
+        didSet { if oldValue != leftURL { clearCompareOutcome() } }
     }
     @Published var rightURL: URL? { // For folder comparison
-        didSet { if oldValue != rightURL { lastCompareStats = nil } }
+        didSet { if oldValue != rightURL { clearCompareOutcome() } }
     }
     
     // MARK: - Camera Detection State
@@ -101,6 +101,17 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - Folder Info State (delegated to FolderInfoService)
     @Published var folderInfoService = FolderInfoService.shared
     @Published var lastCompareStats: CompareStats?
+    /// How the last compare for the current folders and mode ended. Compare
+    /// reads this, not `operationState`, which transfers also write.
+    @Published private(set) var lastCompareEnd: CompareRunEnd?
+    /// True when the most recent operation was a compare, so the shared
+    /// `operationState` it left behind is not shown as a transfer outcome.
+    @Published private(set) var lastOperationWasCompare = false
+
+    private func clearCompareOutcome() {
+        lastCompareStats = nil
+        lastCompareEnd = nil
+    }
 
     // Convenience accessors for folder info (delegated to service)
     var sourceFolderInfo: EnhancedFolderInfo? { folderInfoService.sourceFolderInfo }
@@ -274,7 +285,10 @@ class SharedAppCoordinator: ObservableObject {
     
     /// Completed, failed, and cancelled operations keep their (possibly
     /// partial) results visible instead of dropping back to setup.
+    /// A compare shows its outcome inside the Compare screen; it is never
+    /// the transfer outcome summary.
     var showsOutcomeSummary: Bool {
+        guard !lastOperationWasCompare else { return false }
         switch operationState {
         case .completed, .failed, .cancelled:
             return true
@@ -374,6 +388,7 @@ class SharedAppCoordinator: ObservableObject {
 
     private func executeOperation(journalRecordID: UUID?) async {
         guard activeStartID == nil, !isOperationInProgress else { return }
+        lastOperationWasCompare = false
         guard let sourceURL = sourceURL, !destinationURLs.isEmpty else {
             operationState = .failed
             updateProjectLifecycle(for: .failed)
@@ -692,12 +707,21 @@ class SharedAppCoordinator: ObservableObject {
             return
         }
 
+        // Every entry point (buttons, ⌘R, tests) gets the same block as the
+        // screen: a folder compared with itself or its own parent or child
+        // would report a false match.
+        if let block = CompareBlock.check(left: left, right: right) {
+            await platformManager.presentAlert(title: "Can't compare these folders", message: block.message)
+            return
+        }
+
         guard !isOperationInProgress else { return }
         let comparedMode = verificationMode
         isOperationInProgress = true
+        lastOperationWasCompare = true
         operationState = .inProgress
         results = []
-        lastCompareStats = nil
+        clearCompareOutcome()
         errorService.clearCurrentErrors()
         progress = OperationProgress(
             overallProgress: 0.0,
@@ -728,10 +752,13 @@ class SharedAppCoordinator: ObservableObject {
                 return
             }
             self.lastCompareStats = stats
+            lastCompareEnd = .completed
             isOperationInProgress = false
             let message: String
             if stats.isClean {
-                message = "Folders match"
+                message = CompareCheckPlan.make(for: comparedMode).verifiesContents
+                    ? "Folders match"
+                    : "Sizes match, not verified"
             } else {
                 var issues: [String] = []
                 if stats.mismatchedCount > 0 { issues.append("\(stats.mismatchedCount) mismatched") }
@@ -744,10 +771,12 @@ class SharedAppCoordinator: ObservableObject {
         } catch is CancellationError {
             isOperationInProgress = false
             operationState = .cancelled
+            lastCompareEnd = .cancelled
             return
         } catch {
             isOperationInProgress = false
             operationState = .failed
+            lastCompareEnd = .failed(error.localizedDescription)
             await platformManager.presentError(error)
             return
         }
@@ -770,8 +799,13 @@ class SharedAppCoordinator: ObservableObject {
     
     // MARK: - Mode Management
 
+    /// Decision C-2: no mode switch while anything runs, on any platform.
+    var isModeSwitchLocked: Bool {
+        ModeSwitchPolicy.isLocked(isOperationInProgress: isOperationInProgress, queueIsRunning: queueIsRunning)
+    }
+
     func switchMode(to mode: AppMode) {
-        guard !isOperationInProgress else { return }
+        guard !isModeSwitchLocked else { return }
         currentMode = mode
     }
 
@@ -823,7 +857,8 @@ class SharedAppCoordinator: ObservableObject {
         case .copyAndVerify:
             return operationReadinessAssessment.isReady && !isOperationInProgress
         case .compareFolders:
-            return leftURL != nil && rightURL != nil && !isOperationInProgress
+            guard let leftURL, let rightURL, !isOperationInProgress else { return false }
+            return CompareBlock.check(left: leftURL, right: rightURL) == nil
         case .masterReport:
             return currentOperation != nil && !isOperationInProgress
         }
