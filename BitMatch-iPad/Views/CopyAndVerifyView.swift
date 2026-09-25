@@ -42,7 +42,7 @@ struct CopyAndVerifyView: View {
             // Full interface
             VStack(spacing: 20) {
                 // The selection cards remain the owner of iPad Files picker actions.
-                EnhancedSourceDestinationView(coordinator: coordinator)
+                EnhancedSourceDestinationView(coordinator: coordinator, nextStep: plan.nextStep)
 
                 MobileTransferWorkflowPicker(
                     usesProjectWorkflow: $usesProjectWorkflow,
@@ -53,13 +53,9 @@ struct CopyAndVerifyView: View {
                     MobileProjectSetupCard(coordinator: coordinator)
                 }
 
-                if plan.status != .ready {
+                if plan.showsStatusBanner {
                     IpadTransferPlanPreflightCard(plan: plan)
                 }
-                Label(coordinator.verificationMode == .standard ? "Verified copy · SHA-256" : coordinator.verificationMode.description, systemImage: coordinator.verificationMode == .quick ? "exclamationmark.triangle" : "checkmark.shield")
-                    .font(.subheadline)
-                    .foregroundColor(coordinator.verificationMode == .quick ? .orange : .white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 TransferOptionsSection(
                     isExpanded: $optionsExpanded,
@@ -527,6 +523,8 @@ private struct IpadTransferPlanOptionSummary: View {
 
 struct EnhancedSourceDestinationView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    /// The step to highlight, from `TransferPlanPresentation.nextStep`.
+    var nextStep: TransferPlanPresentation.NextStep? = nil
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
@@ -534,14 +532,14 @@ struct EnhancedSourceDestinationView: View {
             if horizontalSizeClass == .regular {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 16) {
-                        ProfessionalSourceCard(coordinator: coordinator)
+                        ProfessionalSourceCard(coordinator: coordinator, isNextStep: nextStep == .chooseSource)
                             .frame(minWidth: 280, maxWidth: .infinity)
 
                         Image(systemName: "arrow.right")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(.white.opacity(0.4))
 
-                        DestinationsFlowView(coordinator: coordinator)
+                        DestinationsFlowView(coordinator: coordinator, isNextStep: nextStep == .addBackup)
                             .frame(minWidth: 280, maxWidth: .infinity)
                     }
 
@@ -565,8 +563,8 @@ struct EnhancedSourceDestinationView: View {
 
     private var stackedCards: some View {
         VStack(spacing: 16) {
-            ProfessionalSourceCard(coordinator: coordinator)
-            DestinationsFlowView(coordinator: coordinator)
+            ProfessionalSourceCard(coordinator: coordinator, isNextStep: nextStep == .chooseSource)
+            DestinationsFlowView(coordinator: coordinator, isNextStep: nextStep == .addBackup)
         }
     }
 }
@@ -575,6 +573,7 @@ struct EnhancedSourceDestinationView: View {
 
 struct ProfessionalSourceCard: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    var isNextStep = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -696,11 +695,13 @@ struct ProfessionalSourceCard: View {
                         .stroke(coordinator.sourceURL != nil ? Color.green.opacity(0.2) : Color.white.opacity(0.1), lineWidth: 1)
                 )
         )
+        .nextStepHighlight(isNextStep, cornerRadius: 12)
     }
 }
 
 struct DestinationsFlowView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    var isNextStep = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -743,6 +744,7 @@ struct DestinationsFlowView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, 16)
+                .nextStepHighlight(isNextStep)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.white.opacity(0.03))
@@ -1143,10 +1145,12 @@ struct StartTransferButtonView: View {
     private var buttonText: String {
         if coordinator.isOperationInProgress {
             return "Transfer in Progress..."
+        } else if let plan, plan.nextStep != nil {
+            return plan.actionTitle
         } else if coordinator.sourceURL == nil {
-            return "Select Source Folder"
+            return "Choose a source to start"
         } else if coordinator.destinationURLs.isEmpty {
-            return "Add Backup Destinations"
+            return "Add a backup to start"
         } else if startsProjectTransfer, let blocker = projectStartPresentation.blocker {
             return blocker
         } else if startsProjectTransfer {
@@ -1190,7 +1194,7 @@ struct StartTransferButtonView: View {
                             .scaleEffect(0.9)
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     } else {
-                        Image(systemName: canStartTransfer ? "play.fill" : "exclamationmark.triangle.fill")
+                        Image(systemName: canStartTransfer ? "play.fill" : (plan?.nextStep != nil ? "arrow.up" : "exclamationmark.triangle.fill"))
                             .font(.system(size: 16, weight: .semibold))
                     }
                     

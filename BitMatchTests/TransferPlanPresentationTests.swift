@@ -158,4 +158,54 @@ struct TransferPlanPresentationTests {
             isInternalDrive: false
         )
     }
+
+    private func plan(source: URL?, destinations: [URL], issues: [String] = [], warnings: [String] = []) -> TransferPlanPresentation {
+        TransferPlanPresentation.make(
+            sourceURL: source,
+            sourceInfo: nil,
+            destinationURLs: destinations,
+            verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(),
+            reportSettings: ReportPrefs(),
+            isAnalyzing: false,
+            blockingIssues: issues,
+            warnings: warnings
+        )
+    }
+
+    /// A step not taken yet is not an error: no banner, the empty box is
+    /// highlighted, and Start says what is next ("red means real").
+    /// Fails if `showsStatusBanner` returns true for `.incomplete`.
+    @Test
+    func missingSourceHighlightsTheSourceInsteadOfABanner() {
+        let plan = plan(source: nil, destinations: [destinationURL])
+        #expect(plan.nextStep == .chooseSource)
+        #expect(!plan.showsStatusBanner)
+        #expect(plan.actionTitle == "Choose a source to start")
+        #expect(!plan.canStart)
+    }
+
+    /// Fails if the next step skips from source straight to ready.
+    @Test
+    func missingBackupHighlightsTheBackups() {
+        let plan = plan(source: sourceURL, destinations: [])
+        #expect(plan.nextStep == .addBackup)
+        #expect(!plan.showsStatusBanner)
+        #expect(plan.actionTitle == "Add a backup to start")
+        #expect(!plan.canStart)
+    }
+
+    /// Real problems still get the banner. Fails if blocked or warning
+    /// states lose it.
+    @Test
+    func realProblemsStillShowTheBanner() {
+        let blocked = plan(source: sourceURL, destinations: [destinationURL], issues: ["Not enough space on RAID_A"])
+        #expect(blocked.nextStep == nil)
+        #expect(blocked.showsStatusBanner)
+        let warned = plan(source: sourceURL, destinations: [destinationURL], warnings: ["Quick mode only checks file size."])
+        #expect(warned.showsStatusBanner)
+        let ready = plan(source: sourceURL, destinations: [destinationURL])
+        #expect(!ready.showsStatusBanner)
+        #expect(ready.actionTitle == "Start verified copy")
+    }
 }

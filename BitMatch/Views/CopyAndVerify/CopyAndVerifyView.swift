@@ -26,12 +26,11 @@ struct CopyAndVerifyView: View {
     /// Keeps validation policy in the existing validator while supplying its results
     /// to the presentation model.
     private var readinessIssues: [String] {
-        guard let sourceURL = fileSelection.sourceURL else {
-            return fileSelection.destinationURLs.isEmpty ? [] : ["Select a source folder"]
-        }
+        // A source or backup not chosen yet is the next step, not an error;
+        // TransferPlanPresentation.nextStep highlights it instead.
+        guard let sourceURL = fileSelection.sourceURL else { return [] }
 
         var issues: [String] = []
-        if fileSelection.destinationURLs.isEmpty { issues.append("Add at least one destination") }
 
         let uniquePaths = Set(fileSelection.destinationURLs.map {
             $0.standardizedFileURL.resolvingSymlinksInPath().path
@@ -89,7 +88,7 @@ struct CopyAndVerifyView: View {
                     plan: plan,
                     optionsExpanded: $optionsExpanded,
                     selectionView: { presentation in
-                        AnyView(HorizontalFlowView(coordinator: coordinator, presentation: presentation))
+                        AnyView(HorizontalFlowView(coordinator: coordinator, presentation: presentation, nextStep: plan.nextStep))
                     },
                     onStart: start
                 )

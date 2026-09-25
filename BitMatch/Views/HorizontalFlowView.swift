@@ -7,6 +7,8 @@ typealias DriveSpeed = FileSelectionViewModel.DriveSpeed
 struct HorizontalFlowView: View {
     @ObservedObject var coordinator: AppCoordinator
     let presentation: AdaptiveWorkbenchPresentation
+    /// The step to highlight, from `TransferPlanPresentation.nextStep`.
+    var nextStep: TransferPlanPresentation.NextStep? = nil
     @State private var hoveredDestination: URL?
     @State private var refreshID = UUID()
     @State private var dragHoveredIndex: Int? = nil
@@ -212,6 +214,7 @@ struct HorizontalFlowView: View {
                         )
                 )
         )
+        .nextStepHighlight(nextStep == .chooseSource && !isSourceTargeted)
         .animation(.easeInOut(duration: 0.2), value: isSourceTargeted)
     }
 
@@ -259,6 +262,7 @@ struct HorizontalFlowView: View {
                                 )
                         )
                 )
+                .nextStepHighlight(nextStep == .addBackup && !isAddDestinationTargeted)
                 .animation(.easeInOut(duration: 0.2), value: isAddDestinationTargeted)
                 .onDrop(of: [.fileURL], isTargeted: $isAddDestinationTargeted) { providers, location in
                     handleAddDestinationDrop(providers: providers)

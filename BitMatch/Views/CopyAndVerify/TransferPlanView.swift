@@ -22,10 +22,9 @@ struct TransferPlanView: View {
             if usesProjectWorkflow || hasPreparedProjectTransfer {
                 PhotographerJobSetupView(coordinator: coordinator)
             }
-            if plan.status != .ready {
+            if plan.showsStatusBanner {
                 TransferPlanPreflightCard(plan: plan)
             }
-            optionSummary
             TransferOptionsView(coordinator: coordinator, isExpanded: $optionsExpanded)
             actionArea
             if let job = coordinator.photographerJobViewModel.dashboardJob,
@@ -81,14 +80,6 @@ struct TransferPlanView: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08)))
         )
         .padding(.top, 4)
-    }
-
-    private var optionSummary: some View {
-        Label(coordinator.verificationMode == .standard ? "Verified copy · SHA-256" : coordinator.verificationMode.description,
-              systemImage: coordinator.verificationMode == .quick ? "exclamationmark.triangle" : "checkmark.shield")
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(coordinator.verificationMode == .quick ? .orange : .white.opacity(0.75))
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var transferKindControl: some View {
@@ -185,12 +176,14 @@ struct TransferPlanView: View {
             .accessibilityHint(photographerStart?.blocker ?? (canStart
                 ? "Copies files to each selected destination and leaves the source unchanged"
                 : TransferPlanStatusDisplay.make(plan.status).detail))
-            if !canStart {
+            if !canStart, photographerStart?.blocker != nil || plan.nextStep == nil {
+                // A next step is already named by the button; only a real
+                // reason (a blocker) earns a line of its own.
                 Text(photographerStart?.blocker ?? TransferPlanStatusDisplay.make(plan.status).detail)
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.58))
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
+            } else if canStart {
                 Text("Source files stay in place.")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.58))

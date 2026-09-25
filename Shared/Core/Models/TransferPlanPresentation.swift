@@ -50,6 +50,23 @@ struct TransferPlanPresentation: Equatable {
     let optionSummary: [String]
     let actionTitle: String
     let canStart: Bool
+    /// The step the user has not taken yet. Its box is highlighted instead of
+    /// showing a banner: a missing choice is not an error ("red means real").
+    let nextStep: NextStep?
+
+    enum NextStep: Equatable {
+        case chooseSource
+        case addBackup
+    }
+
+    /// The status banner is for real blockers, warnings and analysis. Steps
+    /// not taken yet are shown by `nextStep`, and "ready" needs no banner.
+    var showsStatusBanner: Bool {
+        switch status {
+        case .incomplete, .ready: false
+        case .analyzing, .warning, .blocked: true
+        }
+    }
 
     static func make(
         sourceURL: URL?,
@@ -62,6 +79,9 @@ struct TransferPlanPresentation: Equatable {
         blockingIssues: [String],
         warnings: [String]
     ) -> Self {
+        let nextStep: NextStep? = blockingIssues.isEmpty
+            ? (sourceURL == nil ? .chooseSource : (destinationURLs.isEmpty ? .addBackup : nil))
+            : nil
         let status = status(
             sourceURL: sourceURL,
             destinationURLs: destinationURLs,
@@ -81,11 +101,21 @@ struct TransferPlanPresentation: Equatable {
                 cameraSettings: cameraSettings,
                 reportSettings: reportSettings
             ),
-            actionTitle: verificationMode == .quick
-                ? "Start copy without checksum verification"
-                : "Start verified copy",
-            canStart: canStart(for: status)
+            actionTitle: actionTitle(nextStep: nextStep, verificationMode: verificationMode),
+            canStart: canStart(for: status),
+            nextStep: nextStep
         )
+    }
+
+    private static func actionTitle(nextStep: NextStep?, verificationMode: VerificationMode) -> String {
+        switch nextStep {
+        case .chooseSource: "Choose a source to start"
+        case .addBackup: "Add a backup to start"
+        case nil:
+            verificationMode == .quick
+                ? "Start copy without checksum verification"
+                : "Start verified copy"
+        }
     }
 
     private static func status(
