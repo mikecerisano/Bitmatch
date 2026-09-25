@@ -193,10 +193,6 @@ struct PreferencesWindow: View {
 
                 GroupBox("Output") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Generate PDF", isOn: $coordinator.settingsViewModel.prefs.generatePDF)
-                            .toggleStyle(.checkbox)
-                        Toggle("Generate CSV", isOn: $coordinator.settingsViewModel.prefs.generateCSV)
-                            .toggleStyle(.checkbox)
                         Toggle("Include Thumbnails", isOn: $coordinator.settingsViewModel.prefs.includeThumbnails)
                             .toggleStyle(.checkbox)
                     }

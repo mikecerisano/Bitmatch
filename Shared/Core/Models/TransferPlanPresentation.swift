@@ -177,10 +177,9 @@ struct TransferPlanPresentation: Equatable {
         guard settings.makeReport else {
             return "Reports: Off"
         }
-        var formats: [String] = []
-        if settings.generatePDF { formats.append("PDF") }
-        if settings.generateCSV { formats.append("CSV") }
-        return formats.isEmpty ? "Reports: On" : "Reports: \(formats.joined(separator: ", "))"
+        // What the report writer produces (the Advanced switch names the
+        // same formats). There is no per-format choice.
+        return "Reports: \(TransferOptionsPresentation.reportFormatsDescription())"
     }
 
     private static func canStart(for status: Status) -> Bool {

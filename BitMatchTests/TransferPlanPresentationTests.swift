@@ -106,8 +106,7 @@ struct TransferPlanPresentationTests {
     func optionSummaryIncludesCameraAndReportLabels() {
         var cameraSettings = CameraLabelSettings()
         cameraSettings.label = "B Cam"
-        var reportSettings = ReportPrefs()
-        reportSettings.generateCSV = false
+        let reportSettings = ReportPrefs()
 
         let plan = TransferPlanPresentation.make(
             sourceURL: sourceURL,
@@ -123,7 +122,9 @@ struct TransferPlanPresentationTests {
 
         #expect(plan.sourceDetail == "1,234 files · 1 GB")
         #expect(plan.optionSummary.contains("Camera label: B Cam"))
-        #expect(plan.optionSummary.contains("Reports: PDF"))
+        // The formats the writer produces on the Mac (the test host); there
+        // is no per-format setting to honour.
+        #expect(plan.optionSummary.contains("Reports: PDF, CSV and JSON"))
     }
 
     @Test

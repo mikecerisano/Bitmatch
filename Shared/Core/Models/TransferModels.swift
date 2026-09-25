@@ -156,8 +156,6 @@ struct ResultRow: Identifiable {
 struct ReportPrefs: Codable {
     /// Actual copy mode; nil preserves legacy folder-comparison preferences.
     var verificationMode: VerificationMode? = nil
-    var generatePDF: Bool = true
-    var generateCSV: Bool = true
     var includeThumbnails: Bool = false
     var clientName: String = ""
     var projectName: String = ""
