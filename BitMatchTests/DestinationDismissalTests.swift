@@ -14,7 +14,16 @@ struct DestinationDismissalTests {
             platformManager: RecordingPlatformManager(fileOperations: RecordingFileOperations()),
             projectStore: InMemoryPhotographerJobStore()
         )
-        return (MacVolumeAccessModel(shared: shared, enableVolumeMonitoring: false), shared)
+        let model = MacVolumeAccessModel(shared: shared, enableVolumeMonitoring: false)
+        // The drives are not mounted: describe each as a whole external
+        // drive, which `BackupTargetPolicy` lets discovery add.
+        model.volumeFacts = { url in
+            BackupTargetPolicy.VolumeFacts(
+                volumeRootPath: url.path, volumeID: url.path, volumeName: url.lastPathComponent,
+                isRootFileSystem: false, isInternal: false, isRemovable: false, isEjectable: true
+            )
+        }
+        return (model, shared)
     }
 
     private func drive(at path: String) -> VolumeMonitorService.DetectedVolume {

@@ -187,9 +187,23 @@ struct SetupPresentation: Equatable {
 /// Decision S-3: at launch the Mac puts back the last-used backups only
 /// when every one of them is still there. A partial set could quietly send
 /// a card to fewer backups than last time, so it restores nothing instead.
+/// The same holds when `BackupTargetPolicy` refuses one of them for a
+/// restore (`refusal`): a saved temp folder or system volume is never put
+/// back, and neither is the rest of that list.
 enum LastBackupsRestorePolicy {
-    static func backupsToRestore(savedPaths: [String], exists: (String) -> Bool) -> [URL] {
+    static func backupsToRestore(
+        savedPaths: [String],
+        exists: (String) -> Bool,
+        refusal: (URL) -> String? = { _ in nil }
+    ) -> [URL] {
         guard !savedPaths.isEmpty, savedPaths.allSatisfy(exists) else { return [] }
-        return savedPaths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let urls = savedPaths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        for url in urls {
+            if let reason = refusal(url) {
+                SharedLogger.info("Not restoring last backups: \(url.path): \(reason)", category: .transfer)
+                return []
+            }
+        }
+        return urls
     }
 }

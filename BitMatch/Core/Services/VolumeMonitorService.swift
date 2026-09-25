@@ -192,6 +192,13 @@ final class VolumeMonitorService: ObservableObject {
         if let volumePath = description[kDADiskDescriptionVolumePathKey as String] as? URL {
             vlog("📂 Volume already mounted at: \(volumePath)")
             analyzeAndAddVolume(at: volumePath, description: description)
+        } else if isUnmountedSystemDisk(description, volumeName: volumeName) {
+            // DA reports every disk at launch, including the APFS Recovery,
+            // Preboot, VM and Update volumes that macOS leaves unmounted.
+            // Mounting them put "Recovery N" under /Volumes, where the scan
+            // saw a container-sized volume. BitMatch mounts nothing of the
+            // system's.
+            vlog("⏭️ Not mounting system disk: \(volumeName)")
         } else {
             vlog("🔄 Volume not mounted, attempting to mount...")
             // Try to mount the disk
@@ -219,6 +226,16 @@ final class VolumeMonitorService: ObservableObject {
         }
     }
     
+    /// An unmounted disk BitMatch must not mount: a system-named volume, or
+    /// any volume on an internal, non-removable device.
+    private func isUnmountedSystemDisk(_ description: [String: Any], volumeName: String) -> Bool {
+        if BackupTargetPolicy.isSystemVolumeName(volumeName) { return true }
+        let isInternal = description[kDADiskDescriptionDeviceInternalKey as String] as? Bool ?? false
+        let isRemovable = description[kDADiskDescriptionMediaRemovableKey as String] as? Bool ?? false
+        let isEjectable = description[kDADiskDescriptionMediaEjectableKey as String] as? Bool ?? false
+        return isInternal && !isRemovable && !isEjectable
+    }
+
     private func analyzeAndAddVolume(at volumePath: URL, description: [String: Any]) {
         // Skip system volumes and hidden volumes
         if isSystemVolume(description) {
@@ -424,8 +441,18 @@ final class VolumeMonitorService: ObservableObject {
         let capacityGB = capacity / (1024 * 1024 * 1024)
         vlog("🔎 Classify by size: \(capacityGB)GB (dest ≥ 1024GB, source ≤ 512GB)")
 
+        // Size alone would make the startup disk (/Volumes/Macintosh HD is
+        // a symlink to "/"), a mounted Recovery volume or any internal
+        // volume a backup drive: they report their APFS container's size.
+        // The shared rule decides what discovery may offer.
+        let backupRefusal = BackupTargetPolicy.refusal(for: url, origin: .discovered, source: nil)
+
         if capacity >= destinationThreshold {
             // Always treat 1TB+ as destination, even if camera-like contents are present
+            if let backupRefusal {
+                vlog("⏭️ Not a backup drive: \(backupRefusal)")
+                return nil
+            }
             vlog("📦 Classified as DESTINATION (≥1TB)")
             return DetectedVolume(
                 url: url,
@@ -466,6 +493,10 @@ final class VolumeMonitorService: ObservableObject {
                     devicePath: devicePath
                 )
             } else {
+                if let backupRefusal {
+                    vlog("⏭️ Not a backup drive: \(backupRefusal)")
+                    return nil
+                }
                 vlog("📦 Classified as DESTINATION (512GB–1TB, no camera)")
                 return DetectedVolume(
                     url: url,

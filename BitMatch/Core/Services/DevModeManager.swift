@@ -180,7 +180,7 @@ class DevModeManager: ObservableObject {
                 // Wire up coordinator selections
                 // The shared scanner reports the synthetic folder's real size.
                 coordinator.sourceURL = src
-                coordinator.destinationURLs = [dst]
+                coordinator.replaceDestinations(with: [dst])
                 coordinator.verificationMode = verify ? .standard : .quick
                 coordinator.switchMode(to: .copyAndVerify)
                 
@@ -217,8 +217,21 @@ class DevModeManager: ObservableObject {
                     }
                     .store(in: &self.stressCancellables)
                 
-                // Start the transfer
-                Task { await coordinator.startCurrentMode() }
+                // Start the transfer once the source scan is done: Start
+                // waits for it (`isAnalysingSource`), so starting at once
+                // was always refused, silently, since the one readiness rule.
+                Task { @MainActor in
+                    var waits = 0
+                    while coordinator.isAnalysingSource && waits < 600 {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        waits += 1
+                    }
+                    if !coordinator.canStartOperation {
+                        let issues = coordinator.operationReadinessAssessment.issues
+                        SharedLogger.info("Stress test cannot start: \(issues.joined(separator: "; "))")
+                    }
+                    await coordinator.startCurrentMode()
+                }
             }
         }
     }
@@ -251,7 +264,7 @@ class DevModeManager: ObservableObject {
         SharedLogger.debug("Fake source: \(sourceInfo.name) - \(sourceInfo.formattedSize)")
 
         // Set fake destinations
-        coordinator.destinationURLs = destinations.map { $0.url }
+        coordinator.replaceDestinations(with: destinations.map { $0.url })
 
         // Simulate folder info loading for destinations
         for (index, (_, info)) in destinations.enumerated() {
@@ -307,7 +320,7 @@ class DevModeManager: ObservableObject {
         SharedLogger.debug("Source URL is now: \(coordinator.sourceURL?.path ?? "nil")")
 
         // Set fake destinations
-        coordinator.destinationURLs = destinations.map { $0.url }
+        coordinator.replaceDestinations(with: destinations.map { $0.url })
         SharedLogger.debug("Set \(destinations.count) destinations")
         SharedLogger.debug("Destinations are now: \(coordinator.destinationURLs.map { $0.path })")
         

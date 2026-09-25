@@ -28,8 +28,9 @@ struct MacAppEnvironmentTests {
 
     /// Backups added through the Mac volume model land in the shared
     /// selection, and the estimate follows it.
-    /// Plant: in `MacVolumeAccessModel.addDestination`, delete
-    /// `shared?.addDestination(url)`.
+    /// Plant: in `MacVolumeAccessModel.addDestination`, replace
+    /// `shared?.addDestination(url, origin: .userChoice, facts: volumeFacts)`
+    /// with `nil as String?`.
     @Test func volumeModelWritesThroughTheSharedSelection() throws {
         let (environment, folders) = try makeEnvironment()
         defer { folders.cleanup() }

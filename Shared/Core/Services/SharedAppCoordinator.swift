@@ -412,17 +412,47 @@ class SharedAppCoordinator: ObservableObject {
     
     func addDestinationFolder() async {
         let urls = await platformManager.fileSystem.selectDestinationFolders()
+        var refusals: [String] = []
         for url in urls {
-            addDestination(url)
+            if let refusal = addDestination(url) { refusals.append(refusal) }
+        }
+        // A picked system volume is refused with a reason, not silently.
+        if !refusals.isEmpty {
+            await showError(FileOperationError.unsafeOperation(refusals.joined(separator: "\n")))
         }
     }
 
-    /// Adds a backup unless the same folder (by resolved path) is already
-    /// chosen. Used by every platform's picker and by Mac drag-and-drop.
-    func addDestination(_ url: URL) {
+    /// Adds a backup unless `BackupTargetPolicy` refuses it for `origin` or
+    /// the same folder (by resolved path) is already chosen. Used by every
+    /// platform's picker, Mac drag-and-drop, discovery and restore. Returns
+    /// the refusal, which only a `.userChoice` caller shows; the automatic
+    /// origins log it and move on.
+    @discardableResult
+    func addDestination(
+        _ url: URL,
+        origin: BackupTargetPolicy.Origin = .userChoice,
+        facts: (URL) -> BackupTargetPolicy.VolumeFacts? = BackupTargetPolicy.VolumeFacts.read
+    ) -> String? {
+        if let refusal = BackupTargetPolicy.refusal(for: url, origin: origin, source: sourceURL, facts: facts) {
+            SharedLogger.info("Backup refused (\(origin)): \(url.path): \(refusal)", category: .transfer)
+            return refusal
+        }
         let path = Self.resolvedPath(url)
-        guard !destinationURLs.contains(where: { Self.resolvedPath($0) == path }) else { return }
+        guard !destinationURLs.contains(where: { Self.resolvedPath($0) == path }) else { return nil }
         destinationURLs.append(url)
+        return nil
+    }
+
+    /// Replaces every backup at once (the debug tools), keeping only what
+    /// `BackupTargetPolicy` allows for a user's own pick.
+    func replaceDestinations(with urls: [URL]) {
+        destinationURLs = urls.filter { url in
+            guard let refusal = BackupTargetPolicy.refusal(for: url, origin: .userChoice, source: sourceURL) else {
+                return true
+            }
+            SharedLogger.info("Backup refused: \(url.path): \(refusal)", category: .transfer)
+            return false
+        }
     }
 
     func removeDestinationFolder(_ url: URL) {
@@ -553,6 +583,13 @@ class SharedAppCoordinator: ObservableObject {
                 reportSettings = userReportSettings
                 cameraLabelSettings = userCameraSettings
                 cameraLabels.suspendsSaving = false
+            }
+            // Queued backups were the user's picks; the rule still applies,
+            // since a record can predate it.
+            if let refusal = access.destinationURLs.lazy.compactMap({
+                BackupTargetPolicy.refusal(for: $0, origin: .userChoice, source: access.sourceURL)
+            }).first {
+                throw FileOperationError.unsafeOperation(refusal)
             }
             sourceURL = access.sourceURL
             destinationURLs = access.destinationURLs
@@ -1482,6 +1519,8 @@ extension OperationReadinessAssessment {
         for destination in destinations {
             if SafetyValidator.isProtectedSystemPath(destination) {
                 blocking.append("\(destination.lastPathComponent): System folders cannot be used as destinations")
+            } else if let refusal = BackupTargetPolicy.refusal(for: destination, origin: .userChoice, source: source) {
+                blocking.append(refusal)
             } else if let issue = SafetyValidator.destinationSafetyIssue(source: source, destination: destination) {
                 blocking.append("\(destination.lastPathComponent): \(issue)")
             }

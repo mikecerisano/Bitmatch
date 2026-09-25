@@ -35,6 +35,9 @@ final class MacVolumeAccessModel: ObservableObject {
     /// skips these until the drive disappears (unplug) or the user re-adds
     /// it, so rediscovery never undoes a deliberate removal.
     private var dismissedDestinationPaths = Set<String>()
+    /// Volume facts for `BackupTargetPolicy`. Tests supply their own, since
+    /// their drives are not mounted.
+    var volumeFacts: (URL) -> BackupTargetPolicy.VolumeFacts? = BackupTargetPolicy.VolumeFacts.read
 
     private var sourceURL: URL? { shared?.sourceURL }
     private var destinationURLs: [URL] { shared?.destinationURLs ?? [] }
@@ -149,24 +152,34 @@ final class MacVolumeAccessModel: ObservableObject {
         dismissedDestinationPaths = dismissedDestinationPaths.filter { driveURLs.contains($0) }
 
         // Auto-add new backup drives as destinations, but never undo an
-        // explicit removal while the drive is still present.
+        // explicit removal while the drive is still present, and never add
+        // what `BackupTargetPolicy` refuses for discovery (the startup disk,
+        // system volumes, internal volumes, the source's drive). Refusals
+        // are logged, not shown: the user did not ask for this add.
         for drive in drives {
             if !destinationURLs.contains(drive.url) && !dismissedDestinationPaths.contains(drive.url.path) {
-                addDestination(drive.url)
-                SharedLogger.info("Auto-added backup drive: \(drive.displayName)", category: .transfer)
+                // The coordinator logs a refusal.
+                if shared?.addDestination(drive.url, origin: .discovered, facts: volumeFacts) == nil {
+                    SharedLogger.info("Auto-added backup drive: \(drive.displayName)", category: .transfer)
+                }
             }
         }
     }
 
     // MARK: - Public Methods
-    /// Adds a backup through the shared coordinator (which refuses the same
-    /// folder twice) and forgets any earlier dismissal of it.
-    func addDestination(_ url: URL) {
-        guard !destinationURLs.contains(url) else { return }
+    /// The user's own add (picker, drop): through the shared coordinator,
+    /// which applies `BackupTargetPolicy` and refuses the same folder twice,
+    /// and forgets any earlier dismissal of it. Returns the refusal to show.
+    @discardableResult
+    func addDestination(_ url: URL) -> String? {
+        guard !destinationURLs.contains(url) else { return nil }
+        if let refusal = shared?.addDestination(url, origin: .userChoice, facts: volumeFacts) {
+            return refusal
+        }
         // An explicit add overrides any earlier dismissal.
         dismissedDestinationPaths.remove(url.path)
-        shared?.addDestination(url)
         saveRecentFolder(url, key: "recentDestination")
+        return nil
     }
 
     /// Removes a backup and remembers the dismissal, so discovery does not
@@ -386,10 +399,15 @@ final class MacVolumeAccessModel: ObservableObject {
     
     /// Last time's backups, all or nothing (`LastBackupsRestorePolicy`):
     /// empty when any of them is not mounted now.
+    /// Also empty when `BackupTargetPolicy` refuses any of them for a
+    /// restore (the stress test's temp folder, a system volume an older
+    /// build auto-added and saved).
     func loadLastDestinations() -> [URL] {
-        LastBackupsRestorePolicy.backupsToRestore(
+        let facts = volumeFacts
+        return LastBackupsRestorePolicy.backupsToRestore(
             savedPaths: UserDefaults.standard.stringArray(forKey: lastDestinationsKey) ?? [],
-            exists: { FileManager.default.fileExists(atPath: $0) }
+            exists: { FileManager.default.fileExists(atPath: $0) },
+            refusal: { BackupTargetPolicy.refusal(for: $0, origin: .restored, source: nil, facts: facts) }
         )
     }
 
@@ -397,7 +415,7 @@ final class MacVolumeAccessModel: ObservableObject {
     func restoreLastDestinations() {
         guard destinationURLs.isEmpty else { return }
         for dest in loadLastDestinations() {
-            shared?.addDestination(dest)
+            shared?.addDestination(dest, origin: .restored, facts: volumeFacts)
         }
     }
     
