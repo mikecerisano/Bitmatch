@@ -56,7 +56,7 @@ final class ComparisonCoordinator {
         let destSet = Set(destMap.keys)
 
         let onlyInSource = sourceSet.subtracting(destSet)
-        let onlyInDest = destSet.subtracting(sourceSet)
+        let onlyInDest = destSet.subtracting(sourceSet).filter { !Self.isOffloadManifest($0) }
         let common = sourceSet.intersection(destSet)
 
         var mismatched: Set<String> = []
@@ -141,12 +141,32 @@ final class ComparisonCoordinator {
 
     // MARK: - Private Helpers
 
+    /// Finder writes these into any folder it displays, so a card and its offload
+    /// differ as soon as someone browses one of them (GitHub issue #8). They are
+    /// view state, not footage, and are ignored on both sides.
+    static func isFinderMetadata(_ relativePath: String) -> Bool {
+        let name = (relativePath as NSString).lastPathComponent
+        return name == ".DS_Store" || name == "Icon\r" || name.hasPrefix("._")
+    }
+
+    /// Hash manifests an offload writes at the destination root: the ASC MHL
+    /// `ascmhl/` history and legacy `.mhl` / `.mhl.md5` files (BitMatch 0.1.4
+    /// paranoid transfers). Only ignored when the destination alone has them;
+    /// one on the source that was not copied is still reported.
+    static func isOffloadManifest(_ relativePath: String) -> Bool {
+        let parts = relativePath.split(separator: "/")
+        if parts.count > 1 { return parts[0].lowercased() == "ascmhl" }
+        let name = relativePath.lowercased()
+        return name.hasSuffix(".mhl") || name.hasSuffix(".mhl.md5")
+    }
+
     private func buildFileMap(files: [URL], base: URL) throws -> [String: (url: URL, size: Int64)] {
         var map: [String: (url: URL, size: Int64)] = [:]
         map.reserveCapacity(files.count)
         let resolver = RelativePathResolver(base: base)
         for fileURL in files {
             let key = try resolver.resolve(fileURL)
+            if Self.isFinderMetadata(key) { continue }
             let size = try platformManager.fileSystem.getFileSize(for: fileURL)
             map[key] = (fileURL, size)
         }
