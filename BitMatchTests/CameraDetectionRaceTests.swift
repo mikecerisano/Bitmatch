@@ -77,6 +77,9 @@ final class CameraDetectionRaceTests: XCTestCase {
         await MainActor.run {
             let service = CameraCardDetectionService()
             service.listVolumes = { volumes }
+            // Only the events these tests send: real mounts elsewhere in the
+            // suite (exFAT disk images) must not trigger detection here.
+            service.volumeEventCenter = NotificationCenter()
             service.detectCard = { _ in await gate.suspend() }
             service.onResultProcessed = { gate.noteSettled() }
             return service

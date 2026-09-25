@@ -48,7 +48,10 @@ final class CameraCardDetectionTests: XCTestCase {
         let monitor = VolumeMonitor { event in
             if case .mounted = event.type { mountCount += 1 }
         }
-        let center = NSWorkspace.shared.notificationCenter
+        // A private center: real volumes mounted by other tests (exFAT disk
+        // images) must not add to the count.
+        let center = NotificationCenter()
+        monitor.eventCenter = center
         func postMount() {
             center.post(
                 name: NSWorkspace.didMountNotification,

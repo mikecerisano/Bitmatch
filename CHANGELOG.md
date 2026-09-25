@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Fix: Copying to an exFAT backup drive failed every file with "Destination file appeared during copy; refusing to overwrite it" (0.1.4 through 0.1.6). exFAT has no hard links, which BitMatch used to publish each verified file without any chance of replacing an existing one. On exFAT, BitMatch now claims the file name exclusively and moves the verified copy onto that claim; an existing file is still never replaced.
 - Setup: A source or backup not chosen yet is no longer shown as a red "Resolve before starting" error. The next box to fill glows gently (a steady border with Reduce Motion), and Start says what is next, on Mac, iPad and iPhone. The banner is kept for real problems. The separate "Verified copy · SHA-256" line is gone; Advanced lists any changed settings.
 - Fix: With "Automatically set detected cameras as source" turned on (Mac, off by default), BitMatch could select a card's media subfolder (such as PRIVATE/ on a Sony Alpha or FX3 card) instead of the whole card, leaving the DCIM stills out of a transfer that still verified green. Auto-select now always uses the card root.
 - Fix: A transfer's state is stored once, so the screen and pause/resume can no longer disagree. A resumed transfer no longer shows "Resuming" indefinitely, and a transfer that finishes while paused shows how it ended.
