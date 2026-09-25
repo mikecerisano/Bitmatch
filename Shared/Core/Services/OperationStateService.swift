@@ -11,7 +11,9 @@ import UIKit
 class OperationStateService: ObservableObject {
     
     // MARK: - Published State
-    @Published var currentState: OperationState = .idle
+    /// The one stored state of the current operation. `SharedAppCoordinator.operationState`
+    /// reads and writes this; there is no second copy.
+    @Published private(set) var currentState: OperationState = .notStarted
     @Published var pauseResumeCapabilities = PauseResumeCapabilities()
     @Published var savedOperations: [SavedOperationState] = []
     
@@ -49,6 +51,12 @@ class OperationStateService: ObservableObject {
         return true
     }
     
+    /// Record a state reported by the coordinator or the engine.
+    func adopt(_ newState: OperationState) {
+        stateMachine.adopt(newState)
+        currentState = newState
+    }
+
     // MARK: - Operation Lifecycle
     
     func startOperation(id: UUID, sourceURL: URL, destinationURLs: [URL], totalFiles: Int, totalBytes: Int64, verificationMode: String? = nil, mode: String? = nil) {
@@ -137,8 +145,20 @@ class OperationStateService: ObservableObject {
         return true
     }
     
-    func completeOperation(success: Bool, message: String) {
-        guard let operationId = currentOperationId else { return }
+    /// The current operation's ID if `operationId` names it (or is nil,
+    /// meaning "whatever is running"). A stale operation winding down after
+    /// a newer one started gets nil, so it cannot end the newer one.
+    private func currentOperation(matching operationId: UUID?) -> UUID? {
+        guard let current = currentOperationId else { return nil }
+        if let operationId, operationId != current {
+            SharedLogger.warning("StateService: ignored lifecycle call from stale operation \(operationId)", category: .transfer)
+            return nil
+        }
+        return current
+    }
+
+    func completeOperation(operationId requested: UUID? = nil, success: Bool, message: String) {
+        guard let operationId = currentOperation(matching: requested) else { return }
 
         // Clean up any saved state
         if let savedIndex = savedOperations.firstIndex(where: { $0.operationId == operationId }) {
@@ -155,8 +175,8 @@ class OperationStateService: ObservableObject {
 
     /// Error-path terminal state. Distinct from cancellation so a failed
     /// operation is never reported as cancelled (or vice versa).
-    func failOperation() {
-        guard let operationId = currentOperationId else { return }
+    func failOperation(operationId requested: UUID? = nil) {
+        guard let operationId = currentOperation(matching: requested) else { return }
 
         applyTransition(.failed)
 
@@ -170,8 +190,8 @@ class OperationStateService: ObservableObject {
         SharedLogger.warning("StateService: failed and cleaned up", category: .transfer)
     }
 
-    func cancelOperation() {
-        guard let operationId = currentOperationId else { return }
+    func cancelOperation(operationId requested: UUID? = nil) {
+        guard let operationId = currentOperation(matching: requested) else { return }
         
         applyTransition(.cancelled)
         

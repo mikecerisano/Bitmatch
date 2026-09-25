@@ -311,7 +311,7 @@ final class CopyVerifyExecutor {
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
-        stateService.completeOperation(success: succeeded, message: completionMessage)
+        stateService.completeOperation(operationId: config.operationId, success: succeeded, message: completionMessage)
 
         callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
 
@@ -395,14 +395,14 @@ final class CopyVerifyExecutor {
         if error is CancellationError {
             timingService.cancelOperation()
             errorService.completeErrorTracking()
-            stateService.cancelOperation()
+            stateService.cancelOperation(operationId: config.operationId)
             callbacks.onStateChange(.cancelled)
         } else {
             let context = ErrorContext.general(operation: "File Operation", stage: "Execution")
             errorService.reportError(error, context: context)
             timingService.completeOperation(success: false, message: error.localizedDescription)
             errorService.completeErrorTracking()
-            stateService.failOperation()
+            stateService.failOperation(operationId: config.operationId)
             callbacks.onStateChange(.failed)
             await platformManager.presentError(error)
         }

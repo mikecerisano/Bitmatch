@@ -192,7 +192,7 @@ class DevModeManager: ObservableObject {
                 
                 // Subscribe for cleanup on completion/cancel
                 self.stressCancellables.removeAll()
-                coordinator.sharedCoordinator.$operationState
+                coordinator.sharedCoordinator.operationStatePublisher
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] state in
                         guard let self = self else { return }

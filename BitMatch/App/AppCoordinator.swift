@@ -594,7 +594,7 @@ final class AppCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         // Map operation state for progress timer management
-        sharedCoordinator.$operationState.sink { [weak self] state in
+        sharedCoordinator.operationStatePublisher.sink { [weak self] state in
             guard let self else { return }
             switch state {
             case .inProgress, .copying, .verifying:
@@ -642,7 +642,7 @@ final class AppCoordinator: ObservableObject {
 
         Publishers.MergeMany(
             sharedCoordinator.$isOperationInProgress.map { _ in () }.eraseToAnyPublisher(),
-            sharedCoordinator.$operationState.map { _ in () }.eraseToAnyPublisher(),
+            sharedCoordinator.operationStatePublisher.map { _ in () }.eraseToAnyPublisher(),
             sharedCoordinator.$results.map { _ in () }.eraseToAnyPublisher(),
             sharedCoordinator.$verificationMode.map { _ in () }.eraseToAnyPublisher()
         )

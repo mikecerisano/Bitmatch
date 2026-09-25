@@ -50,7 +50,15 @@ class SharedAppCoordinator: ObservableObject {
 
     // MARK: - Operation State
     @Published var isOperationInProgress = false
-    @Published var operationState: OperationState = .notStarted
+    /// Stored once, in `stateService` (Promise 2): the verdict on screen and
+    /// pause/resume can never disagree. Writes are adopted as reported.
+    var operationState: OperationState {
+        get { stateService.currentState }
+        set { stateService.adopt(newValue) }
+    }
+    /// Emits before each `operationState` change, as the stored property's
+    /// `$operationState` publisher did.
+    var operationStatePublisher: Published<OperationState>.Publisher { stateService.$currentState }
     @Published var progress: OperationProgress?
     @Published var results: [ResultRow] = []
     @Published var currentOperation: FileOperation?
@@ -133,6 +141,10 @@ class SharedAppCoordinator: ObservableObject {
         )
         setupBindings()
         self.transferJournal.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        // operationState lives in stateService; views observing this
+        // coordinator must still refresh when it changes.
+        stateService.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         // Default first launch to checksum verification; honor last-picked thereafter.
         if let saved = UserDefaults.standard.string(forKey: "lastVerificationMode"),
