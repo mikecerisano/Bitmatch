@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Setup: Project setup (client, job, folder-layer presets, package route, "Set up card") is one shared component (`ProjectSetupCard`) on Mac, iPad and iPhone. Presets are creatable, chosen and applied the same way everywhere: iPad and iPhone gain the folder-preset picker and "Save as preset" they never had. SFTP off-site backup stays the documented Mac-only exception; iPad and iPhone can still see and pick a destination already saved on the Mac, but cannot add or edit one.
 - Mac: The menu bar has one View menu (the mode shortcuts ⌘1–⌘3 are in it) and File is back in its usual place, first after the app menu.
 
 ## [0.1.7] - 2026-09-25

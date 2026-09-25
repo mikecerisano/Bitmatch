@@ -27,7 +27,10 @@ struct MacSetupView: View {
             // A card macOS cannot read is a real, actionable problem.
             UnreadableMediaBanner()
         } projectSetup: {
-            PhotographerJobSetupView(coordinator: coordinator)
+            ProjectSetupCard(coordinator: coordinator) {
+                // SFTP is a documented Mac-only exception (AGENTS.md).
+                RemoteBackupDestinationView(coordinator: coordinator)
+            }
         } labelContent: {
             MacCameraLabelSlot(coordinator: coordinator, cameraLabels: coordinator.cameraLabels)
         } projectEvidence: {
