@@ -4,6 +4,20 @@ import XCTest
 
 final class SafetyValidatorTests: XCTestCase {
 
+    /// The same folder written as /private/var/... and /var/... is one
+    /// folder. Standardizing dropped "/private" only when the rest of the
+    /// path existed, so a backup inside the source could go unnoticed.
+    /// Plant: in `SafetyValidator.pathIsWithin`, compare
+    /// `URL(fileURLWithPath:).standardizedFileURL.pathComponents` directly again.
+    func testBackupInsideSourceIsFoundAcrossPrivateAlias() {
+        let base = "var/folders/bitmatch_alias_\(UUID().uuidString)/CARD"
+        let source = URL(fileURLWithPath: "/private/" + base, isDirectory: true)
+        let inside = URL(fileURLWithPath: "/" + base + "/Backup", isDirectory: true)
+        XCTAssertEqual(SafetyValidator.destinationSafetyIssue(source: source, destination: inside),
+                       "Destination is inside the source folder")
+        XCTAssertTrue(SafetyValidator.isProtectedSystemPath(URL(fileURLWithPath: "/private/etc", isDirectory: true)))
+    }
+
     func testAvailableSpaceFallsBackWhenImportantUsageCapacityIsUnavailable() {
         XCTAssertEqual(
             SafetyValidator.resolvedAvailableSpace(

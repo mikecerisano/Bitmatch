@@ -508,9 +508,16 @@ final class SafetyValidator {
         return requiredSpace
     }
 
+    /// Resolving symlinks strips a leading "/private" ("/private/etc" becomes
+    /// "/etc"), so the resolved forms are listed too.
     private static let protectedSystemPrefixes: [String] = [
-        "/System", "/Library", "/usr", "/bin", "/sbin", "/private", "/var"
+        "/System", "/Library", "/usr", "/bin", "/sbin", "/private", "/var", "/etc"
     ]
+
+    /// On iPhone and iPad, everything the Files picker returns (On My iPad,
+    /// iCloud Drive, external drives under LiveFiles) is the mobile user's
+    /// storage below /private/var/mobile, not a system folder.
+    private static let iOSUserStorageRoots: [String] = ["/var/mobile", "/private/var/mobile"]
 
     static func isProtectedSystemPath(_ url: URL) -> Bool {
         let path = canonicalPath(url)
@@ -518,7 +525,24 @@ final class SafetyValidator {
         if pathIsWithin(path, root: temporaryPath) {
             return false
         }
+        #if os(iOS)
+        if iOSUserStorageRoots.contains(where: { pathIsWithin(path, root: $0) }) {
+            return false
+        }
+        #endif
         return protectedSystemPrefixes.contains { path == $0 || pathIsWithin(path, root: $0) }
+    }
+
+    /// Standardizing drops "/private" from a path only when the rest exists
+    /// ("/private/var/mobile" becomes "/var/mobile", but a longer path that
+    /// does not exist keeps it), so the same place could fail to match
+    /// itself. Both sides drop it the way macOS aliases these folders.
+    private static func comparableComponents(_ path: String) -> [String] {
+        var components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        if components.count > 2, components[1] == "private", ["var", "etc", "tmp"].contains(components[2]) {
+            components.remove(at: 1)
+        }
+        return components
     }
 
     private static func canonicalPath(_ url: URL) -> String {
@@ -527,8 +551,8 @@ final class SafetyValidator {
 
     /// Compare path-components, not raw prefixes, to avoid boundary bypasses.
     private static func pathIsWithin(_ candidatePath: String, root rootPath: String) -> Bool {
-        let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
-        let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
+        let candidateComponents = comparableComponents(candidatePath)
+        let rootComponents = comparableComponents(rootPath)
         guard candidateComponents.count >= rootComponents.count else { return false }
         return zip(rootComponents, candidateComponents).allSatisfy(==)
     }
