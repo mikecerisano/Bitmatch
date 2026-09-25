@@ -158,12 +158,14 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
         }
     }
     
+    /// Checksums computed for this mode. Paranoid adds a byte-by-byte
+    /// comparison on top of SHA-256; it does not add MD5 or SHA-1.
     var checksumTypes: [ChecksumAlgorithm] {
         switch self {
         case .quick: return []
         case .standard: return [.sha256]
         case .thorough: return [.sha256, .md5]
-        case .paranoid: return [.sha256, .md5, .sha1]
+        case .paranoid: return [.sha256]
         }
     }
     
