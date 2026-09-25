@@ -135,6 +135,21 @@ enum ResultPresentation {
     }
 }
 
+/// Path text for deciding which backup a written file belongs to, without
+/// touching the disk (the files may be gone, and there can be 100k rows).
+enum ResultPathMatch {
+    /// `/private/var`, `/private/tmp` and `/private/etc` are where macOS's
+    /// `/var`, `/tmp` and `/etc` symlinks point, so both spellings compare equal.
+    static func comparablePath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        for linked in ["/var", "/tmp", "/etc"] where
+            standardized == "/private" + linked || standardized.hasPrefix("/private" + linked + "/") {
+            return String(standardized.dropFirst("/private".count))
+        }
+        return standardized
+    }
+}
+
 /// Summaries describe retained result evidence, never infer completion from an empty list.
 struct DestinationResultSummary: Identifiable {
     let id: String
@@ -152,13 +167,18 @@ struct DestinationResultSummary: Identifiable {
     }
 
     static func make(rows: [ResultRow], destinations: [URL]) -> [Self] {
-        let roots = destinations.sorted { $0.path.count > $1.path.count }
+        // Compare resolved paths: `/var/...` and `/private/var/...` are the
+        // same folder, and a mismatch would list the backup's rows elsewhere.
+        let resolved = ResultPathMatch.comparablePath
+        let roots = destinations
+            .map { (original: $0.path, resolved: resolved($0.path)) }
+            .sorted { $0.resolved.count > $1.resolved.count }
         var assigned: [String: [ResultRow]] = [:]
         var remaining: [ResultRow] = []
         for row in rows {
-            if let path = row.destinationPath,
-               let root = roots.first(where: { path == $0.path || path.hasPrefix($0.path + "/") }) {
-                assigned[root.path, default: []].append(row)
+            if let path = row.destinationPath.map(resolved),
+               let root = roots.first(where: { path == $0.resolved || path.hasPrefix($0.resolved + "/") }) {
+                assigned[root.original, default: []].append(row)
             } else {
                 remaining.append(row)
             }

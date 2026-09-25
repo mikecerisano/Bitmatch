@@ -91,6 +91,7 @@ final class CopyVerifyExecutor {
     private var handoffTask: Task<[String], Error>?
     private var reportTask: Task<Void, Error>?
     private var cancellationRequested = false
+    private var destinationRoots: [URL] = []
 
     // MARK: - Initialization
 
@@ -119,6 +120,7 @@ final class CopyVerifyExecutor {
         callbacks: CopyVerifyCallbacks
     ) async throws -> FileOperation? {
         cancellationRequested = false
+        destinationRoots = config.destinationURLs
         SharedLogger.info("CopyVerifyExecutor: starting operation \(config.operationId)", category: .transfer)
 
         // Create overflow service for large transfers
@@ -512,11 +514,23 @@ final class CopyVerifyExecutor {
     }
 
     private func driveName(for url: URL) -> String {
-        let comps = url.pathComponents
+        Self.destinationLabel(for: url, roots: destinationRoots)
+    }
+
+    /// The backup a written file belongs to, as reports name it: the drive
+    /// under /Volumes, otherwise the chosen backup folder. `/var` and
+    /// `/private/var` spellings agree (see `ResultPathMatch`).
+    nonisolated static func destinationLabel(for file: URL, roots: [URL]) -> String {
+        let filePath = ResultPathMatch.comparablePath(file.path)
+        let root = roots
+            .map { URL(fileURLWithPath: ResultPathMatch.comparablePath($0.path)) }
+            .filter { filePath == $0.path || filePath.hasPrefix($0.path + "/") }
+            .max { $0.path.count < $1.path.count }
+        let comps = (root ?? file).pathComponents
         if let volIndex = comps.firstIndex(of: "Volumes"), volIndex + 1 < comps.count {
             return comps[volIndex + 1]
         }
-        return url.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+        return root?.lastPathComponent ?? file.deletingLastPathComponent().lastPathComponent
     }
 
     private func checkCancellation() throws {
