@@ -102,30 +102,32 @@ enum DesignSystem {
     /// Audit H11: these were fixed point sizes (9-16pt) with no Dynamic
     /// Type support. Every case is now built from a text style, so it
     /// scales with the system text size setting; the weight and design
-    /// stay as before.
+    /// stay as before. Each maps to the macOS text style nearest its old
+    /// size (title3 15pt, headline 13, callout 12, subheadline 11,
+    /// caption 10, caption2 10), so default sizes barely change.
     enum Typography {
 
         /// Large title -- app name, primary headings.
         /// Usage: section titles, modal headers.
-        static let title = Font.system(.subheadline, weight: .semibold)
+        static let title = Font.system(.title3, weight: .semibold)
 
         /// Section heading -- card titles, group headers.
-        static let heading = Font.system(.footnote, weight: .semibold)
+        static let heading = Font.system(.headline, weight: .semibold)
 
         /// Standard body text.
-        static let body = Font.system(.footnote, weight: .medium)
+        static let body = Font.system(.callout, weight: .medium)
 
         /// Small supporting text -- labels, timestamps, secondary info.
-        static let caption = Font.system(.caption2, weight: .regular)
+        static let caption = Font.system(.caption, weight: .regular)
 
         /// Extra-small text for badges, counters, and micro-labels.
         static let micro = Font.system(.caption2, weight: .semibold)
 
         /// Monospaced text for file names, paths, speeds, and technical readouts.
-        static let mono = Font.system(.footnote, design: .monospaced, weight: .semibold)
+        static let mono = Font.system(.subheadline, design: .monospaced, weight: .semibold)
 
         /// Small monospaced text for inline file info and progress details.
-        static let monoSmall = Font.system(.caption2, design: .monospaced, weight: .regular)
+        static let monoSmall = Font.system(.caption, design: .monospaced, weight: .regular)
     }
 
     // MARK: - Spacing
