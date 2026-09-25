@@ -98,6 +98,25 @@ struct OperationStateSingleSourceTests {
         #expect(engine.pauseCount == 1)
     }
 
+    /// A run that finishes while Pause waits on the engine must stay
+    /// finished, with no Resume offered. Fails if `pauseOperation` stops
+    /// re-checking the state after the engine pause returns.
+    @Test func pauseRacingCompletionLeavesTheRunFinished() async {
+        let engine = PauseRecordingFileOperations()
+        let coordinator = SharedAppCoordinator(platformManager: PauseRecordingPlatform(fileOperations: engine))
+        let id = start(coordinator.stateService)
+        engine.onPause = {
+            await MainActor.run {
+                coordinator.stateService.completeOperation(operationId: id, success: true, message: "done")
+            }
+        }
+
+        await coordinator.pauseOperation()
+
+        #expect(coordinator.operationState == .completed(OperationCompletionInfo(success: true, message: "done")))
+        #expect(!coordinator.stateService.pauseResumeCapabilities.canResume)
+    }
+
     /// With nothing wired to pause the engine, an automatic pause must not
     /// claim one.
     @Test func automaticPauseWithoutAnEngineClaimsNothing() {
@@ -114,6 +133,8 @@ private final class PauseRecordingFileOperations: FileOperationsService, @unchec
     private let lock = NSLock()
     private var pauses = 0
     var pauseCount: Int { lock.withLock { pauses } }
+    /// Runs inside the engine pause, to simulate work finishing meanwhile.
+    var onPause: (@Sendable () async -> Void)?
 
     func performFileOperation(
         sourceURL: URL,
@@ -127,7 +148,10 @@ private final class PauseRecordingFileOperations: FileOperationsService, @unchec
         throw CancellationError()
     }
     func cancelOperation() {}
-    func pauseOperation() async { lock.withLock { pauses += 1 } }
+    func pauseOperation() async {
+        lock.withLock { pauses += 1 }
+        await onPause?()
+    }
     func resumeOperation() async {}
 }
 

@@ -597,7 +597,11 @@ class SharedAppCoordinator: ObservableObject {
         
         // Pause the underlying file operations
         await platformManager.fileOperations.pauseOperation()
-        
+
+        // The run may have finished while the engine paused; a finished run
+        // stays finished and offers no Resume.
+        guard stateService.currentState.canPause else { return }
+
         // Update state service with current progress
         stateService.pauseOperation(reason: reason, currentProgress: progress)
         
