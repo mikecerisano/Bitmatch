@@ -83,7 +83,7 @@ actor ResultsOverflowService {
     }
 
     private static func isProvisionalCopyRow(_ row: ResultRow) -> Bool {
-        row.status == "✅ Copied"
+        row.status == ResultOutcome.copiedUnverified.statusText
     }
 
     private static func canReplace(existing: ResultRow, with incoming: ResultRow) -> Bool {

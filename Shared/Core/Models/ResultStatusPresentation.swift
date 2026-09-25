@@ -32,6 +32,14 @@ struct ResultStatusPresentation: Equatable, Sendable {
 
     /// Presentation for a `ResultRow.status` string.
     static func make(status: String) -> Self {
+        if let outcome = ResultOutcome(statusText: status) {
+            switch outcome {
+            case .verified: return Self(tone: .verified, symbol: "checkmark.circle")
+            case .copiedUnverified: return Self(tone: .unverified, symbol: "doc.on.doc")
+            case .checksumMismatch: return Self(tone: .warning, symbol: "exclamationmark.triangle")
+            case .failed: return Self(tone: .failure, symbol: "xmark.circle")
+            }
+        }
         let lowercased = status.lowercased()
         if ResultRow.isSuccessStatus(status) {
             let saysVerified = lowercased.contains("verified") || lowercased.contains("match")

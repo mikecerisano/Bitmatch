@@ -66,6 +66,37 @@ struct TransferCard: Identifiable {
     }
 }
 
+// MARK: - Result Outcome
+
+/// How one file on one backup ended. The engine writes `statusText` into
+/// `ResultRow.status`, and `ResultRow.isSuccessStatus` reads it back through
+/// `init(statusText:)`, so the text and the rule that judges it cannot drift.
+enum ResultOutcome: CaseIterable, Equatable, Sendable {
+    /// Copied and confirmed by checksum or byte comparison.
+    case verified
+    /// Copied without verification (Quick mode). A success, never "verified".
+    case copiedUnverified
+    case checksumMismatch
+    case failed
+
+    var statusText: String {
+        switch self {
+        case .verified: "✅ Verified"
+        case .copiedUnverified: "✅ Copied"
+        case .checksumMismatch: "⚠️ Checksum Mismatch"
+        case .failed: "❌ Failed"
+        }
+    }
+
+    var isSuccess: Bool { self == .verified || self == .copiedUnverified }
+    var isVerified: Bool { self == .verified }
+
+    init?(statusText: String) {
+        guard let match = Self.allCases.first(where: { $0.statusText == statusText }) else { return nil }
+        self = match
+    }
+}
+
 // MARK: - Result Row
 struct ResultRow: Identifiable {
     let id: UUID
@@ -110,6 +141,10 @@ struct ResultRow: Identifiable {
     /// Substring checks like `lowercased().contains("match")` are forbidden
     /// here — "Checksum Mismatch" contains "match".
     static func isSuccessStatus(_ status: String) -> Bool {
+        if let outcome = ResultOutcome(statusText: status) {
+            return outcome.isSuccess
+        }
+        // Older wording (saved history, compare descriptions): fail-safe rule.
         guard status.contains("✅") else { return false }
         let lowercased = status.lowercased()
         let failureMarkers = ["❌", "⚠️", "mismatch", "fail", "error", "missing"]

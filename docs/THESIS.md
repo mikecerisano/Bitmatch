@@ -30,7 +30,7 @@ A read-only audit of the whole codebase against these promises found the safety 
 Each step ships on its own.
 
 1. Delete dead code; correct stale docs and comments.
-2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, except replacing "✅"-string status matching with a typed status, which is its own follow-up.
+2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, including the typed `ResultOutcome`.
 3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do.
 4. Merge the two UI shells one screen at a time, starting with Compare.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
@@ -44,7 +44,7 @@ Mike delegated these to the recommendations; the plans in `docs/superpowers/plan
 **Verification (P2)**
 - The overall verdict for a Quick transfer stays amber (already the case). Per-file rows say "Copied, not verified" without a green check, and a Quick Compare says "Sizes match, not verified" in amber.
 - Paranoid means byte-by-byte comparison plus SHA-256, everywhere (copy, reuse check, and Compare), as the README says.
-- Success is decided from a typed status, not by finding "✅" in a status string.
+- The engine writes result text from one typed `ResultOutcome`, and the success rule reads it back through the same type, so the two cannot drift. Older saved text keeps the fail-safe "✅" rule; unknown text is never a success.
 
 **Engine (step 5)**
 - iPad and iPhone get a PDF report too (P3, P5); later, low priority.

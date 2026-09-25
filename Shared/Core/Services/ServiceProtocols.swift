@@ -113,14 +113,12 @@ struct FileOperationResult {
     let verificationResult: VerificationResult?
     let processingTime: TimeInterval
     
-    var statusDescription: String {
+    var outcome: ResultOutcome {
         if let verification = verificationResult {
-            return verification.isValid ? "✅ Verified" : "⚠️ Checksum Mismatch"
+            return verification.isValid ? .verified : .checksumMismatch
         }
-        if success {
-            return "✅ Copied"
-        } else {
-            return "❌ Failed"
-        }
+        return success ? .copiedUnverified : .failed
     }
+
+    var statusDescription: String { outcome.statusText }
 }
