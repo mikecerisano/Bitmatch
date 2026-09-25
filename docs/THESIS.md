@@ -32,7 +32,7 @@ Each step ships on its own.
 1. Delete dead code; correct stale docs and comments.
 2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, including the typed `ResultOutcome`.
 3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Done 2026-09-25.** **Carried out 2026-09-25 on branch `cloud/retire-appcoordinator`** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, the drive estimate, volume access and camera auto-source. Written without Xcode; done once a Mac build and test run confirm it.
-4. Merge the two UI shells one screen at a time, starting with Compare.
+4. Merge the two UI shells one screen at a time, starting with Compare. **Screens done 2026-09-25** (Compare, History, Advanced, Master Report, Outcome, Setup, Progress); the source/backup boxes are still per platform.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
 
 Target shape: an engine package (`CardSource`, `DestinationWriter`, `ChecksumEngine`, `TransferPipeline`, `TransferJournal`, `EvidenceWriter`) tested against real folders, one `@Observable` app model whose verdict is computed from results, and one adaptive SwiftUI UI. Roughly 40k lines down to 20–24k, almost all of it from removing duplication rather than safety logic.
@@ -64,3 +64,8 @@ Mike delegated these to the recommendations; the plans in `docs/superpowers/plan
 - The Mac's stricter readiness check applies on every platform.
 
 **Step 2 scope additions** (found in the UI plan, section 8): clear `.resuming`; automatic pauses must pause the engine or not claim to; never report an estimated byte count as evidence (the 1,000,000,000 fallback).
+
+## Must fix before the next release
+
+- **Unexplained backup auto-add (seen 2026-09-25).** After the debug stress test set a backup folder in the temp directory, the Mac backups list grew by itself to four: Recovery 2, Macintosh HD, and a `/private/var/folders/...` volume. Safety rules blocked Start. Normal mount and unmount do not reproduce it, `VolumeMonitorService.isBackupDrive` excludes Macintosh HD, and `restoreLastDestinations` runs only on an empty list, so the source is unknown. The stress tool does not start on the pre-pair-2 main, so whether pair 2 introduced it is unknown. Reproduce with a real internal-disk backup folder (the #8 reporter's setup) before release, and add a guard that nothing adds a system or source volume as a backup.
+
