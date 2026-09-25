@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import BitMatch
 
-/// The rules `AppCoordinator` enforced for the Mac, checked against
-/// `SharedAppCoordinator` alone, which every platform will run on
-/// (thesis step 3). Each plant names the one-line production change that
+/// The start and project-lifecycle rules the retired Mac-only coordinator
+/// enforced, checked against `SharedAppCoordinator`, which every platform
+/// runs on (thesis step 3). Each plant names the one-line production change that
 /// should make the test fail.
 @MainActor
 @Suite(.serialized)

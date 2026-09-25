@@ -30,11 +30,11 @@ Test targets reach app code through `@testable import`. `test.sh` wraps the `xco
 |---|---|---|
 | `Shared/Core/Models/` | Value types: operation state, progress, results, verification modes, camera, photographer and remote-backup models, and view-ready `*Presentation` types | Both apps |
 | `Shared/Core/Services/` | The engine: copy, verify, safety, checksums, compare, ASC MHL, reports, journal/queue, camera detection, timing, errors, and `SharedAppCoordinator` | Both apps |
-| `Shared/Core/ViewModels/` | `PhotographerJobViewModel` | Both apps |
+| `Shared/Core/ViewModels/` | `PhotographerJobViewModel`, `CameraLabelModel` (label suggestion, per-card memory, saved settings), `ProgressPresentationModel` (smoothed progress for display) | Both apps |
 | `Shared/Views/` | SwiftUI views used by both apps: `CompareResultsView`, `TransferLibraryView` | Both apps |
 | `Platforms/iOS/Services/` | `IOSPlatformManager`, `IOSFileSystemService`, `IOSDriverScanner` | iOS app |
 | `Platforms/macOS/Services/` | `MacOSPlatformManager` | Mac app (via the exception above) |
-| `BitMatch/` | Mac app shell: `App/` (entry point, `ContentView`, `AppCoordinator`), view models, Mac-only services, and all Mac views | Mac app |
+| `BitMatch/` | Mac app shell: `App/` (entry point, `ContentView`, `MacAppEnvironment`), `MacVolumeAccessModel`, Mac-only services, and all Mac views | Mac app |
 | `BitMatch-iPad/` | iPhone/iPad app shell: entry point, `ContentView`, and views | iOS app |
 
 Some files under `Shared/` are wrapped in `#if os(...)` and so exist on only one platform. `RemoteBackupQueue.swift`, `RemoteBackupCoordinator.swift`, and `RemoteBackupProvider.swift` are macOS-only. `IOSBackgroundTaskService.swift` is real on iOS and a no-op stub on macOS.
@@ -55,10 +55,14 @@ The two apps are separate SwiftUI shells over the shared engine. `CopyAndVerifyV
 ### macOS
 
 - **Entry point.** `BitMatch/App/BitMatchApp.swift` shows `BitMatch/App/ContentView.swift`. Menu commands (mode switching, Start, Cancel) are posted as `NotificationCenter` events.
-- **Coordinator.** `ContentView` owns an `AppCoordinator` (`BitMatch/App/AppCoordinator.swift`). `AppCoordinator` wraps a `SharedAppCoordinator` built with `MacOSPlatformManager.shared`. It mirrors shared state into Mac-only view models in `BitMatch/Core/ViewModels/`: `ProgressViewModel`, `FileSelectionViewModel`, `CameraLabelViewModel`, and `SettingsViewModel`. It also owns a Core Data–backed `PhotographerJobViewModel`. Before a start, it copies view-model state into the shared coordinator and then calls `startOperation()` or `compareFolders()` on it.
-- **Mac-only parts.** `AppCoordinator` owns the Mac-only pieces: the remote-backup (SFTP) scheduler and the Core Data photographer job store.
+- **Coordinator.** As on iPhone and iPad, the Mac views bind to `SharedAppCoordinator` directly; it is the only state owner. `ContentView` holds a `MacAppEnvironment` (`BitMatch/App/MacAppEnvironment.swift`) as its one `@StateObject` and renders `MacMainView`. `MacAppEnvironment.make()` builds the Core Data–backed `PhotographerJobViewModel`, a `SharedAppCoordinator` on `MacOSPlatformManager.shared` that uses it, and the Mac companions below. Start and ⌘R call `startCurrentMode()`, the same entry point on every platform.
+- **Mac-only companions.** Each reads from and writes to the shared coordinator and keeps no copy of its state:
+  - `MacRemoteBackupController`: the SFTP remote-backup queue, scheduler and host-key prompt (the thesis's named Mac exception).
+  - `TransferEstimateModel`: the drive-benchmark "Estimated time" (to be replaced by observed copy speed).
+  - `MacVolumeAccessModel` (`BitMatch/Core/ViewModels/`): volume monitoring, backup-drive discovery, `/Volumes` bookmarks, recents, last-used backups and drive speed.
+  - `MacCameraAutoSourceController`: choosing a detected camera card as the source when Preferences allow it.
 
-**Being consolidated (see the [docs/THESIS.md](docs/THESIS.md) plan):** the Mac `AppCoordinator` and the hand-mirroring into its view models.
+  `MacRemoteBackupController`, `MacVolumeAccessModel` and `TransferEstimateModel` reach views as environment objects; the Preferences window receives its companions explicitly.
 
 ## Operation state
 
@@ -175,7 +179,7 @@ For each operation, in order:
 
 - **Entry point.** `SharedAppCoordinator.compareFolders()` calls `ComparisonCoordinator.compareFolders(left:right:verificationMode:onProgress:)` (`Shared/Core/Services/ComparisonCoordinator.swift`).
 - **Callers.**
-  - On Mac, `BitMatch/Views/CompareFoldersView.swift` starts it through `AppCoordinator.startOperation()`.
+  - On Mac, `BitMatch/Views/CompareFoldersView.swift` starts it through `SharedAppCoordinator.startCurrentMode()`.
   - On iPhone and iPad, `ModularContentView` and `PhoneContentView` call the shared coordinator directly.
 - **Enumeration.** Both sides go through `FileSystemService.getFileList`, which is `FileTreeEnumerator.enumerateRegularFiles` on both platforms. It uses the same hidden-file, symlink, and volume-metadata rules as the copy manifest. Files are matched by relative path.
 - **Ignored files.**
@@ -258,15 +262,14 @@ For each operation, in order:
 
 - **Components.** `RemoteBackupQueue`, `RemoteBackupCoordinator`, and `RemoteBackupProvider` are in `Shared/Core/Services/` but compile only on macOS. The SFTP implementation is `BitMatch/Core/Services/SFTPRemoteBackupProvider.swift`, which runs the system `ssh`, `sftp`, `ssh-keyscan`, and `ssh-keygen`. Credentials are stored in the Keychain (`BitMatch/Utilities/KeychainHelper.swift`).
 - **Queue behavior.** Queue items and manifests persist through the photographer job store. The queue retries network errors with backoff, and never replaces an existing remote file.
-- **Wiring.** `AppCoordinator` builds and schedules the queue.
+- **Wiring.** `MacRemoteBackupController.makeDefault` builds and schedules the queue; `MacAppEnvironment.make()` calls it.
 - **On iOS.** `SharedAppCoordinator` always uses `UnavailableRemoteProjectCoordinator` (`Shared/Core/Services/ProjectRemoteCoordinator.swift`), which records the destination choice and throws `remoteUploadsRequireMac`.
 
 ### Photographer job stores
 
 - **Protocol.** `PhotographerJobStore` is defined in `Shared/Core/Services/ProjectStoreProtocol.swift`.
 - **iOS store.** iOS uses `UserDefaultsPhotographerJobStore` (`Shared/Core/Services/UserDefaultsPhotographerJobStore.swift`), which is the `SharedAppCoordinator` default.
-- **Mac store.** Mac's `AppCoordinator` uses `CoreDataPhotographerJobStore` (`BitMatch/Core/Services/Photographer/PhotographerJobStore.swift`) on `BitMatchPersistenceController` (model `BitMatch/BitMatch.xcdatamodeld`).
-- **Mac wiring detail.** The `SharedAppCoordinator` inside Mac's `AppCoordinator` still creates its own UserDefaults-backed `PhotographerJobViewModel`. The Core Data job reaches the transfer only through `photographerReportFinalizer`.
+- **Mac store.** The Mac uses `CoreDataPhotographerJobStore` (`BitMatch/Core/Services/Photographer/PhotographerJobStore.swift`) on `BitMatchPersistenceController` (model `BitMatch/BitMatch.xcdatamodeld`). `MacAppEnvironment.make()` passes its job view model into `SharedAppCoordinator`, so the Mac has one.
 
 ## Platform managers
 
@@ -294,8 +297,8 @@ Both file system services list files through `FileTreeEnumerator`.
 
 - **One set of layout rules.** `CardLayoutClassifier` (`Shared/Core/Services/Camera/`) decides a card's brand from a bounded listing of its folder tree, brand-unique markers first. `CameraStructureDetector` (Mac auto-detect), the orchestrator and its folder-structure stage all use it, so they name the same brand.
 - **Detection chain.** `SharedCameraDetectionService` first asks `CameraDetectionOrchestrator`. When the layout names a brand, the orchestrator only adds a model name, from that brand's reader (MEDIAPRO.XML, RAF header, ALE) or from Spotlight when it agrees with the brand. Otherwise it tries the remaining heuristic detectors in order and stops at the first match. A brand from the orchestrator is not overridden by the service's own folder-name and file-extension guesses. Names are cleaned by `CleanCameraNameService` on every platform.
-- **Callers.** `SharedAppCoordinator` calls it when a source is chosen.
-- **Mac-only callers.** `CameraNamingService`, `CameraMemoryService`, and `CameraStructureDetector` are in `Shared/`, but only Mac code calls them: `CameraLabelViewModel`, `FileSelectionViewModel`, and `CameraCardDetectionService`.
+- **Callers.** `SharedAppCoordinator` calls it when a source is chosen. Its `CameraLabelModel` suggests the label with `CameraNamingService` and remembers it per card with `CameraMemoryService`, on every platform.
+- **Mac-only callers.** `CameraStructureDetector` is in `Shared/`, but only the Mac's `CameraCardDetectionService` calls it.
 
 ### Other Mac-only services (`BitMatch/Core/Services/`)
 

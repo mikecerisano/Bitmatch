@@ -20,7 +20,7 @@ A read-only audit of the whole codebase against these promises found the safety 
 
 - **P5:** Mac and iPad/iPhone are two UI shells over the shared engine. `CopyAndVerifyView`, `CompareFoldersView`, and `MasterReportView` each exist twice, with separate readiness checks. Only about 630 lines of view code are shared.
 - **P2:** Operation state is tracked twice: `SharedAppCoordinator.operationState` (the displayed verdict) and `OperationStateService` (pause/resume, which can reject transitions). They can diverge.
-- **P5:** macOS alone has `AppCoordinator` (676 lines), which mirrors shared state into five view models by hand.
+- **P5:** macOS alone has `AppCoordinator` (676 lines), which mirrors shared state into five view models by hand. *(Step 3 deletes it; see below.)*
 - **P4:** The Mac setup screen shows verification mode and the ASC MHL and report toggles at the top level.
 - **Crust:** dead `OperationStateManager` and `MHLGenerator` (kept alive only by their tests); Swift 5 mode with partial strict-concurrency checking; Core Data for jobs next to a JSON journal for transfers; a file-system test stub copied into 7 test files.
 - **Test gaps:** no Mac-vs-iOS verdict-parity test; no whole-source-tree-unchanged test.
@@ -31,7 +31,7 @@ Each step ships on its own.
 
 1. Delete dead code; correct stale docs and comments.
 2. Collapse operation state to one source, with the verdict derived from results. **Done 2026-09-25**, including the typed `ResultOutcome`.
-3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do.
+3. Retire `AppCoordinator`: run Mac on `SharedAppCoordinator` as iPad and iPhone do. **Carried out 2026-09-25 on branch `cloud/retire-appcoordinator`** ([plan](superpowers/plans/2026-09-25-retire-appcoordinator.md)): `AppCoordinator` and its four mirrored view models are gone, and the Mac adds only small companions for SFTP, the drive estimate, volume access and camera auto-source. Written without Xcode; done once a Mac build and test run confirm it.
 4. Merge the two UI shells one screen at a time, starting with Compare.
 5. Extract the engine into a Swift package; adopt Swift 6 strict concurrency.
 

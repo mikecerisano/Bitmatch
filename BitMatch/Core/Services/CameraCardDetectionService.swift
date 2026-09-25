@@ -252,7 +252,7 @@ final class CameraCardDetectionService: ObservableObject {
         )
         
         // Optional: Show system notification
-        // Note: System notification preferences will be handled by the UI layer (AppCoordinator)
+        // Note: System notification preferences will be handled by the UI layer (MacCameraAutoSourceController)
         // This keeps the service decoupled from UI preferences
     }
     

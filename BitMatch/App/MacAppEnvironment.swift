@@ -18,11 +18,12 @@ final class MacAppEnvironment: ObservableObject {
     init(
         coordinator: SharedAppCoordinator,
         remoteBackups: MacRemoteBackupController,
+        estimate: TransferEstimateModel = TransferEstimateModel(),
         monitorsVolumes: Bool = true
     ) {
         self.coordinator = coordinator
         self.remoteBackups = remoteBackups
-        self.estimate = TransferEstimateModel()
+        self.estimate = estimate
         self.volumeAccess = MacVolumeAccessModel(shared: coordinator, enableVolumeMonitoring: monitorsVolumes)
         self.cameraAutoSource = MacCameraAutoSourceController(shared: coordinator, startMonitoring: monitorsVolumes)
         estimate.bind(to: coordinator)
@@ -46,7 +47,7 @@ final class MacAppEnvironment: ObservableObject {
     }
 
     /// Tests and previews: the given coordinator, no volume or camera
-    /// monitoring, and no SFTP queue or scheduler.
+    /// monitoring, no SFTP queue or scheduler, and no drive benchmark.
     static func makeForTesting(coordinator: SharedAppCoordinator) -> MacAppEnvironment {
         MacAppEnvironment(
             coordinator: coordinator,
@@ -54,6 +55,7 @@ final class MacAppEnvironment: ObservableObject {
                 photographerJobViewModel: coordinator.photographerJobViewModel,
                 results: { [weak coordinator] in coordinator?.results ?? [] }
             ),
+            estimate: TransferEstimateModel { _, _, _, _ in nil },
             monitorsVolumes: false
         )
     }

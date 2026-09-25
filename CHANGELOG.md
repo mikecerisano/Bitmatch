@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Architecture: The Mac now runs on the same `SharedAppCoordinator` as iPad and iPhone (thesis step 3). `AppCoordinator`, which copied shared state into four Mac-only view models by hand, is gone; the Mac keeps small companions only for what is Mac-only (SFTP off-site backups, the drive-speed estimate, volume and backup-drive discovery, and choosing a detected camera card as the source). The Mac no longer scans the source twice per transfer.
+- Setup: One readiness rule on every platform. Start waits until the source has been analysed, and a backup needs more free space than the source plus 1 GB, the margin the copy itself requires, so "Ready" can no longer fail at start. Previously iOS blocked only at 90% of free space and the Mac allowed 100 MB of headroom. The Mac now shows the same readiness messages as iPad and iPhone.
+- iPad and iPhone: Report settings and the camera label are remembered across launches, and the camera label is suggested from the card and remembered per camera, as on the Mac. Choosing no source clears the label. A project card now uses its job's folder layout (only the Mac applied it before), for that transfer only.
+- Queue: Replaying a queued transfer uses its saved report and camera settings for that run only; your current settings are no longer replaced by them.
+- Mac: The estimated time above Start updates when the verification mode changes, and a slow estimate for an earlier selection can no longer replace the current one. A running queue now also locks the mode switcher.
+- Mac Preferences: The "Generate PDF" and "Generate CSV" checkboxes are gone; reports were always written in every format anyway.
+
 - Setup: A source or backup not chosen yet is no longer shown as a red "Resolve before starting" error. The next box to fill glows gently (a steady border with Reduce Motion), and Start says what is next, on Mac, iPad and iPhone. The banner is kept for real problems. The separate "Verified copy · SHA-256" line is gone; Advanced lists any changed settings.
 - Fix: With "Automatically set detected cameras as source" turned on (Mac, off by default), BitMatch could select a card's media subfolder (such as PRIVATE/ on a Sony Alpha or FX3 card) instead of the whole card, leaving the DCIM stills out of a transfer that still verified green. Auto-select now always uses the card root.
 - Fix: A transfer's state is stored once, so the screen and pause/resume can no longer disagree. A resumed transfer no longer shows "Resuming" indefinitely, and a transfer that finishes while paused shows how it ended.
