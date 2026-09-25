@@ -217,6 +217,100 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("Reports").path))
     }
 
+    // MARK: - Mac keep-awake
+
+    // Plant: delete `defer { keepAwake.release() }` in CopyVerifyExecutor.execute.
+    func testKeepAwakeIsHeldDuringOperationAndReleasedOnCompletion() async throws {
+        let preventer = RecordingSleepPreventer()
+        let harness = ExecutorHarness(returnedResults: [verifiedResult()], emittedResults: [], sleepPreventer: preventer)
+        harness.onAuthoritativeResults = { XCTAssertEqual(preventer.activeCount, 1, "Held while results are finalized") }
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.terminalInfo?.success, true)
+        XCTAssertEqual(preventer.beginCount, 1)
+        XCTAssertEqual(preventer.endCount, 1)
+        XCTAssertEqual(preventer.activeCount, 0)
+    }
+
+    // Plant: delete `defer { keepAwake.release() }` in CopyVerifyExecutor.execute.
+    func testKeepAwakeIsReleasedWhenOperationCompletesWithIssues() async throws {
+        let preventer = RecordingSleepPreventer()
+        let failure = FileOperationResult(
+            sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            success: false, error: NSError(domain: "test", code: 1), fileSize: 10,
+            verificationResult: nil, processingTime: 0
+        )
+        let harness = ExecutorHarness(returnedResults: [failure], emittedResults: [], sleepPreventer: preventer)
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.terminalInfo?.success, false)
+        XCTAssertEqual(preventer.beginCount, 1)
+        XCTAssertEqual(preventer.activeCount, 0)
+    }
+
+    // Plant: delete `keepAwake.release()` at the top of execute's catch block
+    // (the defer then releases only after the error alert is dismissed).
+    func testKeepAwakeIsReleasedBeforeFailureAlert() async throws {
+        let preventer = RecordingSleepPreventer()
+        let harness = ExecutorHarness(returnedResults: [], emittedResults: [],
+            thrownError: ExecutorFixtureError.persistence, sleepPreventer: preventer)
+        var activeWhenAlerted: Int?
+        harness.onPresentError = { activeWhenAlerted = preventer.activeCount }
+
+        do {
+            _ = try await harness.execute()
+            XCTFail("A failed operation must throw")
+        } catch ExecutorFixtureError.persistence { }
+
+        XCTAssertEqual(activeWhenAlerted, 0, "An unanswered error alert must not keep the Mac awake")
+        XCTAssertEqual(preventer.beginCount, 1)
+        XCTAssertEqual(preventer.activeCount, 0)
+    }
+
+    // Plant: in TransferKeepAwake.release(), delete `self.activity = nil`
+    // (the catch-block release and the defer then both end the activity).
+    func testKeepAwakeIsEndedExactlyOnceOnFailure() async throws {
+        let preventer = RecordingSleepPreventer()
+        let harness = ExecutorHarness(returnedResults: [], emittedResults: [],
+            thrownError: ExecutorFixtureError.persistence, sleepPreventer: preventer)
+
+        _ = try? await harness.execute()
+
+        XCTAssertEqual(preventer.beginCount, 1)
+        XCTAssertEqual(preventer.endCount, 1)
+    }
+
+    // Plant: delete `defer { keepAwake.release() }` in CopyVerifyExecutor.execute
+    // and `keepAwake.release()` in its catch block.
+    func testKeepAwakeIsReleasedOnCancellation() async throws {
+        let preventer = RecordingSleepPreventer()
+        let harness = ExecutorHarness(returnedResults: [verifiedResult()], emittedResults: [], sleepPreventer: preventer)
+        harness.onAuthoritativeResults = { harness.cancel() }
+
+        do {
+            _ = try await harness.execute()
+            XCTFail("Cancelled operation must throw")
+        } catch is CancellationError { }
+
+        XCTAssertEqual(preventer.beginCount, 1)
+        XCTAssertEqual(preventer.endCount, 1)
+        XCTAssertEqual(preventer.activeCount, 0)
+    }
+
+    private func verifiedResult() -> FileOperationResult {
+        FileOperationResult(
+            sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            success: true, error: nil, fileSize: 10,
+            verificationResult: VerificationResult(sourceChecksum: "checksum", destinationChecksum: "checksum",
+                matches: true, checksumType: .sha256, processingTime: 0, fileSize: 10),
+            processingTime: 0
+        )
+    }
+
     private func reportFixture(blockReportsFolder: Bool) throws -> (source: URL, destination: URL, result: FileOperationResult) {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("executor-report-\(UUID())")
@@ -272,6 +366,11 @@ private final class ExecutorHarness {
     private(set) var completedRows: [ResultRow] = []
     private(set) var terminalInfo: OperationCompletionInfo?
     var onAuthoritativeResults: (() -> Void)?
+    var onPresentError: (() -> Void)? {
+        get { platform.onPresentError }
+        set { platform.onPresentError = newValue }
+    }
+    private let platform: ExecutorPlatformManager
 
     func cancel() { executor.cancel() }
 
@@ -283,19 +382,24 @@ private final class ExecutorHarness {
         destinationURLs: [URL] = [URL(fileURLWithPath: "/destination")],
         verificationMode: VerificationMode = .standard,
         generateASCMHL: Bool = false,
-        makeReport: Bool = false
+        makeReport: Bool = false,
+        thrownError: Error? = nil,
+        sleepPreventer: TransferSleepPreventing = RecordingSleepPreventer()
     ) {
         let fileOperations = ExecutorFileOperationsService(
             returnedResults: returnedResults,
-            emittedResults: emittedResults
+            emittedResults: emittedResults,
+            thrownError: thrownError
         )
         let platform = ExecutorPlatformManager(fileOperations: fileOperations)
+        self.platform = platform
         executor = CopyVerifyExecutor(
             platformManager: platform,
             timingService: OperationTimingService(),
             errorService: ErrorReportingService(),
             stateService: OperationStateService(),
-            backgroundTaskService: IOSBackgroundTaskService.shared
+            backgroundTaskService: IOSBackgroundTaskService.shared,
+            sleepPreventer: sleepPreventer
         )
         config = CopyVerifyConfig(
             operationId: UUID(),
@@ -339,10 +443,12 @@ private enum ExecutorFixtureError: Error {
 private final class ExecutorFileOperationsService: FileOperationsService {
     private let returnedResults: [FileOperationResult]
     private let emittedResults: [FileOperationResult]
+    private let thrownError: Error?
 
-    init(returnedResults: [FileOperationResult], emittedResults: [FileOperationResult]) {
+    init(returnedResults: [FileOperationResult], emittedResults: [FileOperationResult], thrownError: Error? = nil) {
         self.returnedResults = returnedResults
         self.emittedResults = emittedResults
+        self.thrownError = thrownError
     }
 
     func performFileOperation(
@@ -357,6 +463,7 @@ private final class ExecutorFileOperationsService: FileOperationsService {
         for result in emittedResults {
             await onFileResult?(result)
         }
+        if let thrownError { throw thrownError }
         return FileOperation(
             sourceURL: sourceURL,
             destinationURLs: destinationURLs,
@@ -380,14 +487,31 @@ private final class ExecutorPlatformManager: PlatformManager {
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = ExecutorCameraDetectionService()
     nonisolated let supportsDragAndDrop = false
+    var onPresentError: (() -> Void)?
 
     init(fileOperations: FileOperationsService) {
         self.fileOperations = fileOperations
     }
 
     func presentAlert(title: String, message: String) async {}
-    func presentError(_ error: Error) async {}
+    func presentError(_ error: Error) async { onPresentError?() }
     func openURL(_ url: URL) async -> Bool { false }
+}
+
+/// Records activity begin/end instead of taking real power assertions.
+private final class RecordingSleepPreventer: TransferSleepPreventing {
+    private(set) var beginCount = 0
+    private(set) var endCount = 0
+    var activeCount: Int { beginCount - endCount }
+
+    func beginActivity(reason: String) -> NSObjectProtocol? {
+        beginCount += 1
+        return NSObject()
+    }
+
+    func endActivity(_ activity: NSObjectProtocol) {
+        endCount += 1
+    }
 }
 
 private final class ExecutorChecksumService: ChecksumService {

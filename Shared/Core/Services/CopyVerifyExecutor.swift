@@ -84,6 +84,7 @@ final class CopyVerifyExecutor {
     private let errorService: ErrorReportingService
     private let stateService: OperationStateService
     private let backgroundTaskService: IOSBackgroundTaskService
+    private let sleepPreventer: TransferSleepPreventing
 
     // MARK: - State
     private let maxResultsInMemory = 5_000
@@ -98,13 +99,15 @@ final class CopyVerifyExecutor {
         timingService: OperationTimingService,
         errorService: ErrorReportingService,
         stateService: OperationStateService,
-        backgroundTaskService: IOSBackgroundTaskService
+        backgroundTaskService: IOSBackgroundTaskService,
+        sleepPreventer: TransferSleepPreventing = ProcessInfoSleepPreventer()
     ) {
         self.platformManager = platformManager
         self.timingService = timingService
         self.errorService = errorService
         self.stateService = stateService
         self.backgroundTaskService = backgroundTaskService
+        self.sleepPreventer = sleepPreventer
     }
 
     // MARK: - Execution
@@ -127,6 +130,10 @@ final class CopyVerifyExecutor {
         // Start iOS background task
         backgroundTaskService.beginOperation(estimatedFiles: config.estimatedFiles)
         defer { backgroundTaskService.endOperation() }
+
+        // Keep the Mac from idle-sleeping until this operation ends.
+        let keepAwake = TransferKeepAwake(preventer: sleepPreventer, reason: "Copying and verifying backups")
+        defer { keepAwake.release() }
 
         // Initialize timing
         timingService.startOperation(totalFiles: config.estimatedFiles, totalBytes: config.estimatedBytes)
@@ -180,6 +187,8 @@ final class CopyVerifyExecutor {
             )
 
         } catch {
+            // Release before handleError, which can wait on an error alert.
+            keepAwake.release()
             await handleError(
                 error,
                 overflowService: overflowService,
