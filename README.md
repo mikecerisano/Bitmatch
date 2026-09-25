@@ -64,7 +64,7 @@ One card to dump? Use **One-time transfer**. A whole shoot with several cards an
 - **RAW/JPEG and sidecar reporting.** The little files count too. So do failures.
 - **Camera detection** for Sony, Canon, ARRI, RED, Blackmagic, Panasonic, Fujifilm, GoPro, DJI, Insta360, and generic DCIM.
 - **Folder compare** for stuff you already copied.
-- **PDF, CSV, and JSON reports** for producers who want documentation, or you when you want to check what happened.
+- **PDF, CSV, and JSON reports** for producers who want documentation, or you when you want to check what happened. The per-transfer PDF is Mac-only for now; iPad and iPhone write CSV and JSON. The Master Report (one PDF for a day's transfers) works everywhere.
 - **Transfer preflight on Mac, iPad, and iPhone** shows the source, backups, options, and anything that needs fixing before Start.
 - **ASC MHL handoff records** after verified copies, with the details tucked under Advanced. This first version creates new inventories; it preserves existing histories and flags them for review. [Scope and validation](docs/validation/ascmhl/README.md).
 - **Transfer queue and history** on Mac, iPad, and iPhone. Queue cards with their own settings, review interrupted attempts, retry, and export the results.
@@ -131,6 +131,13 @@ Source scanning rejects unreadable metadata, unsafe paths, and portable filename
 There are automated tests for changing source files, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. That doesn't mean every drive and hub has been tested. The [validation status](docs/HARDWARE_COMPATIBILITY.md) shows what we actually ran, including failures and things we couldn't test. If you want to help, follow the [hardware testing procedure](docs/HARDWARE_TESTING.md) and send a [hardware test report](https://github.com/mikecerisano/Bitmatch/issues/new?template=hardware-test.yml).
 
 The [latest release notes](https://github.com/mikecerisano/Bitmatch/releases/latest) have the current fixes, build checks, and download checksum.
+
+## Cards and Drives
+
+- **Sony VENICE SxS and AXS cards (Mac).** macOS can't read SxS cards recorded in UDF until Sony's SxS UDF Driver is installed ([Apple support article](https://support.apple.com/en-us/101826)), or AXS cards without Sony's AXS memory card reader software. When a connected card can't be read, BitMatch shows a notice on the setup screen saying what it needs, instead of showing nothing.
+- **exFAT backup drives** work from 0.1.7. In 0.1.4 through 0.1.6, every file copied to an exFAT drive failed ("Destination file appeared during copy"). Nothing was overwritten, but nothing was backed up either.
+- **Your Mac's startup disk.** A folder on it, for example in your home folder, is a valid backup. The disk itself and macOS system volumes (including Recovery) are not, and BitMatch says why. BitMatch never adds a drive like that by itself.
+- **iPad and iPhone.** Earlier builds refused every backup folder chosen in Files (On My iPad, iCloud Drive, an external drive) as a "system folder" on a real device. 0.1.7 fixes that. The fix has automated tests, but it has not been confirmed on a physical iPhone or iPad yet.
 
 ## Who It's For
 
