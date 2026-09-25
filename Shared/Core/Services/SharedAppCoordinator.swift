@@ -124,7 +124,9 @@ class SharedAppCoordinator: ObservableObject {
     @Published var cameraDetectionInProgress = false
     
     // MARK: - Folder Info State (delegated to FolderInfoService)
-    @Published var folderInfoService = FolderInfoService.shared
+    // One per coordinator (the app has one); a shared singleton let parallel
+    // tests change each other's source analysis.
+    @Published var folderInfoService = FolderInfoService()
     @Published var lastCompareStats: CompareStats?
     /// How the last compare for the current folders and mode ended. Compare
     /// reads this, not `operationState`, which transfers also write.

@@ -5,7 +5,6 @@ import Combine
 /// Service that handles folder info scanning with caching and loading state tracking
 @MainActor
 final class FolderInfoService: ObservableObject {
-    static let shared = FolderInfoService()
 
     // MARK: - Published State
     @Published private(set) var sourceFolderInfo: EnhancedFolderInfo?
