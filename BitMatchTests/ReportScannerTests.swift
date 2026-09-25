@@ -155,4 +155,84 @@ struct ReportScannerTests {
         let thatDay = await ReportScanner.scan(at: root, day: threeDaysAgo)
         #expect(thatDay.count == 1)
     }
+
+    // MARK: - Skipped reports are reported, not only logged
+
+    /// A report over the size limit is named, next to the ones that were read.
+    /// Plant: in `ReportScanner.scanReports`, delete `skip(fileURL, .tooLarge)`.
+    @Test func oversizedReportIsListedAsSkipped() async throws {
+        let root = try makeTemporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try writeReport(mode: .standard, root: root)
+        let size = try #require(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+
+        let result = await ReportScanner.scanReports(at: root, maxBytes: size - 1)
+        #expect(result.cards.isEmpty)
+        #expect(result.skipped.count == 1)
+        #expect(result.skipped.first?.reason == .tooLarge)
+        #expect(result.skipped.first?.displayName == "Backup/Reports/\(url.lastPathComponent)")
+    }
+
+    /// A damaged BitMatch report is named; the good report beside it is still listed.
+    /// Plant: in `ReportScanner.scanReports`, delete the `skip(fileURL, .unreadable)`
+    /// inside `else if isBitMatchNamed(...)`.
+    @Test func damagedReportIsListedAsSkipped() async throws {
+        let root = try makeTemporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeReport(mode: .standard, root: root)
+        let damaged = root.appendingPathComponent("Other/Reports/BitMatch_Report_damaged.json")
+        try FileManager.default.createDirectory(at: damaged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"timestamp": "2026-09-25T10:00:00Z", "source": "#.utf8).write(to: damaged)
+
+        let result = await ReportScanner.scanReports(at: root)
+        #expect(result.cards.count == 1)
+        #expect(result.skipped.map(\.displayName) == ["Other/Reports/BitMatch_Report_damaged.json"])
+        #expect(result.skipped.first?.reason == .unreadable)
+    }
+
+    /// A report that exists but cannot be opened (no read permission) is
+    /// named too, not dropped with only a log line (Promise 3).
+    /// Plant: in `ReportScanner.scanReports`, delete the `skip(fileURL, .unreadable)`
+    /// in the branch that handles a failed read.
+    @Test func reportThatCannotBeOpenedIsListedAsSkipped() async throws {
+        let root = try makeTemporaryFolder()
+        defer {
+            let locked = root.appendingPathComponent("Locked/Reports/BitMatch_Report_locked.json")
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try writeReport(mode: .standard, root: root)
+        let locked = root.appendingPathComponent("Locked/Reports/BitMatch_Report_locked.json")
+        try FileManager.default.createDirectory(at: locked.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: locked)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        try #require(!FileManager.default.isReadableFile(atPath: locked.path), "running as a user that can read mode 000 files")
+
+        let result = await ReportScanner.scanReports(at: root)
+        #expect(result.cards.count == 1)
+        #expect(result.skipped.map(\.displayName) == ["Locked/Reports/BitMatch_Report_locked.json"])
+        #expect(result.skipped.first?.reason == .unreadable)
+    }
+
+    /// Another app's `*_report.json` is not a BitMatch report and is not
+    /// counted as one that couldn't be read.
+    /// Plant: in `ReportScanner.scanReports`, change
+    /// `} else if isBitMatchNamed(fileURL.lastPathComponent) {` to `} else {`.
+    @Test func otherAppsReportIsNotCountedAsSkipped() async throws {
+        let root = try makeTemporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data(#"{"lint": "ok"}"#.utf8).write(to: root.appendingPathComponent("eslint_report.json"))
+
+        let result = await ReportScanner.scanReports(at: root)
+        #expect(result.cards.isEmpty)
+        #expect(result.skipped.isEmpty)
+    }
+
+    /// Plant: in `SkippedReportsPresentation.title`, change `case ..<1: return nil`
+    /// to `case ..<0: return nil` (the notice then shows "0 reports couldn't be read").
+    @Test func skippedNoticeWording() {
+        #expect(SkippedReportsPresentation.title(count: 0) == nil)
+        #expect(SkippedReportsPresentation.title(count: 1) == "1 report couldn't be read")
+        #expect(SkippedReportsPresentation.title(count: 3) == "3 reports couldn't be read")
+    }
 }

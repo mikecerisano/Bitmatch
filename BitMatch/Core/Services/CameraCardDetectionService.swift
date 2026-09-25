@@ -49,6 +49,14 @@ final class CameraCardDetectionService: ObservableObject {
     /// Injectable seams for deterministic tests. Production defaults
     /// enumerate real volumes and sniff real card structure.
     var listVolumes: () -> [URL] = CameraCardDetectionService.defaultVolumeList
+    #if os(macOS)
+    /// Where mount and unmount events are observed. Tests use a private
+    /// center so real volumes mounted by other tests cannot reach them.
+    var volumeEventCenter: NotificationCenter {
+        get { volumeMonitor?.eventCenter ?? NSWorkspace.shared.notificationCenter }
+        set { volumeMonitor?.eventCenter = newValue }
+    }
+    #endif
     var detectCard: (URL) async -> CameraCard? = {
         await CameraStructureDetector.detectCameraType(at: $0)
     }
@@ -268,6 +276,10 @@ class VolumeMonitor {
     /// block-based observers, so the tokens must be owned and removed
     /// explicitly or restarts accumulate duplicate callbacks.
     private var observerTokens: [NSObjectProtocol] = []
+    #if os(macOS)
+    /// NSWorkspace's center in the app; set before `startMonitoring`.
+    var eventCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+    #endif
 
     init(eventHandler: @escaping (VolumeEvent) -> Void) {
         self.eventHandler = eventHandler
@@ -279,8 +291,8 @@ class VolumeMonitor {
         isActive = true
 
         #if os(macOS)
-        // Monitor volume mount/unmount events using NSWorkspace
-        let center = NSWorkspace.shared.notificationCenter
+        // Monitor volume mount/unmount events (NSWorkspace outside tests)
+        let center = eventCenter
         observerTokens.append(center.addObserver(
             forName: NSWorkspace.didMountNotification,
             object: nil,
@@ -318,7 +330,7 @@ class VolumeMonitor {
 
         isActive = false
         #if os(macOS)
-        let center = NSWorkspace.shared.notificationCenter
+        let center = eventCenter
         for token in observerTokens {
             center.removeObserver(token)
         }

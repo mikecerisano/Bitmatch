@@ -291,6 +291,12 @@ struct CompareProgressPresentation: Equatable, Sendable {
 
 // MARK: - Screen
 
+/// Which empty folder box Compare highlights (see `ComparePresentation.nextStep`).
+enum CompareNextStep: Equatable, Sendable {
+    case chooseLeft
+    case chooseRight
+}
+
 enum ComparePhase: Equatable, Sendable {
     case setup
     case running(CompareProgressPresentation)
@@ -306,8 +312,42 @@ struct ComparePresentation: Equatable, Sendable {
     let stats: CompareStats?
 
     var checkPlan: CompareCheckPlan { CompareCheckPlan.make(for: mode) }
-    /// One line above Advanced, e.g. "Checks: Byte-by-byte and SHA-256".
-    var verificationSummary: String { "Checks: \(checkPlan.summary)" }
+
+    /// The empty folder box to highlight, as Setup does for its source and
+    /// backups: Left first, then Right. A missing folder is a step not taken
+    /// yet, not an error, so it gets a highlight rather than a warning line.
+    var nextStep: CompareNextStep? {
+        switch readiness {
+        case .needsLeft: .chooseLeft
+        case .needsRight: .chooseRight
+        case .blocked, .loading, .running, .ready: nil
+        }
+    }
+
+    /// The Compare button names what happens next, so no hint line is
+    /// needed under it.
+    var actionTitle: String {
+        switch readiness {
+        case .needsLeft: "Choose the left folder to compare"
+        case .needsRight: "Choose the right folder to compare"
+        case .blocked: "Choose two separate folders"
+        case .loading: "Reading folder details…"
+        case .running: "Comparing…"
+        case .ready: isFinished ? "Compare again" : "Compare folders"
+        }
+    }
+
+    var isFinished: Bool {
+        if case .finished = phase { return true }
+        return false
+    }
+
+    /// Only a real problem (same or nested folders) gets a line of its own.
+    /// Missing folders are shown by `nextStep` and `actionTitle` instead.
+    var blockMessage: String? {
+        if case .blocked(let block) = readiness { return block.message }
+        return nil
+    }
 
     var isRunning: Bool {
         if case .running = phase { return true }

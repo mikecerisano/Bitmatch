@@ -92,6 +92,7 @@ struct CompareScreen: View {
                 role: "The one you trust",
                 slot: presentation.left,
                 isEditable: presentation.allowsEditing,
+                isNextStep: presentation.nextStep == .chooseLeft,
                 pick: actions.pickLeft,
                 clear: actions.clearLeft,
                 drop: actions.dropLeft
@@ -101,6 +102,7 @@ struct CompareScreen: View {
                 role: "Checked against the left",
                 slot: presentation.right,
                 isEditable: presentation.allowsEditing,
+                isNextStep: presentation.nextStep == .chooseRight,
                 pick: actions.pickRight,
                 clear: actions.clearRight,
                 drop: actions.dropRight
@@ -114,46 +116,21 @@ struct CompareScreen: View {
     private var controls: some View {
         if !presentation.isRunning {
             VStack(alignment: .leading, spacing: 12) {
-                Label(presentation.verificationSummary,
-                      systemImage: presentation.checkPlan.verifiesContents ? "shield.lefthalf.filled" : "exclamationmark.shield")
-                    .font(.subheadline)
-                    .foregroundStyle(presentation.checkPlan.verifiesContents ? Color.secondary : Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                // The same collapsed Advanced section as Setup. Its label
+                // already names a non-default mode, so there is no separate
+                // "Checks:" line.
+                TransferOptionsSection(
+                    isExpanded: $advancedExpanded,
+                    verificationMode: $verificationMode
+                )
 
-                DisclosureGroup(isExpanded: $advancedExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Picker("Verification", selection: $verificationMode) {
-                            ForEach(VerificationMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
-                        }
-                        #if os(macOS)
-                        .pickerStyle(.radioGroup)
-                        #else
-                        .pickerStyle(.menu)
-                        .frame(minHeight: 44)
-                        #endif
-                        .disabled(!presentation.allowsEditing)
-
-                        Text(CompareCheckPlan.make(for: verificationMode).summary)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    HStack {
-                        Text("Advanced")
-                        Spacer()
-                        // Only a non-default choice is called out (§6).
-                        if verificationMode != .standard {
-                            Text("\(verificationMode.rawValue) mode")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                // Only a real problem gets a line. A missing folder is shown
+                // by the highlighted box and the button title instead.
+                if let message = presentation.blockMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 compareButton
@@ -164,32 +141,19 @@ struct CompareScreen: View {
     }
 
     private var compareButton: some View {
-        let readiness = presentation.readiness
-        let title: String = {
-            if case .finished = presentation.phase { return "Compare again" }
-            return "Compare folders"
-        }()
-        return VStack(alignment: layout == .compact ? .leading : .trailing, spacing: 8) {
-            Button(action: actions.compare) {
-                Label(title, systemImage: "arrow.left.arrow.right")
-                    .frame(maxWidth: layout == .compact ? .infinity : nil, minHeight: 32)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!readiness.canStart)
-            .accessibilityHint(readiness.message ?? "")
-
-            if let message = readiness.message {
-                let isBlocked: Bool = {
-                    if case .blocked = readiness { return true }
-                    return false
-                }()
-                Label(message, systemImage: isBlocked ? "exclamationmark.triangle.fill" : "info.circle")
-                    .font(.footnote)
-                    .foregroundStyle(isBlocked ? Color.orange : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        Button(action: actions.compare) {
+            Label(
+                presentation.actionTitle,
+                systemImage: presentation.nextStep != nil ? "arrow.up" : "arrow.left.arrow.right"
+            )
+            .frame(maxWidth: layout == .compact ? .infinity : nil, minHeight: 32)
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        // Grey while waiting on a step, like Copy's Start button: a button
+        // that cannot be pressed should not look pressable.
+        .tint(presentation.readiness.canStart ? Color.accentColor : Color.gray)
+        .disabled(!presentation.readiness.canStart)
         .frame(maxWidth: .infinity, alignment: layout == .compact ? .leading : .trailing)
     }
 
@@ -227,11 +191,15 @@ struct CompareScreen: View {
 
 // MARK: - Folder slot
 
+/// One folder box, drawn like the Copy screen's source box: a dashed empty
+/// box with a picker button (and a drop hint where drop is offered), or a
+/// green-edged box showing the chosen folder with a clear button.
 private struct CompareFolderSlotView: View {
     let side: String
     let role: String
     let slot: CompareFolderSlot
     let isEditable: Bool
+    let isNextStep: Bool
     let pick: () -> Void
     let clear: () -> Void
     let drop: ((URL) -> Void)?
@@ -239,65 +207,120 @@ private struct CompareFolderSlotView: View {
     @State private var isTargeted = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(side)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
                 Text(role)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if let name = slot.name {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(name, systemImage: "folder.fill")
-                        .font(.body.weight(.medium))
-                        .lineLimit(2)
-                    if let path = slot.path {
-                        Text(path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                    details
+            Group {
+                if let name = slot.name {
+                    chosenBox(name: name)
+                } else {
+                    emptyBox
                 }
-                HStack(spacing: 8) {
-                    Button("Change…", action: pick)
-                        .accessibilityLabel("Change \(side.lowercased())")
-                    Button("Clear", role: .destructive, action: clear)
-                        .accessibilityLabel("Clear \(side.lowercased())")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(!isEditable)
-            } else {
-                Button(action: pick) {
-                    Label("Choose folder…", systemImage: "folder.badge.plus")
-                        .frame(maxWidth: .infinity, minHeight: 32)
-                }
+            }
+            .modifier(FolderDropTarget(drop: isEditable ? drop : nil, isTargeted: $isTargeted))
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var emptyBox: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "folder.badge.plus")
+                .font(.title2)
+                .foregroundStyle(isTargeted ? Color.green : Color.secondary)
+                .accessibilityHidden(true)
+            if drop != nil && isEditable {
+                Text("Drag the \(side.lowercased()) here")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(isTargeted ? Color.green : Color.secondary)
+                Text("or")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Button("Choose Folder…", action: pick)
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(!isEditable)
                 .accessibilityLabel("Choose \(side.lowercased())")
-                if drop != nil {
-                    Text("Or drop a folder here.")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 130)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            isTargeted ? Color.green.opacity(0.6) : Color.primary.opacity(0.15),
+                            style: StrokeStyle(lineWidth: isTargeted ? 2 : 1, dash: isTargeted ? [] : [6, 4])
+                        )
+                )
+        )
+        .nextStepHighlight(isNextStep && !isTargeted)
+        .animation(.easeInOut(duration: 0.2), value: isTargeted)
+    }
+
+    private func chosenBox(name: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "folder.fill")
+                .font(.body)
+                .foregroundStyle(Color.green)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(2)
+                if let path = slot.path {
+                    Text(path)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
                 }
+                details
+            }
+            Spacer(minLength: 0)
+            if isEditable {
+                Button(action: clear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.red.opacity(0.7))
+                        .frame(minWidth: Self.clearTarget, minHeight: Self.clearTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear \(side.lowercased())")
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.quaternary.opacity(isTargeted ? 0.9 : 0.5), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.accentColor, lineWidth: isTargeted ? 2 : 0)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(isTargeted ? 0.08 : 0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            Color.green.opacity(isTargeted ? 0.6 : 0.3),
+                            lineWidth: isTargeted ? 2 : 1
+                        )
+                )
         )
-        .modifier(FolderDropTarget(drop: isEditable ? drop : nil, isTargeted: $isTargeted))
-        .accessibilityElement(children: .contain)
+    }
+
+    /// Audit M8 (Mac) and M7 (touch): a real hit area for the clear glyph.
+    private static var clearTarget: CGFloat {
+        #if os(macOS)
+        return 28
+        #else
+        return 44
+        #endif
     }
 
     @ViewBuilder

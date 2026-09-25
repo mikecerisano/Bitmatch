@@ -242,6 +242,97 @@ struct ComparePresentationTests {
         #expect(plan.summary.contains("not verified"))
     }
 
+    // MARK: Next step (Copy screen pattern)
+
+    private static func screen(
+        left: CompareFolderSlot,
+        right: CompareFolderSlot,
+        stats: CompareStats? = nil,
+        end: CompareRunEnd? = nil
+    ) -> ComparePresentation {
+        ComparePresentation.make(
+            left: left, right: right, mode: .standard,
+            isRunning: false, progress: nil, stats: stats, end: end
+        )
+    }
+
+    /// Nothing chosen: the Left box is highlighted and the button says so.
+    /// Plant: in `ComparePresentation.nextStep`, change
+    /// `case .needsLeft: .chooseLeft` to `case .needsLeft: .chooseRight`.
+    @Test
+    func emptyScreenHighlightsLeftFirst() {
+        let presentation = Self.screen(left: Self.emptySlot, right: Self.emptySlot)
+        #expect(presentation.nextStep == .chooseLeft)
+        #expect(presentation.actionTitle == "Choose the left folder to compare")
+        #expect(!presentation.readiness.canStart)
+    }
+
+    /// Left comes first even when only the right folder is chosen.
+    /// Plant: in `CompareReadiness.resolve`, change the left guard's
+    /// `return .needsLeft` to `return right.url == nil ? .needsLeft : .needsRight`.
+    @Test
+    func rightChosenFirstStillHighlightsLeft() {
+        let presentation = Self.screen(left: Self.emptySlot, right: Self.loaded(Self.backup))
+        #expect(presentation.nextStep == .chooseLeft)
+        #expect(presentation.actionTitle == "Choose the left folder to compare")
+    }
+
+    /// Left chosen: the highlight moves to Right.
+    /// Plant: in `ComparePresentation.nextStep`, change
+    /// `case .needsRight: .chooseRight` to `case .needsRight: nil`.
+    @Test
+    func leftChosenHighlightsRight() {
+        let presentation = Self.screen(left: Self.loaded(Self.card), right: Self.emptySlot)
+        #expect(presentation.nextStep == .chooseRight)
+        #expect(presentation.actionTitle == "Choose the right folder to compare")
+        #expect(!presentation.readiness.canStart)
+    }
+
+    /// Both chosen: nothing is highlighted, and the button names the compare,
+    /// or "Compare again" once one has finished.
+    /// Plant: in `ComparePresentation.actionTitle`, change the `.ready` case
+    /// to `case .ready: "Compare folders"`.
+    @Test
+    func readyHasNoNextStepAndNamesTheCompare() {
+        let ready = Self.screen(left: Self.loaded(Self.card), right: Self.loaded(Self.backup))
+        #expect(ready.nextStep == nil)
+        #expect(ready.actionTitle == "Compare folders")
+
+        let finished = Self.screen(
+            left: Self.loaded(Self.card), right: Self.loaded(Self.backup),
+            stats: Self.cleanStats, end: .completed
+        )
+        #expect(finished.nextStep == nil)
+        #expect(finished.actionTitle == "Compare again")
+    }
+
+    /// Same or nested folders are a real problem: no box highlight, and the
+    /// reason keeps its own line.
+    /// Plant: in `ComparePresentation.blockMessage`, change
+    /// `return block.message` to `return nil`.
+    @Test
+    func blockedCompareKeepsItsReasonLine() {
+        let presentation = Self.screen(left: Self.loaded(Self.card), right: Self.loaded(Self.card))
+        #expect(presentation.nextStep == nil)
+        #expect(presentation.blockMessage == CompareBlock.sameFolder.message)
+        #expect(presentation.actionTitle == "Choose two separate folders")
+    }
+
+    /// A missing folder or a folder still loading is not a problem, so no
+    /// line appears under the button (the old hint line is gone).
+    /// Plant: replace the body of `ComparePresentation.blockMessage` with
+    /// `readiness.message`.
+    @Test
+    func stepsNotTakenShowNoReasonLine() {
+        let loading = CompareFolderSlot.make(
+            url: Self.backup, infoURL: nil, fileCount: nil, totalSize: nil, isFetching: true
+        )
+        #expect(Self.screen(left: Self.emptySlot, right: Self.emptySlot).blockMessage == nil)
+        #expect(Self.screen(left: Self.loaded(Self.card), right: Self.emptySlot).blockMessage == nil)
+        #expect(Self.screen(left: Self.loaded(Self.card), right: loading).blockMessage == nil)
+        #expect(Self.screen(left: Self.loaded(Self.card), right: Self.loaded(Self.backup)).blockMessage == nil)
+    }
+
     // MARK: Mode switching
 
     /// Decision C-2. Plant: in `ModeSwitchPolicy.isLocked`, return

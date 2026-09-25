@@ -6,6 +6,7 @@ struct MasterReportView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var scanningDrive = false
     @State private var foundTransfers: [TransferCard] = []
+    @State private var skippedReports: [ReportScanner.SkippedReport] = []
     @State private var selectedTransfers = Set<UUID>()
     @State private var productionNotes = ""
     @State private var isGeneratingReport = false
@@ -16,6 +17,10 @@ struct MasterReportView: View {
     
     var body: some View {
         VStack(spacing: 20) {
+            if !scanningDrive {
+                SkippedReportsNotice(reports: skippedReports)
+                    .padding(.horizontal, 20)
+            }
             if scanningDrive {
                 MasterReportScanningView(isScanning: scanningDrive)
             } else if foundTransfers.isEmpty {
@@ -59,12 +64,14 @@ struct MasterReportView: View {
         scanningDrive = true
 
         scanTask = Task {
-            let transfers = await DriveScanner.scanForBitMatchReports(at: url)
+            let result = await ReportScanner.scanReports(at: url)
+            let transfers = result.cards
 
             await MainActor.run {
                 // A newer scan (or a cleared view) supersedes this one.
                 guard self.activeScanID == scanID else { return }
                 self.foundTransfers = transfers
+                self.skippedReports = result.skipped
                 self.scanningDrive = false
 
                 // Auto-select all by default

@@ -99,13 +99,65 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
     /// pinned directory. Unlike `renameat`, it cannot overwrite a destination
     /// file that appeared while the copy was in progress.
     static func publishTemporaryFile(named temporaryName: String, as name: String, relativeTo parentFD: Int32) throws {
-        let status = temporaryName.withCString { temporaryNamePointer in
+        // errno is read inside the closure, before anything can overwrite it.
+        let (status, linkError) = temporaryName.withCString { temporaryNamePointer in
             name.withCString { namePointer in
-                linkat(parentFD, temporaryNamePointer, parentFD, namePointer, 0)
+                let result = linkat(parentFD, temporaryNamePointer, parentFD, namePointer, 0)
+                return (result, errno)
             }
         }
-        guard status == 0 else { throw posixError("Destination file appeared during copy; refusing to overwrite it") }
-        removeItem(named: temporaryName, relativeTo: parentFD)
+        if status == 0 {
+            removeItem(named: temporaryName, relativeTo: parentFD)
+            return
+        }
+        // exFAT and FAT have no hard links (and no RENAME_EXCL): claim the
+        // name instead. Every other failure, including EEXIST, fails closed.
+        guard linkError == ENOTSUP || linkError == EOPNOTSUPP else {
+            errno = linkError
+            throw posixError("Destination file appeared during copy; refusing to overwrite it")
+        }
+        try publishByClaimingName(temporaryName: temporaryName, name: name, relativeTo: parentFD)
+    }
+
+    /// No-replace publication for filesystems without hard links. An
+    /// exclusive create claims the final name (failing if anything is
+    /// there), then the verified temporary file is renamed over that empty
+    /// claim once it is confirmed to still be ours. Only a file deleted and
+    /// recreated at this exact name between that check and the rename could
+    /// be replaced. The identity is read after fsync because macOS's exFAT
+    /// driver reports a temporary inode for a file until it is committed.
+    static func publishByClaimingName(temporaryName: String, name: String, relativeTo parentFD: Int32) throws {
+        let flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC
+        let claimFD = name.withCString { openat(parentFD, $0, flags, 0o600) }
+        guard claimFD >= 0 else { throw posixError("Destination file appeared during copy; refusing to overwrite it") }
+        defer { _ = Darwin.close(claimFD) }
+
+        var claimed = stat()
+        guard fsync(claimFD) == 0, fstat(claimFD, &claimed) == 0 else {
+            throw posixError("Unable to claim destination file name")
+        }
+        var current = stat()
+        let lookup = name.withCString { fstatat(parentFD, $0, &current, AT_SYMLINK_NOFOLLOW) }
+        guard lookup == 0, current.st_dev == claimed.st_dev, current.st_ino == claimed.st_ino,
+              (current.st_mode & S_IFMT) == S_IFREG, current.st_size == 0 else {
+            throw FileCopyService.existingDestinationConflictError("Destination file changed during copy; refusing to overwrite it")
+        }
+
+        let renamed = temporaryName.withCString { temporaryNamePointer in
+            name.withCString { namePointer in
+                renameat(parentFD, temporaryNamePointer, parentFD, namePointer)
+            }
+        }
+        guard renamed == 0 else {
+            let renameError = posixError("Unable to publish destination file")
+            // Remove the empty claim only while the name is still ours.
+            var after = stat()
+            if name.withCString({ fstatat(parentFD, $0, &after, AT_SYMLINK_NOFOLLOW) }) == 0,
+               after.st_dev == claimed.st_dev, after.st_ino == claimed.st_ino, after.st_size == 0 {
+                removeItem(named: name, relativeTo: parentFD)
+            }
+            throw renameError
+        }
     }
 
     /// Descends from `/` one descriptor at a time so `O_NOFOLLOW` protects
