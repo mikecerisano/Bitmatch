@@ -82,5 +82,68 @@ struct OperationStateSingleSourceTests {
         }
         #expect(settled, "screen state stuck at \(coordinator.operationState)")
     }
+
+    /// An automatic pause (low battery) must pause the engine, not just
+    /// relabel the screen while copying continues. Fails if
+    /// `requestAutomaticPause` changes the state itself again.
+    @Test func automaticPausePausesTheEngine() async {
+        let engine = PauseRecordingFileOperations()
+        let coordinator = SharedAppCoordinator(platformManager: PauseRecordingPlatform(fileOperations: engine))
+        _ = start(coordinator.stateService)
+
+        coordinator.stateService.requestAutomaticPause(reason: .lowBattery)
+
+        let paused = await waitUntil(timeout: .seconds(5)) { coordinator.operationState.isPaused }
+        #expect(paused)
+        #expect(engine.pauseCount == 1)
+    }
+
+    /// With nothing wired to pause the engine, an automatic pause must not
+    /// claim one.
+    @Test func automaticPauseWithoutAnEngineClaimsNothing() {
+        let service = OperationStateService()
+        _ = start(service)
+
+        service.requestAutomaticPause(reason: .lowBattery)
+
+        #expect(service.currentState == .inProgress)
+    }
+}
+
+private final class PauseRecordingFileOperations: FileOperationsService, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pauses = 0
+    var pauseCount: Int { lock.withLock { pauses } }
+
+    func performFileOperation(
+        sourceURL: URL,
+        destinationURLs: [URL],
+        verificationMode: VerificationMode,
+        settings: CameraLabelSettings,
+        estimatedTotalBytes: Int64?,
+        progressCallback: @escaping ProgressCallback,
+        onFileResult: FileResultCallback?
+    ) async throws -> FileOperation {
+        throw CancellationError()
+    }
+    func cancelOperation() {}
+    func pauseOperation() async { lock.withLock { pauses += 1 } }
+    func resumeOperation() async {}
+}
+
+private final class PauseRecordingPlatform: PlatformManager {
+    nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
+    nonisolated let checksum: ChecksumService = SharedChecksumService.shared
+    nonisolated let fileOperations: FileOperationsService
+    nonisolated let cameraDetection: CameraDetectionService = SharedCameraDetectionService()
+    nonisolated let supportsDragAndDrop = false
+
+    init(fileOperations: FileOperationsService) {
+        self.fileOperations = fileOperations
+    }
+
+    func presentAlert(title: String, message: String) async {}
+    func presentError(_ error: Error) async {}
+    func openURL(_ url: URL) async -> Bool { false }
 }
 #endif

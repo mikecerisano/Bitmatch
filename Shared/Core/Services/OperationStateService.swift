@@ -51,6 +51,21 @@ class OperationStateService: ObservableObject {
         return true
     }
     
+    /// Wired by the coordinator to its real pause, so an automatic pause
+    /// stops the engine instead of only relabelling the screen.
+    var automaticPauseHandler: ((PauseInfo.PauseReason) -> Void)?
+
+    /// Ask for a pause the user did not request (low battery). Without a
+    /// handler nothing can pause the engine, so nothing is claimed.
+    func requestAutomaticPause(reason: PauseInfo.PauseReason) {
+        guard currentState.canPause else { return }
+        guard let automaticPauseHandler else {
+            SharedLogger.info("StateService: automatic pause (\(reason)) skipped; nothing can pause the engine", category: .transfer)
+            return
+        }
+        automaticPauseHandler(reason)
+    }
+
     /// Record a state reported by the coordinator or the engine.
     func adopt(_ newState: OperationState) {
         stateMachine.adopt(newState)
@@ -255,31 +270,18 @@ class OperationStateService: ObservableObject {
             object: nil
         )
         #endif
-        
-        #if canImport(AppKit)
-        // macOS sleep/wake notifications
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemWillSleep),
-            name: NSWorkspace.willSleepNotification,
-            object: nil
-        )
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemDidWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
-        #endif
+
     }
     
     // MARK: - System Event Handlers
     
     #if canImport(UIKit)
     @objc private func appDidEnterBackground() {
+        // Copying continues on background time (IOSBackgroundTaskService);
+        // an interrupted run is recovered on relaunch. Claiming a pause here
+        // would show "paused" while the engine keeps copying.
         if currentState.canPause {
-            pauseOperation(reason: .backgrounded, currentProgress: nil)
+            SharedLogger.info("StateService: app backgrounded during an operation", category: .transfer)
         }
     }
     
@@ -293,25 +295,12 @@ class OperationStateService: ObservableObject {
     @objc private func batteryLevelChanged() {
         let batteryLevel = UIDevice.current.batteryLevel
         if batteryLevel < 0.15 && batteryLevel > 0 && currentState.canPause {
-            pauseOperation(reason: .lowBattery, currentProgress: nil)
-            SharedLogger.warning("StateService: auto-paused (battery=\(Int(batteryLevel * 100))%)", category: .transfer)
+            SharedLogger.warning("StateService: requesting pause (battery=\(Int(batteryLevel * 100))%)", category: .transfer)
+            requestAutomaticPause(reason: .lowBattery)
         }
     }
     #endif
-    
-    #if canImport(AppKit)
-    @objc private func systemWillSleep() {
-        if currentState.canPause {
-            pauseOperation(reason: .systemSleep, currentProgress: nil)
-        }
-    }
-    
-    @objc private func systemDidWake() {
-        if currentState.isPaused {
-            SharedLogger.info("StateService: system wake with paused operation", category: .transfer)
-        }
-    }
-    #endif
+
     
     // MARK: - Persistence
     

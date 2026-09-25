@@ -146,6 +146,9 @@ class SharedAppCoordinator: ObservableObject {
         // coordinator must still refresh when it changes.
         stateService.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        stateService.automaticPauseHandler = { [weak self] reason in
+            Task { await self?.pauseOperation(reason: reason) }
+        }
         // Default first launch to checksum verification; honor last-picked thereafter.
         if let saved = UserDefaults.standard.string(forKey: "lastVerificationMode"),
            let mode = VerificationMode.allCases.first(where: { $0.rawValue == saved }) {
@@ -589,21 +592,21 @@ class SharedAppCoordinator: ObservableObject {
         updateProjectLifecycle(for: .cancelled)
     }
     
-    func pauseOperation() async {
+    func pauseOperation(reason: PauseInfo.PauseReason = .userRequested) async {
         guard stateService.currentState.canPause else { return }
         
         // Pause the underlying file operations
         await platformManager.fileOperations.pauseOperation()
         
         // Update state service with current progress
-        stateService.pauseOperation(reason: .userRequested, currentProgress: progress)
+        stateService.pauseOperation(reason: reason, currentProgress: progress)
         
         // Update our operation state to match
         operationState = stateService.currentState
         
         // Update capabilities
         stateService.updateCapabilities(canPause: false, canResume: true)
-        SharedLogger.info("Operation paused by user", category: .transfer)
+        SharedLogger.info("Operation paused (\(reason))", category: .transfer)
     }
     
     func resumeOperation() async {
