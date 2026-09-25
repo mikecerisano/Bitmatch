@@ -31,6 +31,21 @@ final class PlatformVerdictParityTests: XCTestCase {
             XCTAssertEqual(iOSShaped.verdict, mac.verdict)
             // Parity with a wrong answer is still wrong: a clean fixture must be green.
             XCTAssertEqual(mac.verdict, .success)
+            // Step 4.7: the shared outcome screen shows the same thing for
+            // both engines, and it is the green one. Destination IDs are the
+            // run's temp paths, so backups compare by title and detail.
+            // Plant: in `OutcomeTone.make`, return `.needsReview` for `.success`.
+            XCTAssertEqual(iOSShaped.outcome.verdict, mac.outcome.verdict)
+            XCTAssertEqual(iOSShaped.outcome.tone, mac.outcome.tone)
+            XCTAssertEqual(iOSShaped.outcome.guidance, mac.outcome.guidance)
+            XCTAssertEqual(iOSShaped.outcome.issueLines, mac.outcome.issueLines)
+            XCTAssertEqual(iOSShaped.outcome.counts, mac.outcome.counts)
+            XCTAssertEqual(iOSShaped.outcome.bytesVerified, mac.outcome.bytesVerified)
+            XCTAssertEqual(iOSShaped.outcome.primaryAction, mac.outcome.primaryAction)
+            XCTAssertEqual(iOSShaped.outcome.destinations.map { [$0.title, $0.detail] },
+                           mac.outcome.destinations.map { [$0.title, $0.detail] })
+            XCTAssertEqual(mac.outcome.tone, .verified)
+            XCTAssertTrue(mac.outcome.issueLines.isEmpty)
             XCTAssertEqual(iOSShapedManager.fakeFileSystem.totalActiveScopes, 0, "iOS-shaped scopes left open")
         }
     }
@@ -41,6 +56,7 @@ private struct ParityOutcome {
     let expectedRowCount: Int
     let completionSucceeded: Bool?
     let verdict: CompletionVerdict
+    let outcome: TransferOutcomePresentation
 }
 
 /// A result row with the run-specific parts (temp folder names, row IDs,
@@ -120,6 +136,20 @@ private func runParityTransfer(platformManager: PlatformManager) async throws ->
             // Same expressions as SharedAppCoordinator.hasErrors / hasCriticalErrors.
             hasErrors: !errorService.currentErrors.isEmpty,
             hasCriticalErrors: !errorService.getCriticalErrors().isEmpty
+        ),
+        // The same inputs `TransferOutcomePresentation.make(coordinator:)` reads.
+        outcome: TransferOutcomePresentation.make(
+            state: finalState,
+            rows: authoritativeRows,
+            destinations: destinations,
+            hasErrors: !errorService.currentErrors.isEmpty,
+            hasCriticalErrors: !errorService.getCriticalErrors().isEmpty,
+            errorCount: errorService.currentErrors.filter { $0.category != .warning }.count,
+            warningCount: errorService.currentErrors.filter { $0.category == .warning }.count,
+            duration: nil,
+            verificationMode: .standard,
+            canRetry: false,
+            canExport: true
         )
     )
 }

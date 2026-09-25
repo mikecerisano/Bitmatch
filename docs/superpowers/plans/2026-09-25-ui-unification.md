@@ -633,6 +633,16 @@ Written on branch `cloud/history-screen` without Xcode: reviewed, not compiled o
   - `durationSaysStoppedWhenCancelled`. **Plant:** always use "Completed in".
   - Extend `PlatformVerdictParityTests` so one fixture gives identical `TransferOutcomePresentation` values whether it is built through the Mac adapter or the iOS adapter. **Plant:** in the Mac adapter, pass `hasErrors: false`.
 
+**Status of 4.7 (branch `cloud/outcome-screen`, not compiled):** implemented, with these differences from the text above:
+- O-1 and O-2 follow the thesis decisions: `SharedAppCoordinator.startNewTransfer()` clears the source and keeps the backups, and Retry and Export are on the shared screen, so the Mac has them.
+- There is one adapter, not two: `CoordinatorOutcomeScreen` (`Shared/Views/Outcome/`) builds `TransferOutcomePresentation.make(coordinator:)` for every platform. The Mac `completionView` passes its project dashboard as a slot; iOS `CompletionSummaryView` is a 10-line wrapper, so `ModularContentView` and `PhoneContentView` are unchanged. The parity test therefore compares the two engines' outcomes rather than two adapters.
+- Retry, Export and the duration come from the transfer's journal record (`SharedAppCoordinator.outcomeRecord`); the timing service clears its timing on completion, so the old "Completed in" line never appeared.
+- The report location is **not** surfaced yet: it needs `ReportExporter.export` to return its URLs through `CopyVerifyExecutor`. `reportLocation` and `reportFormatsDescription` are left out of the model until then.
+- "Not reached" counts are left out: the outcome has no reliable total of planned files.
+- A cancelled outcome is grey (`.secondary`), matching Compare and Transfers; it was red on the Mac and orange on iOS.
+- The Mac `ResultsTableView` now shows only live results while a transfer runs; its completion banner, backup summaries and symbol-derived tint are deleted.
+- Tests: `BitMatchTests/TransferOutcomePresentationTests.swift`, `BitMatch-iPadTests/OutcomePresentationIOSTests.swift`, and an extension of `PlatformVerdictParityTests`, each with its **Plant:** line.
+
 ### Step 4.8: `SetupScreen` (after R4, R5, R6)
 
 - [ ] Once selection, label and report settings live in `SharedAppCoordinator` (R4–R6), add `Shared/Views/Setup/SetupScreen.swift` with the `sourceAccessory` and `projectRemoteBackup` slots (§4.3).
