@@ -296,18 +296,6 @@ struct OperationTiming {
             return "\(seconds)s"
         }
     }
-    
-    var progressPercentage: Double {
-        guard totalFiles > 0 else { return 0 }
-        return Double(filesProcessed) / Double(totalFiles) * 100
-    }
-    
-    var formattedSpeed: String? {
-        guard let speed = averageSpeed ?? finalSpeed else { return nil }
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(speed)) + "/s"
-    }
 }
 
 enum OperationType {

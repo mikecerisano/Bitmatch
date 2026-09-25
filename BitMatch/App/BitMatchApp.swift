@@ -250,5 +250,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 // - switchToCopyMode
 // - switchToCompareMode
 // - switchToMasterReportMode
-// - cameraLabelExpandedChanged
-// - verificationModeExpandedChanged

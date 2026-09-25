@@ -26,9 +26,6 @@ struct MacMainView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @ObservedObject var remoteBackups: MacRemoteBackupController
     @ObservedObject private var errorHandler = GlobalErrorHandler.shared
-#if DEBUG
-    @ObservedObject private var devModeManager = DevModeManager.shared
-#endif
     @State private var showingTransfers = false
     @State private var showOnlyIssues = false
     
@@ -409,40 +406,6 @@ struct MacMainView: View {
         }
     }
     
-    // MARK: - Completion State Helpers
-    private var completionMessage: String {
-        switch coordinator.completionState {
-        case .success(let msg): return msg
-        case .issues(let msg): return msg
-        case .failed(let msg): return msg
-        case .cancelled(let msg): return msg
-        case .idle: return ""
-        case .inProgress: return ""
-        }
-    }
-
-    private var completionIcon: String {
-        switch coordinator.completionState {
-        case .success: return "checkmark.circle.fill"
-        case .issues: return "exclamationmark.triangle.fill"
-        case .failed: return "xmark.circle.fill"
-        case .cancelled: return "xmark.circle"
-        case .idle: return ""
-        case .inProgress: return "clock.fill"
-        }
-    }
-
-    private var completionColor: Color {
-        switch coordinator.completionState {
-        case .success: return .green
-        case .issues: return .yellow
-        case .failed: return .red
-        case .cancelled: return .gray
-        case .idle: return .gray
-        case .inProgress: return .blue
-        }
-    }
-    
     private func updateWindowHeight(to newHeight: CGFloat) {
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
@@ -620,8 +583,6 @@ extension Notification.Name {
     static let switchToCompareMode = Notification.Name("switchToCompareMode")
     static let switchToMasterReportMode = Notification.Name("switchToMasterReportMode")
     // NOTE: showPreferences is in SharedModels.swift
-    static let cameraLabelExpandedChanged = Notification.Name("cameraLabelExpandedChanged")
-    static let verificationModeExpandedChanged = Notification.Name("verificationModeExpandedChanged")
     
     // Developer mode notifications
     static let fillTestData = Notification.Name("fillTestData")

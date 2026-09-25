@@ -19,7 +19,6 @@ struct ReadinessRuleTests {
         OperationReadinessAssessment.assess(
             source: source,
             sourceBytes: sourceBytes,
-            sourceFileCount: 1,
             isAnalysingSource: analysing,
             destinations: destinations ?? [backup],
             settings: CameraLabelSettings(),

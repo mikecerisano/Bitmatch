@@ -1184,38 +1184,10 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
-    var progressPercentage: Double {
-        return progress?.overallProgress ?? 0.0
-    }
-    
-    var formattedSpeed: String? {
-        return progress?.formattedSpeed
-    }
-    
-    var formattedTimeRemaining: String? {
-        return progress?.formattedTimeRemaining
-    }
-    
-    var currentStage: ProgressStage {
-        return progress?.currentStage ?? .idle
-    }
-    
     // MARK: - Timing Computed Properties
     
     var operationDuration: String? {
         return timingService.currentTiming?.formattedDuration
-    }
-    
-    var averageOperationSpeed: String? {
-        return timingService.currentTiming?.formattedSpeed
-    }
-    
-    var operationHistory: [OperationTiming] {
-        return timingService.timingHistory
-    }
-    
-    var operationStats: OperationHistoryStats? {
-        return timingService.getHistoryStats()
     }
     
     // MARK: - Error Computed Properties
@@ -1511,7 +1483,6 @@ extension OperationReadinessAssessment {
     static func assess(
         source: URL?,
         sourceBytes: Int64?,
-        sourceFileCount: Int?,
         isAnalysingSource: Bool,
         destinations: [URL],
         settings: CameraLabelSettings,

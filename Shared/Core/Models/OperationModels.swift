@@ -148,67 +148,6 @@ struct OperationProgress: Codable {
     let perDestinationTotals: [Int]?
     let perDestinationCompleted: [Int]?
     
-    var formattedSpeed: String? {
-        guard let speed = speed else { return nil }
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(speed)) + "/s"
-    }
-    
-    var formattedAverageSpeed: String? {
-        guard let averageSpeed = averageSpeed else { return nil }
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(averageSpeed)) + "/s"
-    }
-    
-    var formattedPeakSpeed: String? {
-        guard let peakSpeed = peakSpeed else { return nil }
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(peakSpeed)) + "/s"
-    }
-    
-    var formattedTimeRemaining: String? {
-        guard let timeRemaining = timeRemaining else { return nil }
-        let hours = Int(timeRemaining / 3600)
-        let minutes = Int((timeRemaining.truncatingRemainder(dividingBy: 3600)) / 60)
-        let seconds = Int(timeRemaining.truncatingRemainder(dividingBy: 60))
-        
-        if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        } else if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        } else {
-            return "\(seconds)s"
-        }
-    }
-    
-    var formattedElapsedTime: String? {
-        guard let elapsedTime = elapsedTime else { return nil }
-        let hours = Int(elapsedTime / 3600)
-        let minutes = Int((elapsedTime.truncatingRemainder(dividingBy: 3600)) / 60)
-        let seconds = Int(elapsedTime.truncatingRemainder(dividingBy: 60))
-        
-        if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        } else if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        } else {
-            return "\(seconds)s"
-        }
-    }
-    
-    var formattedBytesProcessed: String? {
-        guard let bytesProcessed = bytesProcessed else { return nil }
-        return ByteCountFormatter.string(fromByteCount: bytesProcessed, countStyle: .file)
-    }
-    
-    var formattedTotalBytes: String? {
-        guard let totalBytes = totalBytes else { return nil }
-        return ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
-    }
-    
     // Convenience initializer for backward compatibility
     init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, reusedCopies: Int? = nil) {
         self.overallProgress = overallProgress

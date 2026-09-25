@@ -1,8 +1,8 @@
 // Core/ViewModels/MacVolumeAccessModel.swift
 //
 // The Mac-only half of the old file-selection view model: the volume
-// monitor and backup-drive discovery, /Volumes bookmarks, recent folders,
-// last-used backups and drive speed. The selection itself (source, backups,
+// monitor and backup-drive discovery, /Volumes bookmarks, recent folders
+// and last-used backups. The selection itself (source, backups,
 // compare folders and their folder info) lives in SharedAppCoordinator;
 // this model reads it and writes changes through it.
 import Foundation
@@ -83,14 +83,6 @@ final class MacVolumeAccessModel: ObservableObject {
         for url in activeSecurityScopes {
             url.stopAccessingSecurityScopedResource()
         }
-    }
-
-    /// Release all active security-scoped resources to prevent leaks
-    func stopAllSecurityScopes() {
-        for url in activeSecurityScopes {
-            url.stopAccessingSecurityScopedResource()
-        }
-        activeSecurityScopes.removeAll()
     }
 
     private func trackSecurityScope(_ url: URL) {
@@ -189,53 +181,6 @@ final class MacVolumeAccessModel: ObservableObject {
         shared?.removeDestinationFolder(url)
     }
 
-    func removeAutoDetectedCameraCard(_ volume: VolumeMonitorService.DetectedVolume) {
-        // If this was our auto-selected source, clear it
-        if sourceURL == volume.url {
-            shared?.sourceURL = nil
-        }
-        
-        // Remove from volume monitor (user doesn't want to see this one)
-        volumeMonitor.removeCameraCard(volume)
-    }
-    
-    func removeAutoDetectedBackupDrive(_ volume: VolumeMonitorService.DetectedVolume) {
-        // Remove from destinations if present
-        removeDestination(volume.url)
-        
-        // Remove from volume monitor (user doesn't want to see this one)
-        volumeMonitor.removeBackupDrive(volume)
-    }
-    
-    // Manual test function for debugging
-    func testVolumeDetection() {
-        SharedLogger.debug("Testing volume detection manually...", category: .transfer)
-        let testVolumes = [
-            URL(fileURLWithPath: "/Volumes/Untitled"),
-            URL(fileURLWithPath: "/Volumes/T9"),
-            URL(fileURLWithPath: "/Volumes/T9/FUJI XT30")
-        ]
-
-        for url in testVolumes {
-            if FileManager.default.fileExists(atPath: url.path) {
-                SharedLogger.debug("Testing volume: \(url.path)", category: .transfer)
-
-                // Test camera detection specifically
-                let cameraType = CameraDetectionOrchestrator.shared.detectCamera(at: url)
-                SharedLogger.debug("Camera detection result: \(cameraType ?? "None")", category: .transfer)
-
-                // Test specific Fuji detection
-                if let fujiResult = FujiDetectionService.shared.detectFujiCamera(at: url) {
-                    SharedLogger.debug("Fuji detection: \(fujiResult)", category: .transfer)
-                } else {
-                    SharedLogger.debug("No Fuji files found", category: .transfer)
-                }
-
-                volumeMonitor.forceAnalyzeVolume(at: url)
-            }
-        }
-    }
-    
     @MainActor
     func requestVolumeAccess() {
         #if os(macOS)
@@ -466,98 +411,5 @@ final class MacVolumeAccessModel: ObservableObject {
         loadRecentFolders()
         let paths = recentFolders.map { $0.path }
         UserDefaults.standard.set(paths, forKey: recentFoldersListKey)
-    }
-    
-    // MARK: - Drive Speed Classes
-    enum DriveSpeed: String {
-        case nvme = "NVMe"
-        case ssd = "SSD"
-        case hdd = "HDD"
-        case network = "Network"
-        case unknown = "Unknown"
-        
-        var estimatedSpeed: Int { // MB/s
-            switch self {
-            case .nvme: return 2000
-            case .ssd: return 500
-            case .hdd: return 150
-            case .network: return 100
-            case .unknown: return 200
-            }
-        }
-        
-        var color: Color {
-            switch self {
-            case .nvme: return .green
-            case .ssd: return .blue
-            case .hdd: return .orange
-            case .network: return .red
-            case .unknown: return .gray
-            }
-        }
-        
-        var icon: String {
-            switch self {
-            case .nvme: return "bolt.fill"
-            case .ssd: return "speedometer"
-            case .hdd: return "internaldrive"
-            case .network: return "network"
-            case .unknown: return "questionmark.circle"
-            }
-        }
-    }
-}
-
-// MARK: - Convenience Extensions
-extension MacVolumeAccessModel {
-    var hasLastDestinations: Bool {
-        !loadLastDestinations().isEmpty
-    }
-
-    // Smart worker count based on drive speeds
-    func getOptimalWorkerCount(source: DriveSpeed, destinations: [DriveSpeed]) -> Int {
-        let cpuCount = ProcessInfo.processInfo.activeProcessorCount
-        
-        // If source is slow, limit workers
-        if source == .hdd || source == .network {
-            return min(2, cpuCount)
-        }
-        
-        // If any destination is slow, moderate workers
-        if destinations.contains(where: { $0 == .hdd || $0 == .network }) {
-            return min(4, cpuCount)
-        }
-        
-        // All fast drives - use more workers
-        return min(8, cpuCount)
-    }
-    
-    // Calculate cascading delays for smart copy
-    func calculateCascadingDelays(source: DriveSpeed, destinations: [(URL, DriveSpeed)]) -> [(URL, TimeInterval)] {
-        guard destinations.count > 1 else {
-            return destinations.map { ($0.0, 0) }
-        }
-        
-        // Sort destinations by speed (fastest first)
-        let sorted = destinations.sorted { $0.1.estimatedSpeed > $1.1.estimatedSpeed }
-        
-        var results: [(URL, TimeInterval)] = []
-        var previousSpeed = sorted.first?.1.estimatedSpeed ?? 500
-        var cumulativeDelay: TimeInterval = 0
-        
-        for (url, speed) in sorted {
-            // Calculate delay based on speed difference
-            if speed.estimatedSpeed < previousSpeed {
-                // Slower drive should start later
-                let speedRatio = Double(previousSpeed) / Double(speed.estimatedSpeed)
-                let additionalDelay = (speedRatio - 1.0) * 0.5 // 50% offset per speed tier
-                cumulativeDelay += additionalDelay
-            }
-            
-            results.append((url, cumulativeDelay))
-            previousSpeed = speed.estimatedSpeed
-        }
-        
-        return results
     }
 }

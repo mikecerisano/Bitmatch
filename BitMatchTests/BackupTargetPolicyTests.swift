@@ -341,7 +341,6 @@ struct BackupAddPathTests {
         let assessment = OperationReadinessAssessment.assess(
             source: FileManager.default.temporaryDirectory,
             sourceBytes: 1,
-            sourceFileCount: 1,
             isAnalysingSource: false,
             destinations: [URL(fileURLWithPath: "/")],
             settings: CameraLabelSettings(),

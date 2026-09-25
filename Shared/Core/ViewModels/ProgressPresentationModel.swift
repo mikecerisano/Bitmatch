@@ -1,9 +1,9 @@
 // ProgressPresentationModel.swift - smoothed progress for display
 //
-// Interpolated progress, EMA speed, time left from observed copy speed,
-// per-destination fractions
+// Interpolated progress, EMA speed, time left from observed copy speed
 // and reused-copy counts, fed by SharedAppCoordinator from the engine's
-// progress. Presentation only: no verdict or evidence is read from here.
+// progress. Per-backup progress is read from the engine's progress
+// (`TransferProgressPresentation`), not from here. Presentation only: no verdict or evidence is read from here.
 import Foundation
 import SwiftUI
 
@@ -11,7 +11,6 @@ import SwiftUI
 final class ProgressPresentationModel: ObservableObject {
     // MARK: - Published Properties
     @Published var interpolatedProgress: Double = 0.0
-    @Published var currentFileProgress: Double = 0.0
     @Published var progressMessage = "Ready"
     @Published var bytesPerSecond: Double = 0
     @Published var filesPerSecond: Double = 0
@@ -60,21 +59,6 @@ final class ProgressPresentationModel: ObservableObject {
     
     // MARK: - Public Properties (FIXED: Exposed for reporting)
     private(set) var totalBytesProcessed: Int64 = 0
-    
-    // MARK: - Computed Properties
-    var verificationProgress: Double {
-        guard fileCountTotal > 0 else { return 0 }
-        return Double(fileCountCompleted) / Double(fileCountTotal)
-    }
-    
-    var displayProgress: Double {
-        // Only show interpolated progress if we have valid data
-        if fileCountTotal > 0 && !isCountingFiles {
-            // FIXED: Better bounds checking
-            return max(0, min(1, interpolatedProgress))
-        }
-        return 0
-    }
     
     // MARK: - Progress Management
     func startProgressTracking() {
@@ -162,33 +146,6 @@ final class ProgressPresentationModel: ObservableObject {
         isCountingFiles = false
     }
 
-    // Configure per-destination totals
-    func configureDestinations(totalPerDestination: Int, count: Int) {
-        guard count > 0 else {
-            perDestinationTotals = []
-            perDestinationCompleted = []
-            return
-        }
-        perDestinationTotals = Array(repeating: totalPerDestination, count: count)
-        perDestinationCompleted = Array(repeating: 0, count: count)
-    }
-
-    // Mirror overall progress into per-destination progress for UI display
-    func mirrorPerDestinationProgress(overallCompleted: Int, overallTotal: Int, destinationCount: Int) {
-        guard destinationCount > 0 else { return }
-        let perDestTotal = overallTotal > 0 ? max(1, overallTotal / destinationCount) : 0
-        if perDestinationTotals.count != destinationCount {
-            perDestinationTotals = Array(repeating: perDestTotal, count: destinationCount)
-        }
-        // Distribute completed across destinations as evenly as possible
-        let base = overallCompleted / max(1, destinationCount)
-        var remainder = overallCompleted % max(1, destinationCount)
-        perDestinationCompleted = (0..<destinationCount).map { _ in
-            defer { remainder = max(0, remainder - 1) }
-            return base + (remainder > 0 ? 1 : 0)
-        }
-    }
-
     // Set explicit per-destination counts from engine
     func setPerDestinationProgress(totals: [Int], completed: [Int]) {
         guard totals.count == completed.count else { return }
@@ -196,11 +153,6 @@ final class ProgressPresentationModel: ObservableObject {
         perDestinationCompleted = completed
     }
 
-    // Whether we currently hold valid per-destination progress data
-    func hasPerDestinationData(expectedCount: Int) -> Bool {
-        return perDestinationTotals.count == expectedCount && perDestinationCompleted.count == expectedCount
-    }
-    
     func incrementFileCompleted(_ count: Int = 1) {
         fileCountCompleted += count
         lastProgressUpdate = clock()
@@ -211,15 +163,6 @@ final class ProgressPresentationModel: ObservableObject {
         }
     }
 
-    func incrementDestinationCompleted(index: Int) {
-        guard index >= 0 && index < perDestinationCompleted.count else { return }
-        perDestinationCompleted[index] += 1
-    }
-    
-    func incrementMatch() {
-        matchCount += 1
-    }
-    
     func updateBytesProcessed(_ bytes: Int64) {
         totalBytesProcessed += bytes
         updatePerformanceMetrics()
@@ -234,25 +177,6 @@ final class ProgressPresentationModel: ObservableObject {
         currentFileName = fileName
         currentFileSize = size
         currentFileBytesProcessed = 0
-    }
-    
-    func updateCurrentFileProgress(_ bytesProcessed: Int64) {
-        currentFileBytesProcessed = bytesProcessed
-        if currentFileSize > 0 {
-            currentFileProgress = Double(bytesProcessed) / Double(currentFileSize)
-        }
-    }
-    
-    func clearCurrentFile() {
-        currentFileName = nil
-        currentFileSize = 0
-        currentFileBytesProcessed = 0
-        currentFileProgress = 0
-    }
-    
-    // MARK: - Public Getters for Reporting
-    func getTotalBytesProcessed() -> Int64 {
-        return totalBytesProcessed
     }
     
     // MARK: - Private Methods
@@ -344,15 +268,6 @@ extension ProgressPresentationModel {
     func setPlannedTotalBytes(_ total: Int64?) {
         plannedTotalBytes = total
     }
-    var filesRemaining: Int {
-        max(fileCountTotal - fileCountCompleted, 0)
-    }
-    
-    var formattedFilesRemaining: String? {
-        guard fileCountTotal > 0 else { return nil }
-        return "\(filesRemaining) files"
-    }
-    
     /// The one copy speed shown on every platform: an EMA over active time
     /// (pauses excluded), then rolling averages, then the last sample.
     var averageBytesPerSecond: Double? {
@@ -369,18 +284,6 @@ extension ProgressPresentationModel {
         return perSec
     }
 
-    var formattedSpeed: String? {
-        if filesPerSecond > 0 {
-            return String(format: "%.0f files/s", filesPerSecond)
-        } else if bytesPerSecond > 0 {
-            let formatter = ByteCountFormatter()
-            formatter.allowedUnits = [.useKB, .useMB, .useGB]
-            formatter.countStyle = .binary
-            return "\(formatter.string(fromByteCount: Int64(bytesPerSecond)))/s"
-        }
-        return nil
-    }
-    
     /// How much copying must be measured before time left is shown. Shorter
     /// samples swing wildly (caches, the first small files).
     static let minimumObservedCopySeconds: TimeInterval = 2
@@ -434,22 +337,5 @@ extension ProgressPresentationModel {
         let hours = Int(seconds / 3600)
         let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
         return "\(hours)h \(minutes)m"
-    }
-}
-
-// MARK: - Destination progress helpers
-extension ProgressPresentationModel {
-    func destinationProgressFractions(expectedCount: Int) -> [Double] {
-        guard expectedCount > 0 else { return [] }
-        if perDestinationTotals.count == expectedCount && expectedCount == perDestinationCompleted.count {
-            return zip(perDestinationCompleted, perDestinationTotals).map { completed, total in
-                guard total > 0 else { return 0 }
-                let frac = max(0, min(1, Double(completed) / Double(total)))
-                return frac
-            }
-        }
-        // Fallback: mirror overall progress across destinations
-        let overall = verificationProgress
-        return Array(repeating: overall, count: expectedCount)
     }
 }
