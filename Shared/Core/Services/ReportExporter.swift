@@ -59,8 +59,9 @@ struct EnhancedJSONReport: Codable {
         let name: String
         let availableSpace: Int64
         let driveType: String
-        let copyDuration: TimeInterval
-        let verifyDuration: TimeInterval
+        /// Not measured per backup; nil rather than a guess (Promise 3).
+        let copyDuration: TimeInterval?
+        let verifyDuration: TimeInterval?
     }
     
     struct Statistics: Codable {
@@ -81,10 +82,12 @@ struct EnhancedJSONReport: Codable {
     
     struct Performance: Codable {
         let totalDuration: TimeInterval
-        let copyDuration: TimeInterval
-        let verifyDuration: TimeInterval
+        /// Copy, verify and peak speed are not measured separately; nil
+        /// rather than a guess (Promise 3).
+        let copyDuration: TimeInterval?
+        let verifyDuration: TimeInterval?
         let throughputMBps: Double
-        let peakSpeedMBps: Double
+        let peakSpeedMBps: Double?
         let averageSpeedMBps: Double
         let filesPerSecond: Double
         let workers: Int
@@ -853,18 +856,13 @@ final class ReportExporter {
                 }
             }()
             
-            // For now, split duration evenly between copy and verify
-            // In a real implementation, you'd track these separately
-            let copyDuration = duration * 0.5
-            let verifyDuration = duration * 0.5
-            
             return EnhancedJSONReport.DestinationInfo(
                 path: destURL.path,
                 name: destURL.lastPathComponent,
                 availableSpace: availableSpace,
                 driveType: destDriveType,
-                copyDuration: copyDuration,
-                verifyDuration: verifyDuration
+                copyDuration: nil,
+                verifyDuration: nil
             )
         }
         
@@ -889,10 +887,10 @@ final class ReportExporter {
             extensions: extensions,
             performance: EnhancedJSONReport.Performance(
                 totalDuration: duration,
-                copyDuration: duration * 0.5, // Estimate
-                verifyDuration: duration * 0.5, // Estimate
+                copyDuration: nil,
+                verifyDuration: nil,
                 throughputMBps: throughputMBps,
-                peakSpeedMBps: throughputMBps * 1.2, // Estimate peak as 20% higher
+                peakSpeedMBps: nil,
                 averageSpeedMBps: throughputMBps,
                 filesPerSecond: filesPerSecond,
                 workers: workers,
