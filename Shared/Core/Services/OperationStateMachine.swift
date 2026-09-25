@@ -1,9 +1,10 @@
-// OperationStateMachine.swift - Single source of truth for operation state transitions
-// Phase 3: Consolidate state management from SharedAppCoordinator + OperationStateService
+// OperationStateMachine.swift - Transition rules for OperationStateService
 import Foundation
 
-/// Validates and manages operation state transitions
-/// Ensures only valid transitions occur and provides a single source of truth
+/// Validates operation state transitions for `OperationStateService`, which drives
+/// pause/resume. It is not the only record of operation state:
+/// `SharedAppCoordinator.operationState` (the displayed verdict) is written
+/// separately and can diverge when a transition here is rejected.
 @MainActor
 final class OperationStateMachine: ObservableObject {
     @Published private(set) var currentState: OperationState = .notStarted

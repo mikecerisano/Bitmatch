@@ -55,7 +55,7 @@ class SharedAppCoordinator: ObservableObject {
     @Published var results: [ResultRow] = []
     @Published var currentOperation: FileOperation?
 
-    // MARK: - Sub-coordinators (Phase 3: split coordinator)
+    // MARK: - Sub-coordinators
     private lazy var copyVerifyExecutor: CopyVerifyExecutor = {
         CopyVerifyExecutor(
             platformManager: platformManager,

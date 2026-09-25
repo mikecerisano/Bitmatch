@@ -12,7 +12,7 @@ Now with photographer jobs, reusable folder recipes, and optional SFTP backups o
 
 ![BitMatch on Mac: choose a source, choose backups, and start a verified copy](docs/validation/2026-09-20/screenshots/mac-setup.png)
 
-*The development build with sample data. These are layout previews, not real transfer results. The current Mac download is still v0.1.4; iPad and iPhone are build-from-source for now.*
+*The development build with sample data. These are layout previews, not real transfer results. iPad and iPhone are build-from-source for now.*
 
 <details>
 <summary>More screenshots — Mac, iPad, and iPhone</summary>
@@ -89,8 +89,6 @@ On iPhone and iPad, keep BitMatch open while it works. iOS can interrupt a trans
 
 ASC MHL is on by default for verified copies. It adds another full read of each backup to create a compatible inventory. Existing ASC histories are left alone, with an issue shown instead of pretending they were extended. You can turn it off under **Advanced** when you don't need the handoff record. If a retry encounters an existing history, **Transfers → Details → Retry without ASC MHL** rechecks the copies without replacing that history. The one workflow BitMatch supports — verify locally, hand over an initial inventory, receiver validates — is written down in [SUPPORTED_WORKFLOW.md](docs/validation/ascmhl/SUPPORTED_WORKFLOW.md); there is no chain-of-custody claim.
 
-These features are in the development source. The current download is still v0.1.4.
-
 ## Photographer Jobs
 
 A wedding with two photographers, three cameras, and a pile of cards gets messy fast. Jobs keep it together. Pick a folder recipe, tell BitMatch whose card it is, and keep the original card contents intact.
@@ -132,7 +130,7 @@ Source scanning rejects unreadable metadata, unsafe paths, and portable filename
 
 There are automated tests for changing source files, truncated reads, destination conflicts, cancellation, large manifests, and transfer faults. That doesn't mean every drive and hub has been tested. The [validation status](docs/HARDWARE_COMPATIBILITY.md) shows what we actually ran, including failures and things we couldn't test. If you want to help, follow the [hardware testing procedure](docs/HARDWARE_TESTING.md) and send a [hardware test report](https://github.com/mikecerisano/Bitmatch/issues/new?template=hardware-test.yml).
 
-The [0.1.4 release notes](https://github.com/mikecerisano/Bitmatch/releases/tag/v0.1.4) have the latest release's fixes, build checks, and download checksum.
+The [latest release notes](https://github.com/mikecerisano/Bitmatch/releases/latest) have the current fixes, build checks, and download checksum.
 
 ## Who It's For
 

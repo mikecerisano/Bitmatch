@@ -1,6 +1,7 @@
-// AppCoordinator.swift - Thin macOS adapter around SharedAppCoordinator
-// Phase 3: Slimmed from 588 lines to ~180 lines
-// Retains macOS-specific ViewModels for backward UI compatibility
+// AppCoordinator.swift - macOS adapter around SharedAppCoordinator
+// Mirrors shared state into macOS-only view models (progress, file selection,
+// camera label, settings) through Combine subscriptions. iPad and iPhone use
+// SharedAppCoordinator directly.
 import Foundation
 import SwiftUI
 import Combine

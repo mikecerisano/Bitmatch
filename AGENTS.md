@@ -1,5 +1,7 @@
 # BitMatch project guidance
 
+Read [docs/THESIS.md](docs/THESIS.md) first. It states what BitMatch promises and the current plan for bringing the code in line with it.
+
 ## Platform scope
 
 macOS, iPad, and iPhone are core product targets. New features and UI improvements should generally work on all three. The `BitMatch-iPad` target supports both iPhone and iPad despite its name.
