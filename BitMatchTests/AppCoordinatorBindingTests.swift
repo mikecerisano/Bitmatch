@@ -57,23 +57,6 @@ final class AppCoordinatorBindingTests: XCTestCase {
         assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
     }
 
-    func testFilesPerSecondChangeNotifiesOnNextRunLoopTurn() {
-        let coordinator = makeTestCoordinator()
-        drainMainRunLoop()
-        let notificationReceived = NotificationState()
-        let notification = coordinator.objectWillChange.sink { _ in
-            notificationReceived.recordIfEnabled()
-        }
-        defer { notification.cancel() }
-
-        XCTAssertNil(coordinator.formattedSpeed)
-        notificationReceived.enable()
-        coordinator.progressViewModel.filesPerSecond = 24
-        XCTAssertEqual(coordinator.formattedSpeed, "24 files/s")
-
-        assertNotificationReceivedOnNextRunLoopTurn(notificationReceived)
-    }
-
     func testVerificationModeChangeNotifiesOnNextRunLoopTurn() {
         let coordinator = makeTestCoordinator()
         drainMainRunLoop()

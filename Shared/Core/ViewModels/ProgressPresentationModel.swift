@@ -1,8 +1,13 @@
+// ProgressPresentationModel.swift - smoothed progress for display
+//
+// Interpolated progress, EMA speed, rolling ETA, per-destination fractions
+// and reused-copy counts, fed by SharedAppCoordinator from the engine's
+// progress. Presentation only: no verdict or evidence is read from here.
 import Foundation
 import SwiftUI
 
 @MainActor
-final class ProgressViewModel: ObservableObject {
+final class ProgressPresentationModel: ObservableObject {
     // MARK: - Published Properties
     @Published var interpolatedProgress: Double = 0.0
     @Published var currentFileProgress: Double = 0.0
@@ -73,6 +78,9 @@ final class ProgressViewModel: ObservableObject {
         }
     }
     
+    /// True between `startProgressTracking()` and `stopProgressTracking()`.
+    var isTracking: Bool { progressTimer != nil }
+
     func stopProgressTracking() {
         progressTimer?.invalidate()
         progressTimer = nil
@@ -297,7 +305,7 @@ final class ProgressViewModel: ObservableObject {
 }
 
 // MARK: - Progress Display Helpers
-extension ProgressViewModel {
+extension ProgressPresentationModel {
     // Configure planned total bytes (overall)
     func setPlannedTotalBytes(_ total: Int64?) {
         plannedTotalBytes = total
@@ -377,7 +385,7 @@ extension ProgressViewModel {
 }
 
 // MARK: - Destination progress helpers
-extension ProgressViewModel {
+extension ProgressPresentationModel {
     func destinationProgressFractions(expectedCount: Int) -> [Double] {
         guard expectedCount > 0 else { return [] }
         if perDestinationTotals.count == expectedCount && expectedCount == perDestinationCompleted.count {

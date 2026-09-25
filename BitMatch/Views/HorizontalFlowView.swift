@@ -17,7 +17,6 @@ struct HorizontalFlowView: View {
     @State private var isAddButtonTargeted = false
 
     // Convenience accessors
-    private var progress: ProgressViewModel { coordinator.progressViewModel }
     private var isOperationActive: Bool { coordinator.isOperationInProgress }
 
     var body: some View {

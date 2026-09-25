@@ -12,10 +12,8 @@ final class AppCoordinator: ObservableObject {
     // MARK: - Shared Core (single source of truth)
     let sharedCoordinator: SharedAppCoordinator
     private var cancellables = Set<AnyCancellable>()
-    private var lastSharedBytesProcessed: Int64 = 0
 
     // MARK: - macOS-Specific ViewModels (backward compat for views)
-    @Published var progressViewModel = ProgressViewModel()
     /// Mac-only volume access, backup-drive discovery, recents and drive speed.
     let volumeAccess: MacVolumeAccessModel
     /// Mac-only: a detected camera card becomes the source when allowed.
@@ -69,10 +67,9 @@ final class AppCoordinator: ObservableObject {
     }
     var sourceFolderInfo: EnhancedFolderInfo? { sharedCoordinator.sourceFolderInfo }
     var isAnalysingSource: Bool { sharedCoordinator.isAnalysingSource }
-    var progressPercentage: Double { progressViewModel.displayProgress }
-    var currentFileName: String? { progressViewModel.currentFileName }
-    var formattedSpeed: String? { progressViewModel.formattedSpeed }
-    var formattedTimeRemaining: String? { progressViewModel.formattedTimeRemaining }
+    /// Smoothed progress, owned by the shared coordinator. Views observe it
+    /// directly; it is not relayed through this object.
+    var progressPresentation: ProgressPresentationModel { sharedCoordinator.progressPresentation }
     var canPause: Bool { sharedCoordinator.canPause }
     var canResume: Bool { sharedCoordinator.canResume }
     var isPaused: Bool { sharedCoordinator.isPaused }
@@ -122,9 +119,6 @@ final class AppCoordinator: ObservableObject {
             sharedCoordinator.projectRunCameraSettings = nil
         }
         configurePhotographerReportLifecycle()
-
-        progressViewModel.setProgressMessage("Preparing transfer…")
-        progressViewModel.startProgressTracking()
 
         Task { @MainActor in
             switch currentMode {
@@ -205,7 +199,6 @@ final class AppCoordinator: ObservableObject {
 
     func resetForNewOperation() {
         sharedCoordinator.resetForNewOperation()
-        progressViewModel.reset()
     }
 
     func saveVerificationMode() {
@@ -276,22 +269,7 @@ final class AppCoordinator: ObservableObject {
         estimate.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
-        setupProgressBindings()
         setupSharedCoordinatorBindings()
-    }
-
-    private func setupProgressBindings() {
-        Publishers.MergeMany(
-            progressViewModel.$fileCountTotal.map { _ in () }.eraseToAnyPublisher(),
-            progressViewModel.$interpolatedProgress.map { _ in () }.eraseToAnyPublisher(),
-            progressViewModel.$currentFileName.map { _ in () }.eraseToAnyPublisher(),
-            progressViewModel.$bytesPerSecond.map { _ in () }.eraseToAnyPublisher(),
-            progressViewModel.$filesPerSecond.map { _ in () }.eraseToAnyPublisher(),
-            progressViewModel.$estimatedTimeRemaining.map { _ in () }.eraseToAnyPublisher()
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in self?.objectWillChange.send() }
-        .store(in: &cancellables)
     }
 
     // MARK: - Shared Core Bindings
@@ -301,31 +279,6 @@ final class AppCoordinator: ObservableObject {
                 guard let self, (notification.object as? SharedAppCoordinator) === self.sharedCoordinator else { return }
                 self.currentMode = .copyAndVerify
             }.store(in: &cancellables)
-        // Map SharedAppCoordinator progress → ProgressViewModel
-        sharedCoordinator.$progress.compactMap { $0 }
-            .throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] prog in
-                guard let self else { return }
-                self.progressViewModel.setFileCountTotal(prog.totalFiles)
-                self.progressViewModel.setPlannedTotalBytes(prog.totalBytes)
-                self.progressViewModel.fileCountCompleted = prog.filesProcessed
-                let destCount = self.sharedCoordinator.destinationURLs.count
-                if let totals = prog.perDestinationTotals, let completed = prog.perDestinationCompleted,
-                   totals.count == destCount, completed.count == destCount {
-                    self.progressViewModel.setPerDestinationProgress(totals: totals, completed: completed)
-                }
-                if let name = prog.currentFile, !name.isEmpty { self.progressViewModel.setCurrentFile(name) }
-                if let reused = prog.reusedCopies { self.progressViewModel.setReusedFileCopies(reused) }
-                if let bytes = prog.bytesProcessed {
-                    let delta = bytes - self.lastSharedBytesProcessed
-                    if delta > 0 { self.progressViewModel.updateBytesProcessed(delta) }
-                    self.lastSharedBytesProcessed = bytes
-                }
-                var msg = prog.currentStage.displayName
-                if let name = prog.currentFile, !name.isEmpty { msg += " — \(name)" }
-                self.progressViewModel.setProgressMessage(msg)
-            }.store(in: &cancellables)
-
         // Lifecycle consumes every authoritative progress publication. The
         // throttled subscription above exists only to pace presentation work.
         sharedCoordinator.$progress.compactMap { $0 }
@@ -343,15 +296,12 @@ final class AppCoordinator: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // Map operation state for progress timer management
+        // The project lifecycle half of the operation-state mapping (the
+        // progress timer half is in SharedAppCoordinator).
         sharedCoordinator.operationStatePublisher.sink { [weak self] state in
             guard let self else { return }
             switch state {
             case .inProgress, .copying, .verifying:
-                self.progressViewModel.startProgressTracking()
-                if self.progressViewModel.progressMessage == "Ready" {
-                    self.progressViewModel.setProgressMessage("Preparing transfer…")
-                }
                 if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer {
                     switch state {
                     case .inProgress, .copying:
@@ -367,14 +317,10 @@ final class AppCoordinator: ObservableObject {
                     }
                 }
             case .completed(let info):
-                self.progressViewModel.stopProgressTracking()
-                self.lastSharedBytesProcessed = 0
                 if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer, !info.success {
                     self.photographerJobViewModel.operationFailed()
                 }
             case .failed, .cancelled:
-                self.progressViewModel.stopProgressTracking()
-                self.lastSharedBytesProcessed = 0
                 if self.currentMode == .copyAndVerify && !self.sharedCoordinator.isReplayingQueuedTransfer {
                     if state == .cancelled {
                         self.photographerJobViewModel.cancelIngest()

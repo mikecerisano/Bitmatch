@@ -8,8 +8,16 @@ struct ResultsTableView: View {
     @State private var availableWidth: CGFloat = ResultTableLayoutPolicy.detailedThreshold
     // Removed caching @State to avoid mutating state during view updates
     
+    /// Observed directly: the coordinator does not forward its ticks.
+    @ObservedObject private var progress: ProgressPresentationModel
+
+    init(coordinator: AppCoordinator, showOnlyIssues: Binding<Bool>) {
+        _coordinator = ObservedObject(wrappedValue: coordinator)
+        _showOnlyIssues = showOnlyIssues
+        _progress = ObservedObject(wrappedValue: coordinator.progressPresentation)
+    }
+
     // Convenience accessors
-    private var progress: ProgressViewModel { coordinator.progressViewModel }
     private var results: [ResultRow] { coordinator.results }
 
     private var resultSummary: ResultIntegritySummary {
@@ -163,11 +171,11 @@ struct ResultsTableView: View {
             fileCountView
             matchCountView
             if issueCount > 0 { issueCountView }
-            if coordinator.progressViewModel.reusedFileCopies > 0 {
+            if progress.reusedFileCopies > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 10))
-                    Text("Reused \(coordinator.progressViewModel.reusedFileCopies)")
+                    Text("Reused \(progress.reusedFileCopies)")
                         .font(.system(size: 11, design: .monospaced))
                 }
                 .foregroundColor(.white.opacity(0.6))

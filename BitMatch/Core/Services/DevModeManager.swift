@@ -413,7 +413,7 @@ extension DevModeManager {
         
         guard coordinator.isOperationInProgress else { return }
         
-        let totalFiles = coordinator.progressViewModel.fileCountTotal
+        let totalFiles = coordinator.progressPresentation.fileCountTotal
         let filesPerSecond: Double = 2.5 // Realistic speed for large video files
         let totalDurationSeconds = Double(totalFiles) / filesPerSecond
 

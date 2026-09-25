@@ -3,6 +3,8 @@ import SwiftUI
 
 struct TransferQueueView: View {
     @ObservedObject var coordinator: AppCoordinator
+    /// Observed directly: the coordinator does not forward its ticks.
+    @ObservedObject private var progressModel: ProgressPresentationModel
     @State private var queuedTransfers: [QueuedTransfer] = []
     @State private var completedTransfers: [QueuedTransfer] = []
     @State private var showCompletedTransfers = false
@@ -27,6 +29,11 @@ struct TransferQueueView: View {
         let timeRemaining: String?
         let destinationProgress: [Double] // Individual progress for each destination
         var createdAt: Date = Date()
+    }
+
+    init(coordinator: AppCoordinator) {
+        _coordinator = ObservedObject(wrappedValue: coordinator)
+        _progressModel = ObservedObject(wrappedValue: coordinator.progressPresentation)
     }
     
     var body: some View {
@@ -132,7 +139,7 @@ struct TransferQueueView: View {
                 progress: activeTransfer.progress,
                 currentFile: activeTransfer.currentFile,
                 speed: activeTransfer.speed,
-                filesRemaining: coordinator.progressViewModel.formattedFilesRemaining,
+                filesRemaining: progressModel.formattedFilesRemaining,
                 timeRemaining: activeTransfer.timeRemaining,
                 destinationProgress: activeTransfer.destinationProgress,
                 onDestinationTap: { index, destination, progress, frame in
@@ -275,10 +282,11 @@ struct TransferQueueView: View {
             }
         }()
         
-        let progress = coordinator.progressPercentage
+        // The smoothed Mac display, not the shared raw percentage.
+        let progress = progressModel.displayProgress
         // Prefer average data rate (bytes/s) in human readable form
-        let speed = coordinator.progressViewModel.formattedAverageDataRate
-        let timeRemaining = coordinator.progressViewModel.formattedTimeRemaining
+        let speed = progressModel.formattedAverageDataRate
+        let timeRemaining = progressModel.formattedTimeRemaining
         let currentFile = getCurrentFileName()
         
         guard let sourceURL = coordinator.sourceURL else { return nil }
@@ -292,7 +300,7 @@ struct TransferQueueView: View {
             currentFile: currentFile,
             speed: speed,
             timeRemaining: timeRemaining,
-            destinationProgress: coordinator.progressViewModel.destinationProgressFractions(
+            destinationProgress: progressModel.destinationProgressFractions(
                 expectedCount: coordinator.destinationURLs.count
             )
         )

@@ -77,6 +77,14 @@ class SharedAppCoordinator: ObservableObject {
     /// `$operationState` publisher did.
     var operationStatePublisher: Published<OperationState>.Publisher { stateService.$currentState }
     @Published var progress: OperationProgress?
+    /// Smoothed progress for display (rolling speed, ETA, per-destination
+    /// bars). Deliberately not forwarded to this object's `objectWillChange`:
+    /// it ticks every 250 ms, so views observe it directly.
+    let progressPresentation = ProgressPresentationModel()
+    private var lastPresentedBytes: Int64 = 0
+    /// Backups in the run being presented, so a later change of selection
+    /// cannot mismatch the per-destination bars.
+    private var presentedDestinationCount: Int?
     @Published var results: [ResultRow] = []
     @Published var currentOperation: FileOperation?
 
@@ -198,6 +206,7 @@ class SharedAppCoordinator: ObservableObject {
             .store(in: &cancellables)
         cameraLabels.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        setupProgressPresentation()
         stateService.automaticPauseHandler = { [weak self] reason in
             Task { await self?.pauseOperation(reason: reason) }
         }
@@ -299,6 +308,58 @@ class SharedAppCoordinator: ObservableObject {
                 UserDefaults.standard.set(mode.rawValue, forKey: "lastVerificationMode")
             }
             .store(in: &cancellables)
+    }
+
+    // MARK: - Progress presentation
+
+    /// Feeds `progressPresentation`: engine progress at most every 120 ms,
+    /// and the smoothing timer while an operation runs.
+    private func setupProgressPresentation() {
+        $progress.compactMap { $0 }
+            .throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] prog in self?.presentProgress(prog) }
+            .store(in: &cancellables)
+
+        operationStatePublisher
+            .sink { [weak self] state in
+                guard let self else { return }
+                let presentation = self.progressPresentation
+                switch state {
+                case .inProgress, .copying, .verifying:
+                    presentation.startProgressTracking()
+                    if presentation.progressMessage == "Ready" {
+                        presentation.setProgressMessage("Preparing transfer…")
+                    }
+                case .completed, .failed, .cancelled:
+                    presentation.stopProgressTracking()
+                    self.lastPresentedBytes = 0
+                default:
+                    break
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func presentProgress(_ prog: OperationProgress) {
+        let presentation = progressPresentation
+        presentation.setFileCountTotal(prog.totalFiles)
+        presentation.setPlannedTotalBytes(prog.totalBytes)
+        presentation.fileCountCompleted = prog.filesProcessed
+        let destinationCount = presentedDestinationCount ?? destinationURLs.count
+        if let totals = prog.perDestinationTotals, let completed = prog.perDestinationCompleted,
+           totals.count == destinationCount, completed.count == destinationCount {
+            presentation.setPerDestinationProgress(totals: totals, completed: completed)
+        }
+        if let name = prog.currentFile, !name.isEmpty { presentation.setCurrentFile(name) }
+        if let reused = prog.reusedCopies { presentation.setReusedFileCopies(reused) }
+        if let bytes = prog.bytesProcessed {
+            let delta = bytes - lastPresentedBytes
+            if delta > 0 { presentation.updateBytesProcessed(delta) }
+            lastPresentedBytes = bytes
+        }
+        var message = prog.currentStage.displayName
+        if let name = prog.currentFile, !name.isEmpty { message += " — \(name)" }
+        presentation.setProgressMessage(message)
     }
 
     // MARK: - UI Helpers
@@ -580,6 +641,7 @@ class SharedAppCoordinator: ObservableObject {
         operationState = .inProgress
         results = []
         progress = nil
+        presentedDestinationCount = destinationURLs.count
 
         let config = CopyVerifyConfig(
             operationId: startID,
@@ -921,6 +983,9 @@ class SharedAppCoordinator: ObservableObject {
     func resetForNewOperation() {
         results = []
         progress = nil
+        progressPresentation.reset()
+        lastPresentedBytes = 0
+        presentedDestinationCount = nil
         operationState = .notStarted
         currentOperation = nil
         activeJournalRecordID = nil
