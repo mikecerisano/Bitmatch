@@ -274,8 +274,12 @@ struct BackupTargetPolicyTests {
             #expect(BackupTargetPolicy.isSystemVolumeName(name), "\(name)")
         }
         #expect(!BackupTargetPolicy.isSystemVolumeName("RECOVERY DRIVE"))
-        let recovery = Self.internalRoot("/Volumes/RECOVERY", name: "RECOVERY")
-        #expect(refusal("/Volumes/RECOVERY", .userChoice, volumes: [recovery]) != nil)
+        // A path that cannot exist: on a Mac with the real /Volumes/Recovery
+        // mounted, a case-insensitive resolve would turn "/Volumes/RECOVERY"
+        // into "/Volumes/Recovery" and miss this fabricated volume.
+        let root = "/Volumes/BMTEST-\(UUID().uuidString)"
+        let recovery = Self.internalRoot(root, name: "RECOVERY")
+        #expect(refusal(root, .userChoice, volumes: [recovery]) != nil)
     }
 
     // MARK: - Restore
