@@ -30,8 +30,9 @@ struct SetupOptionsBindings {
 /// `SetupPresentation` and decides nothing itself.
 ///
 /// Platform slots:
-/// - `locations`: the source and backup boxes (Mac: drag and drop and drive
-///   discovery; iOS: the Files picker).
+/// - `locations`: the shared source and backup boxes
+///   (`CoordinatorSetupLocations`) with the platform's pickers (Mac: the
+///   open panel and drag and drop; iOS: the Files picker).
 /// - `problems`: real problems only (the Mac's unreadable-card banner).
 /// - `projectSetup`: the project card form (the Mac adds presets and SFTP).
 /// - `labelContent`: the camera label editor inside Advanced.

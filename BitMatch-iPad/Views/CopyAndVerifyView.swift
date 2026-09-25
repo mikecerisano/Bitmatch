@@ -2,10 +2,11 @@
 import SwiftUI
 
 /// The iPad and iPhone slots for the shared Setup screen (UI plan step
-/// 4.8): the Files-picker source and backup boxes, the project setup form,
-/// the camera label editor and this job's cards. Readiness, the workflow
-/// choice, the preflight card, Advanced and Start are the screen the Mac
-/// shows. Needs no environment objects.
+/// 4.8): the Files picker for the shared source and backup boxes, the
+/// project setup form, the camera label editor and this job's cards.
+/// Readiness, the boxes themselves, the workflow choice, the preflight
+/// card, Advanced and Start are what the Mac shows. Needs no environment
+/// objects.
 struct CopyAndVerifyView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @State private var cameraLabelExpanded = false
@@ -19,11 +20,7 @@ struct CopyAndVerifyView: View {
                 "Estimated time: \(coordinator.verificationMode.estimatedTime(fileCount: $0.fileCount))"
             }
         ) { context in
-            EnhancedSourceDestinationView(
-                coordinator: coordinator,
-                nextStep: context.nextStep,
-                sideBySide: context.layout != .compact
-            )
+            IOSSetupLocations(coordinator: coordinator, context: context)
         } problems: {
             // iOS reports no unreadable cards: the Files app shows only what
             // it can read.
@@ -306,326 +303,35 @@ private struct MobileProjectSetupCard: View {
     }
 }
 
-struct EnhancedSourceDestinationView: View {
+/// The iPad and iPhone pickers for the shared source and backup boxes
+/// (`CoordinatorSetupLocations`): the Files picker, with a refusal shown
+/// as an alert. No drag and drop: a folder dragged in from Files does not
+/// bring lasting access with it.
+private struct IOSSetupLocations: View {
     @ObservedObject var coordinator: SharedAppCoordinator
-    /// The step to highlight, from `TransferPlanPresentation.nextStep`.
-    var nextStep: TransferPlanPresentation.NextStep? = nil
-    /// From the Setup screen's own width, not the size class: an iPad split
-    /// view can be narrow while its size class is regular.
-    var sideBySide = false
+    let context: SetupLocationsContext
 
     var body: some View {
-        Group {
-            if sideBySide {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 16) {
-                        ProfessionalSourceCard(coordinator: coordinator, isNextStep: nextStep == .chooseSource)
-                            .frame(minWidth: 280, maxWidth: .infinity)
-
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white.opacity(0.4))
-
-                        DestinationsFlowView(coordinator: coordinator, isNextStep: nextStep == .addBackup)
-                            .frame(minWidth: 280, maxWidth: .infinity)
-                    }
-
-                    stackedCards
-                }
-            } else {
-                stackedCards
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(0.02))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                )
-        )
-    }
-
-    private var stackedCards: some View {
-        VStack(spacing: 16) {
-            ProfessionalSourceCard(coordinator: coordinator, isNextStep: nextStep == .chooseSource)
-            DestinationsFlowView(coordinator: coordinator, isNextStep: nextStep == .addBackup)
-        }
-    }
-}
-
-struct ProfessionalSourceCard: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    var isNextStep = false
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            HStack {
-                Text("Source")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                if coordinator.sourceURL != nil && !coordinator.isOperationInProgress {
-                    Button {
-                        coordinator.sourceURL = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Clear source folder \(coordinator.sourceURL?.lastPathComponent ?? "")")
-                    .accessibilityHint("Removes the selected source folder from this transfer.")
-                }
-            }
-            
-            // Content
-            if let sourceURL = coordinator.sourceURL {
-                // Selected state
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.green)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(sourceURL.lastPathComponent)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                                .lineLimit(2)
-                            
-                            if let folderInfo = coordinator.sourceFolderInfo {
-                                HStack(spacing: 8) {
-                                    Text("\(folderInfo.formattedFileCount) files")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.white.opacity(0.7))
-                                    
-                                    Text("•")
-                                        .foregroundColor(.white.opacity(0.5))
-                                    
-                                    Text(folderInfo.formattedSize)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.8))
-                                }
-                                
-                                Text(sourceURL.path)
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .lineLimit(2)
-                            }
-                        }
-                        
-                        Spacer()
-                    }
-                    
-                    // Camera detection badge
-                    if let detectedCamera = coordinator.detectedCamera {
-                        HStack(spacing: 6) {
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 12))
-                            Text(detectedCamera.displayName)
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundColor(.blue)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule()
-                                .fill(Color.blue.opacity(0.15))
+        let coordinator = self.coordinator
+        CoordinatorSetupLocations(
+            coordinator: coordinator,
+            context: context,
+            platform: SetupLocationsPlatform(
+                pickSource: { await coordinator.pickFolderForSource() },
+                pickBackups: { await coordinator.pickFoldersForBackups() },
+                addBackup: { coordinator.addDestination($0) },
+                removeBackup: { coordinator.removeDestinationFolder($0) },
+                freeSpace: SetupLocationsPresentation.formattedFreeSpace,
+                showRefusals: { reasons in
+                    Task {
+                        await coordinator.showAlert(
+                            title: "Can't use that folder",
+                            message: reasons.joined(separator: "\n")
                         )
                     }
-                }
-            } else {
-                // Empty state
-                Button {
-                    Task { 
-                        await coordinator.selectSourceFolder()
-                    }
-                } label: {
-                    VStack(spacing: 12) {
-                        Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 36))
-                            .foregroundColor(.white.opacity(0.3))
-                        
-                        VStack(spacing: 4) {
-                            Text("Select Source Folder")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.9))
-                            
-                            Text("Choose the folder containing files to copy")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.6))
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(coordinator.sourceURL != nil ? Color.green.opacity(0.05) : Color.white.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(coordinator.sourceURL != nil ? Color.green.opacity(0.2) : Color.white.opacity(0.1), lineWidth: 1)
-                )
-        )
-        .nextStepHighlight(isNextStep, cornerRadius: 12)
-    }
-}
-
-struct DestinationsFlowView: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    var isNextStep = false
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Backups")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.secondary)
-                
-                if !coordinator.destinationURLs.isEmpty {
-                    Text("\(coordinator.destinationURLs.count) selected")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.5))
-                }
-            }
-            
-            if coordinator.destinationURLs.isEmpty {
-                // Empty state
-                VStack(spacing: 8) {
-                    Image(systemName: "externaldrive.badge.plus")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white.opacity(0.3))
-                    
-                    Text("Add backup drives")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.5))
-                    
-                    Button("Add Destinations...") {
-                        Task { await coordinator.addDestinationFolder() }
-                    }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.white.opacity(0.1))
-                    )
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.vertical, 16)
-                .nextStepHighlight(isNextStep)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.03))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                        )
-                )
-            } else {
-                // Vertical list of destination cards (for side-by-side layout)
-                VStack(alignment: .leading, spacing: 8) {
-                        ForEach(coordinator.destinationURLs, id: \.self) { url in
-                            CompactDestinationCard(url: url, coordinator: coordinator)
-                        }
-                        
-                        // Add more button
-                        if !coordinator.isOperationInProgress {
-                            Button {
-                                Task { await coordinator.addDestinationFolder() }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "plus.circle")
-                                        .font(.system(size: 12))
-                                    Text("Add More...")
-                                        .font(.system(size: 11, weight: .medium))
-                                }
-                                .foregroundColor(.white.opacity(0.6))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .frame(minHeight: 44)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.white.opacity(0.05))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                                        )
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                }
-            }
-        }
-    }
-}
-
-struct CompactDestinationCard: View {
-    let url: URL
-    @ObservedObject var coordinator: SharedAppCoordinator
-    
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "externaldrive.fill")
-                .font(.system(size: 14))
-                .foregroundColor(.blue)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(url.lastPathComponent)
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .lineLimit(2)
-                
-                Text(url.path)
-                    .font(.footnote)
-                    .foregroundColor(.white.opacity(0.65))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            
-            Spacer()
-            
-            if !coordinator.isOperationInProgress {
-                Button {
-                    coordinator.removeDestinationFolder(url)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(.red.opacity(0.6))
-                }
-                .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .accessibilityLabel("Remove destination \(url.lastPathComponent)")
-                .accessibilityHint("Removes \(url.lastPathComponent) from the backup destinations.")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.blue.opacity(0.2), lineWidth: 1)
-                )
+                },
+                acceptsDrops: false
+            )
         )
     }
 }

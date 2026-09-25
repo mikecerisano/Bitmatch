@@ -4,11 +4,10 @@ extension SetupPresentation {
     /// The one adapter from `SharedAppCoordinator`, used by Mac, iPad and
     /// iPhone alike, so every platform shows the same Setup for the same
     /// selection. Readiness is the one shared rule
-    /// (`operationReadinessAssessment`); the estimate is the only
-    /// platform-supplied value.
+    /// (`SharedAppCoordinator.transferReadiness`, the same rule Start uses);
+    /// the estimate is the only platform-supplied value.
     @MainActor
     static func make(coordinator: SharedAppCoordinator, estimateText: String?) -> Self {
-        let readiness = coordinator.operationReadinessAssessment
         let plan = TransferPlanPresentation.make(
             sourceURL: coordinator.sourceURL,
             sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
@@ -16,9 +15,7 @@ extension SetupPresentation {
             verificationMode: coordinator.verificationMode,
             cameraSettings: coordinator.cameraLabelSettings,
             reportSettings: coordinator.reportSettings,
-            isAnalyzing: coordinator.isAnalysingSource,
-            blockingIssues: readiness.blockingIssues,
-            warnings: readiness.warnings
+            readiness: coordinator.transferReadiness
         )
         let jobs = coordinator.photographerJobViewModel
         let hasPreparedCard = jobs.hasPreparedIngestAwaitingStart

@@ -410,16 +410,16 @@ class SharedAppCoordinator: ObservableObject {
         }
     }
     
-    func addDestinationFolder() async {
-        let urls = await platformManager.fileSystem.selectDestinationFolders()
-        var refusals: [String] = []
-        for url in urls {
-            if let refusal = addDestination(url) { refusals.append(refusal) }
-        }
-        // A picked system volume is refused with a reason, not silently.
-        if !refusals.isEmpty {
-            await showError(FileOperationError.unsafeOperation(refusals.joined(separator: "\n")))
-        }
+    /// The platform's source picker, choosing nothing yet: the Setup boxes
+    /// (`SetupLocationSelection`) check the pick first. Nil when cancelled.
+    func pickFolderForSource() async -> URL? {
+        await platformManager.fileSystem.selectSourceFolder()
+    }
+
+    /// The platform's backup picker, adding nothing yet: the Setup boxes
+    /// run `DestinationSelectionPolicy`, then `addDestination`.
+    func pickFoldersForBackups() async -> [URL] {
+        await platformManager.fileSystem.selectDestinationFolders()
     }
 
     /// Adds a backup unless `BackupTargetPolicy` refuses it for `origin` or
@@ -1360,15 +1360,25 @@ class SharedAppCoordinator: ObservableObject {
     /// (thesis decision): the Mac's stricter check, with the runtime's space
     /// margin. See `OperationReadinessAssessment.assess`.
     var operationReadinessAssessment: OperationReadinessAssessment {
-        OperationReadinessAssessment.assess(
+        OperationReadinessAssessment(
+            transferReadiness,
+            hasDestinations: !destinationURLs.isEmpty,
+            estimatedDuration: sourceURL == nil ? nil : sourceFolderInfo.map { verificationMode.estimatedTime(fileCount: $0.fileCount) }
+        )
+    }
+
+    /// The one readiness rule (`TransferReadiness`, UI plan step 4.5) for
+    /// the current selection, with this disk's free space and writability.
+    var transferReadiness: TransferReadiness {
+        TransferReadiness.assess(
             source: sourceURL,
             sourceBytes: sourceFolderInfo?.totalSize,
-            sourceFileCount: sourceFolderInfo?.fileCount,
             isAnalysingSource: isAnalysingSource,
             destinations: destinationURLs,
             settings: cameraLabelSettings,
             verificationMode: verificationMode,
-            availableBytes: { self.getDriveCapacity(for: $0) }
+            availableBytes: { self.getDriveCapacity(for: $0) },
+            isWritable: TransferReadiness.isWritableFolder
         )
     }
     
@@ -1470,20 +1480,13 @@ struct OperationReadinessAssessment {
 }
 
 extension OperationReadinessAssessment {
-    static let noSourceIssue = "No source folder selected"
-    static let noDestinationIssue = "No destination folders selected"
+    static let noSourceIssue = TransferReadiness.noSourceIssue
+    static let noDestinationIssue = TransferReadiness.noDestinationIssue
 
-    /// The one readiness rule. Pure: free space comes from `availableBytes`
-    /// (nil when a destination's capacity cannot be read).
-    ///
-    /// - Blocks until a source and a backup are chosen, while the source is
-    ///   still being analysed, on duplicate, protected or unsafe backups, on
-    ///   resolved-folder conflicts, and when a backup's free space is not more
-    ///   than the source size plus `SafetyValidator.requiredHeadroomBytes`
-    ///   (exactly what the copy itself refuses, so "Ready" cannot fail at
-    ///   start). Space is checked for every backup whose capacity is readable.
-    /// - Warns in Quick mode and when the source needs more than 70% of a
-    ///   backup's free space.
+    /// The one readiness rule, `TransferReadiness.assess`, in the shape
+    /// Start, ⌘R and the dev tools read. `isWritable` defaults to "yes" so
+    /// callers that do not inspect the disk (tests with made-up paths) keep
+    /// the rest of the rule.
     static func assess(
         source: URL?,
         sourceBytes: Int64?,
@@ -1492,74 +1495,44 @@ extension OperationReadinessAssessment {
         destinations: [URL],
         settings: CameraLabelSettings,
         verificationMode: VerificationMode,
-        availableBytes: (URL) -> Int64?
+        availableBytes: (URL) -> Int64?,
+        isWritable: (URL) -> Bool = { _ in true }
     ) -> OperationReadinessAssessment {
-        guard let source else {
-            return OperationReadinessAssessment(
-                isReady: false,
-                issues: [noSourceIssue],
-                warnings: [],
-                estimatedDuration: nil
-            )
-        }
-
-        var setupIssues: [String] = []
-        var blocking: [String] = []
-        var warnings: [String] = []
-
-        if destinations.isEmpty {
-            setupIssues.append(noDestinationIssue)
-        }
-
-        let uniqueDestinationPaths = Set(destinations.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        if uniqueDestinationPaths.count != destinations.count {
-            blocking.append("Destination folders must be unique")
-        }
-
-        for destination in destinations {
-            if SafetyValidator.isProtectedSystemPath(destination) {
-                blocking.append("\(destination.lastPathComponent): System folders cannot be used as destinations")
-            } else if let refusal = BackupTargetPolicy.refusal(for: destination, origin: .userChoice, source: source) {
-                blocking.append(refusal)
-            } else if let issue = SafetyValidator.destinationSafetyIssue(source: source, destination: destination) {
-                blocking.append("\(destination.lastPathComponent): \(issue)")
-            }
-        }
-
-        do {
-            try SafetyValidator.validateResolvedDestinationRoots(
-                source: source,
-                destinations: destinations,
-                settings: settings
-            )
-        } catch {
-            blocking.append(error.localizedDescription)
-        }
-
-        if verificationMode == .quick {
-            warnings.append("Quick mode only checks file size. Standard SHA-256 is safer for production transfers.")
-        }
-
-        if let sourceBytes {
-            for destination in destinations {
-                guard let available = availableBytes(destination) else { continue }
-                // The copy needs more than source + headroom free.
-                if available - SafetyValidator.requiredHeadroomBytes <= sourceBytes {
-                    blocking.append("Insufficient space on \(destination.lastPathComponent)")
-                } else if available > 0, Double(sourceBytes) / Double(available) > 0.7 {
-                    warnings.append("Limited space on \(destination.lastPathComponent)")
-                }
-            }
-        }
-
-        let issues = setupIssues + blocking
+        let readiness = TransferReadiness.assess(
+            source: source,
+            sourceBytes: sourceBytes,
+            isAnalysingSource: isAnalysingSource,
+            destinations: destinations,
+            settings: settings,
+            verificationMode: verificationMode,
+            availableBytes: availableBytes,
+            isWritable: isWritable
+        )
         return OperationReadinessAssessment(
-            isReady: issues.isEmpty && !isAnalysingSource,
+            readiness,
+            hasDestinations: !destinations.isEmpty,
+            estimatedDuration: source == nil ? nil : sourceFileCount.map { verificationMode.estimatedTime(fileCount: $0) }
+        )
+    }
+
+    /// "Not chosen yet" stays in `issues` (so `isReady` and the dev tools
+    /// see it) but never in `blockingIssues`.
+    init(_ readiness: TransferReadiness, hasDestinations: Bool, estimatedDuration: String?) {
+        let setupIssues: [String]
+        switch readiness.status {
+        case .needsSource:
+            setupIssues = [TransferReadiness.noSourceIssue]
+        default:
+            setupIssues = hasDestinations ? [] : [TransferReadiness.noDestinationIssue]
+        }
+        let issues = setupIssues + readiness.blockers
+        self.init(
+            isReady: readiness.isReady,
             issues: issues,
-            warnings: warnings,
-            estimatedDuration: sourceFileCount.map { verificationMode.estimatedTime(fileCount: $0) },
-            blockingIssues: blocking,
-            isAnalysing: isAnalysingSource
+            warnings: readiness.status == .needsSource ? [] : readiness.warnings,
+            estimatedDuration: estimatedDuration,
+            blockingIssues: readiness.blockers,
+            isAnalysing: readiness.status == .analysing
         )
     }
 }
