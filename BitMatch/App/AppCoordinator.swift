@@ -28,8 +28,10 @@ final class AppCoordinator: ObservableObject {
 
     // MARK: - Delegated State
     @Published var currentMode: AppMode = .copyAndVerify
-    @Published var timeEstimate: TimeEstimate?
-    @Published var isCalculatingEstimate = false
+    /// Mac-only benchmark estimate shown above Start.
+    let estimate = TransferEstimateModel()
+    var timeEstimate: TimeEstimate? { estimate.estimate }
+    var isCalculatingEstimate: Bool { estimate.isCalculating }
 
     // MARK: - Computed Properties (delegated to SharedAppCoordinator)
     var isOperationInProgress: Bool { sharedCoordinator.isOperationInProgress }
@@ -219,27 +221,15 @@ final class AppCoordinator: ObservableObject {
     }
 
     // MARK: - Time Estimate
-    func updateTimeEstimate() {
-        guard let sourceURL = fileSelectionViewModel.sourceURL,
-              !fileSelectionViewModel.destinationURLs.isEmpty,
-              let totalBytes = fileSelectionViewModel.sourceFolderInfo?.totalSize,
-              totalBytes > 0 else {
-            timeEstimate = nil
-            return
-        }
-        isCalculatingEstimate = true
-        Task {
-            let estimate = await DriveBenchmarkService.shared.estimateTransferTime(
-                sourceURL: sourceURL,
-                destinationURLs: fileSelectionViewModel.destinationURLs,
-                totalBytes: totalBytes,
-                verificationMode: verificationMode
-            )
-            await MainActor.run {
-                self.timeEstimate = estimate
-                self.isCalculatingEstimate = false
-            }
-        }
+    /// `mode` is passed when the verification mode is about to change, since
+    /// `$verificationMode` publishes before the new value is stored.
+    func updateTimeEstimate(mode: VerificationMode? = nil) {
+        estimate.update(
+            source: fileSelectionViewModel.sourceURL,
+            destinations: fileSelectionViewModel.destinationURLs,
+            totalBytes: fileSelectionViewModel.sourceFolderInfo?.totalSize,
+            mode: mode ?? verificationMode
+        )
     }
 
     // MARK: - Initialization
@@ -292,9 +282,19 @@ final class AppCoordinator: ObservableObject {
         }
         self.sharedCoordinator = shared
         self.remoteBackups = remoteBackups
-        // The host-key alert reads the controller's prompt through this object.
+        // The host-key alert and the estimate line read these companions
+        // through this object.
         remoteBackups.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        estimate.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        // A new verification mode changes the estimate (verify passes).
+        shared.$verificationMode
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] mode in self?.updateTimeEstimate(mode: mode) }
             .store(in: &cancellables)
         setupFileSelectionBindings()
         setupProgressBindings()
