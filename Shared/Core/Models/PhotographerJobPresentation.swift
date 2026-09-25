@@ -194,10 +194,12 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
     let byteCountTitle: String
     let renderedPath: String
     let statusTitle: String
-    let statusSymbol: String
+    let status: ResultStatusPresentation
     let verifiedDestinationCount: Int
     let verifiedCopyTitle: String
     let remoteBackupPresentations: [UUID: RemoteBackupStatusPresentation]
+
+    var statusSymbol: String { status.symbol }
 
     static func make(
         card: CardIngest,
@@ -205,7 +207,6 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
         requiredCopyCount: Int = 0,
         workflow: ProjectWorkflow = .photography
     ) -> Self {
-        let status = status(for: card.localState)
         let copyTitle = requiredCopyCount > 0
             ? "\(verifiedDestinationCount) of \(requiredCopyCount) verified"
             : "\(verifiedDestinationCount) verified destinations"
@@ -217,22 +218,22 @@ struct PhotographerCardRowPresentation: Identifiable, Equatable, Sendable {
             fileCountTitle: formattedFileCount(card.fileCount),
             byteCountTitle: ByteCountFormatter.string(fromByteCount: card.totalBytes, countStyle: .file),
             renderedPath: card.renderedRelativePath,
-            statusTitle: status.title,
-            statusSymbol: status.symbol,
+            statusTitle: statusTitle(for: card.localState),
+            status: .make(localState: card.localState),
             verifiedDestinationCount: verifiedDestinationCount,
             verifiedCopyTitle: copyTitle,
             remoteBackupPresentations: card.remoteBackupSummaries.mapValues(RemoteBackupStatusPresentation.make)
         )
     }
 
-    private static func status(for state: PhotographerLocalState) -> (title: String, symbol: String) {
+    private static func statusTitle(for state: PhotographerLocalState) -> String {
         switch state {
-        case .notStarted: return ("Not Started", "circle")
-        case .copying: return ("Copying", "doc.on.doc.fill")
-        case .verifying: return ("Verifying", "checkmark.shield")
-        case .locallySafe: return ("Locally Safe", "checkmark.shield.fill")
-        case .issues: return ("Issues", "exclamationmark.triangle.fill")
-        case .cancelled: return ("Cancelled", "xmark.circle.fill")
+        case .notStarted: return "Not Started"
+        case .copying: return "Copying"
+        case .verifying: return "Verifying"
+        case .locallySafe: return "Locally Safe"
+        case .issues: return "Issues"
+        case .cancelled: return "Cancelled"
         }
     }
 

@@ -536,8 +536,9 @@ struct ReportView: View {
     
     private func manifestDataRow(for row: ResultRow) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: statusSymbol(for: row.status))
-                .foregroundColor(statusColor(for: row.status))
+            let status = ResultStatusPresentation.make(status: row.status)
+            Image(systemName: status.symbol)
+                .foregroundColor(status.color)
                 .font(.system(size: 10))
                 .frame(width: 44, alignment: .leading)
             Text(row.fileName)
@@ -576,8 +577,9 @@ struct ReportView: View {
                 ForEach(groups) { group in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Image(systemName: statusSymbol(for: group.status))
-                                .foregroundColor(statusColor(for: group.status))
+                            let status = ResultStatusPresentation.make(status: group.status)
+                            Image(systemName: status.symbol)
+                                .foregroundColor(status.color)
                                 .font(.system(size: 10))
                             Text("\(group.status) (\(group.rows.count))")
                                 .font(.system(size: 11, weight: .medium))
@@ -755,12 +757,12 @@ struct ReportView: View {
     private func summaryTableRow(for status: String, count: Int) -> some View {
         HStack {
             HStack(spacing: 4) {
-                Image(systemName: statusSymbol(for: status))
+                Image(systemName: ResultStatusPresentation.make(status: status).symbol)
                     .font(.system(size: 10))
                 Text(status)
                     .font(.system(size: 10))
             }
-            .foregroundColor(statusColor(for: status))
+            .foregroundColor(ResultStatusPresentation.make(status: status).color)
             
             Spacer()
             
@@ -771,39 +773,8 @@ struct ReportView: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 4)
-                .fill(statusColor(for: status).opacity(0.1))
+                .fill(ResultStatusPresentation.make(status: status).color.opacity(0.1))
         )
-    }
-
-    // MARK: - Status Helper Methods
-    private func statusSymbol(for status: String) -> String {
-        let lowercased = status.lowercased()
-        if ResultRow.isSuccessStatus(status) {
-            return "checkmark.circle"
-        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
-            return "xmark.circle"
-        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
-            return "exclamationmark.triangle"
-        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
-            return "arrow.clockwise"
-        } else {
-            return "questionmark.circle"
-        }
-    }
-    
-    private func statusColor(for status: String) -> Color {
-        let lowercased = status.lowercased()
-        if ResultRow.isSuccessStatus(status) {
-            return .green
-        } else if status.contains("❌") || lowercased.contains("error") || lowercased.contains("failed") {
-            return .red
-        } else if status.contains("⚠️") || lowercased.contains("warning") || lowercased.contains("missing") || lowercased.contains("mismatch") {
-            return .yellow
-        } else if status.contains("🔄") || lowercased.contains("processing") || lowercased.contains("copying") {
-            return .blue
-        } else {
-            return .gray
-        }
     }
 }
 

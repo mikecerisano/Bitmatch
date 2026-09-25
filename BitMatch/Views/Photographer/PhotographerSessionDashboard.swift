@@ -67,7 +67,7 @@ struct PhotographerSessionDashboard: View {
     private func cardRow(_ row: PhotographerCardRowPresentation) -> some View {
         HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
             Image(systemName: row.statusSymbol)
-                .foregroundColor(statusColor(row.statusTitle))
+                .foregroundColor(row.status.color)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
                 HStack(spacing: DesignSystem.Spacing.xs) {
@@ -78,7 +78,7 @@ struct PhotographerSessionDashboard: View {
                     Spacer()
                     Text(row.statusTitle)
                         .font(DesignSystem.Typography.micro)
-                        .foregroundColor(statusColor(row.statusTitle))
+                        .foregroundColor(row.status.color)
                 }
                 Text("\(row.fileCountTitle) · \(row.byteCountTitle) · \(row.verifiedCopyTitle)")
                     .font(DesignSystem.Typography.caption)
@@ -124,16 +124,6 @@ struct PhotographerSessionDashboard: View {
         .focused($keyboardFocusedCardID, equals: row.id)
         .accessibilityFocused($accessibilityFocusedCardID, equals: row.id)
         .accessibilityLabel("\(row.photographerName), \(row.cameraName), \(row.cardTitle), \(row.fileCountTitle), \(row.byteCountTitle), \(row.statusTitle), \(row.verifiedCopyTitle), package route \(row.renderedPath), \(row.remoteBackupPresentations.values.map(\.title).joined(separator: ", "))")
-    }
-
-    private func statusColor(_ title: String) -> Color {
-        switch title {
-        case "Locally Safe": return DesignSystem.Colors.success
-        case "Issues": return DesignSystem.Colors.error
-        case "Copying", "Verifying": return DesignSystem.Colors.info
-        case "Cancelled": return DesignSystem.Colors.textTertiary
-        default: return DesignSystem.Colors.idle
-        }
     }
 
     private func sourceUnitTitle(_ cardTitle: String) -> String {
