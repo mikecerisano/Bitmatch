@@ -4,12 +4,9 @@ extension SetupPresentation {
     /// The one adapter from `SharedAppCoordinator`, used by Mac, iPad and
     /// iPhone alike, so every platform shows the same Setup for the same
     /// selection. Readiness is the one shared rule
-    /// (`operationReadinessAssessment`). There is no time estimate before a
-    /// transfer starts: nothing honest can be known until copying is under
-    /// way, and the progress screen shows time left from observed speed.
+    /// (`SharedAppCoordinator.transferReadiness`, the same rule Start uses);
     @MainActor
     static func make(coordinator: SharedAppCoordinator) -> Self {
-        let readiness = coordinator.operationReadinessAssessment
         let plan = TransferPlanPresentation.make(
             sourceURL: coordinator.sourceURL,
             sourceInfo: coordinator.sourceFolderInfo?.asFolderInfo,
@@ -17,9 +14,7 @@ extension SetupPresentation {
             verificationMode: coordinator.verificationMode,
             cameraSettings: coordinator.cameraLabelSettings,
             reportSettings: coordinator.reportSettings,
-            isAnalyzing: coordinator.isAnalysingSource,
-            blockingIssues: readiness.blockingIssues,
-            warnings: readiness.warnings
+            readiness: coordinator.transferReadiness
         )
         let jobs = coordinator.photographerJobViewModel
         let hasPreparedCard = jobs.hasPreparedIngestAwaitingStart

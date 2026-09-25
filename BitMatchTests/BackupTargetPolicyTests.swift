@@ -334,7 +334,7 @@ struct BackupAddPathTests {
 
     /// The readiness rule names the reason (the engine's preflight uses the
     /// same rule).
-    /// Plant: in `OperationReadinessAssessment.assess`, delete the
+    /// Plant: in `TransferReadiness.assess`, delete the
     /// `else if let refusal = BackupTargetPolicy.refusal(...)` branch (the
     /// overlap rule then reports "contains the source" instead).
     @Test func readinessSaysTheStartupDiskIsNotABackup() {

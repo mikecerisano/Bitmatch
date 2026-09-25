@@ -107,6 +107,30 @@ struct TransferPlanPresentation: Equatable {
         )
     }
 
+    /// The plan from the one readiness rule (UI plan step 4.5): its
+    /// blockers and warnings, with "not chosen yet" left to `nextStep`.
+    static func make(
+        sourceURL: URL?,
+        sourceInfo: FolderInfo?,
+        destinationURLs: [URL],
+        verificationMode: VerificationMode,
+        cameraSettings: CameraLabelSettings,
+        reportSettings: ReportPrefs,
+        readiness: TransferReadiness
+    ) -> Self {
+        make(
+            sourceURL: sourceURL,
+            sourceInfo: sourceInfo,
+            destinationURLs: destinationURLs,
+            verificationMode: verificationMode,
+            cameraSettings: cameraSettings,
+            reportSettings: reportSettings,
+            isAnalyzing: readiness.status == .analysing,
+            blockingIssues: readiness.blockers,
+            warnings: readiness.warnings
+        )
+    }
+
     private static func actionTitle(nextStep: NextStep?, verificationMode: VerificationMode) -> String {
         switch nextStep {
         case .chooseSource: "Choose a source to start"

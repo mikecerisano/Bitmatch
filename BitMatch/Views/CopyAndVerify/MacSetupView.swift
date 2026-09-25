@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// The Mac's slots for the shared Setup screen (UI plan step 4.8): drag and
-/// drop with drive discovery for the locations, the unreadable-card banner,
-/// project setup with presets and SFTP, the camera label editor and the
-/// project dashboard. Everything else, including readiness and the Start
-/// button, is the screen iPad and iPhone show.
+/// The Mac's slots for the shared Setup screen (UI plan step 4.8): the open
+/// panel and drag and drop for the shared source and backup boxes, the
+/// unreadable-card banner, project setup with presets and SFTP, the camera
+/// label editor and the project dashboard.
+/// Everything else, including the boxes themselves, readiness and the Start
+/// button, is what iPad and iPhone show.
 ///
-/// Environment objects: `MacVolumeAccessModel` (read by `HorizontalFlowView`)
-/// and `MacRemoteBackupController`. Both come from `macCompanions(_:)` on the
+/// Environment objects: `MacVolumeAccessModel` (read by `MacSetupLocations`),
+/// and `MacRemoteBackupController`, both from `macCompanions(_:)` on the
 /// window root.
 struct MacSetupView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
@@ -20,19 +21,8 @@ struct MacSetupView: View {
             coordinator: coordinator,
             optionsExpanded: $optionsExpanded
         ) { context in
-            // The single owner of folder panels, drop validation and
-            // discovered drives.
-            HorizontalFlowView(
-                coordinator: coordinator,
-                presentation: context.layout == .compact ? .compact : .expanded,
-                nextStep: context.nextStep
-            )
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(0.035))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08)))
-            )
+            // The shared boxes, with the Mac's open panel and drag and drop.
+            MacSetupLocations(coordinator: coordinator, context: context)
         } problems: {
             // A card macOS cannot read is a real, actionable problem.
             UnreadableMediaBanner()

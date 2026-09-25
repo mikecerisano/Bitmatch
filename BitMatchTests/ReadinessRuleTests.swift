@@ -28,8 +28,8 @@ struct ReadinessRuleTests {
         )
     }
 
-    /// Plant: in `OperationReadinessAssessment.assess`, set
-    /// `isReady: issues.isEmpty`.
+    /// Plant: in `TransferReadiness.assess`, delete the
+    /// `else if isAnalysingSource` branch.
     @Test func analysingSourceIsNotReadyButNotAnIssue() {
         let result = assess(analysing: true, available: 100 * headroom)
 
@@ -41,7 +41,8 @@ struct ReadinessRuleTests {
 
     /// The runtime needs more than source + 1 GB free; exactly that much is
     /// not enough.
-    /// Plant: in `assess`, change `<= sourceBytes` to `< sourceBytes`.
+    /// Plant: in `TransferReadiness.assess`, change `available <= required`
+    /// to `available < required`.
     @Test func exactlySourcePlusHeadroomIsBlocked() {
         let result = assess(sourceBytes: 5_000, available: 5_000 + headroom)
 
@@ -49,7 +50,8 @@ struct ReadinessRuleTests {
         #expect(result.blockingIssues == ["Insufficient space on backup"])
     }
 
-    /// Plant: in `assess`, change `<= sourceBytes` to `<= sourceBytes + 1`.
+    /// Plant: in `TransferReadiness.assess`, change `available <= required`
+    /// to `available <= required + 1`.
     @Test func oneByteMoreIsReady() {
         let result = assess(sourceBytes: 5_000, available: 5_000 + headroom + 1)
 
@@ -60,7 +62,8 @@ struct ReadinessRuleTests {
     /// The old shared rule blocked only at 90% of free space, and only once a
     /// backup's folder info had loaded; 100 MB of headroom passed the old Mac
     /// rule. Both would start a copy the runtime then refuses.
-    /// Plant: in `assess`, use `available <= sourceBytes + 100 * 1024 * 1024`.
+    /// Plant: in `TransferReadiness`, set
+    /// `requiredHeadroomBytes = 100 * 1024 * 1024`.
     @Test func smallHeadroomIsBlockedWithoutAnyFolderInfo() {
         let result = assess(sourceBytes: 10 * headroom, available: 10 * headroom + 200 * 1024 * 1024)
 
@@ -68,7 +71,8 @@ struct ReadinessRuleTests {
         #expect(result.blockingIssues == ["Insufficient space on backup"])
     }
 
-    /// Plant: in `assess`, delete the `else if ... > 0.7` warning branch.
+    /// Plant: in `TransferReadiness.assess`, delete the `else if ... > 0.7`
+    /// warning branch.
     @Test func largeShareOfFreeSpaceWarns() {
         let result = assess(sourceBytes: 8 * headroom, available: 10 * headroom)
 
@@ -78,7 +82,8 @@ struct ReadinessRuleTests {
 
     /// "Not chosen yet" is a next step, not a finding: it stays in `issues`
     /// (iPad filters those two strings) and never in `blockingIssues`.
-    /// Plant: in `assess`, append `noDestinationIssue` to `blocking`.
+    /// Plant: in `TransferReadiness.assess`, append `noDestinationIssue` to
+    /// `blockers` when `destinations` is empty.
     @Test func missingBackupIsNotABlockingFinding() {
         let result = assess(destinations: [])
 

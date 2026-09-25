@@ -140,8 +140,8 @@ struct SharedCoordinatorMacParityTests {
 
     /// The Mac refused to start while the source was still being scanned;
     /// now every platform does.
-    /// Plant: in `OperationReadinessAssessment.assess`, set
-    /// `isReady: issues.isEmpty`.
+    /// Plant: in `TransferReadiness.assess`, delete the
+    /// `else if isAnalysingSource` branch.
     @Test func startIsRefusedWhileTheSourceIsAnalysing() async throws {
         let fixture = try await SharedProjectFixture.make(prepareCard: false)
         defer { fixture.folders.cleanup() }
