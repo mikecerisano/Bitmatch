@@ -200,7 +200,7 @@ struct RemoteBackupQueueTests {
         #expect(await restartedQueue.itemsForCardIngest(fixture.item.cardIngestID).map(\.id) == [fixture.item.id])
     }
 
-    @Test @MainActor func appCoordinatorDrainsDueWorkAndRefreshesBackgroundSummary() async throws {
+    @Test @MainActor func remoteBackupControllerDrainsDueWorkAndRefreshesBackgroundSummary() async throws {
         let fixture = try QueueFixture()
         let store = InMemoryPhotographerJobStore()
         try store.save(fixture.job)
@@ -224,20 +224,20 @@ struct RemoteBackupQueueTests {
 
         let provider = FakeRemoteBackupProvider()
         let queue = fixture.makeQueue(provider: provider)
-        let coordinator = AppCoordinator(
+        let controller = MacRemoteBackupController(
             photographerJobViewModel: viewModel,
-            remoteBackupQueue: queue,
-            startRemoteScheduler: false
+            results: { [] },
+            queue: queue
         )
         try await queue.enqueue(fixture.item)
 
-        await coordinator.runDueRemoteBackups()
+        await controller.runDueRemoteBackups()
 
         #expect(await provider.uploadCallCount == 1)
         let savedBackground = try #require(store.storedJobs.first { $0.id == fixture.job.id })
         let savedCard = try #require(savedBackground.cardIngests.first)
         #expect(savedCard.remoteBackupSummaries[fixture.profile.id]?.state == .uploadedUnverified)
-        #expect(coordinator.photographerJobViewModel.activeJob?.id == activeJob.id)
+        #expect(controller.photographerJobViewModel.activeJob?.id == activeJob.id)
     }
 
     @Test func deferredBackoffWaitsForNextAttemptThenRunsAgain() async throws {
