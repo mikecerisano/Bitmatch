@@ -219,7 +219,7 @@ struct RemoteBackupQueueTests {
             updatedAt: Date(timeIntervalSince1970: 100)
         )
         try store.save(activeJob)
-        let viewModel = PhotographerJobViewModel(store: store, now: { Date(timeIntervalSince1970: 200) })
+        let viewModel = PhotographerJobViewModel(store: store, now: { Date(timeIntervalSince1970: 200) }, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
         #expect(viewModel.activeJob?.id == activeJob.id)
 
         let provider = FakeRemoteBackupProvider()

@@ -3,9 +3,10 @@ import Foundation
 /// A presentation-level workflow choice. The existing photographer data
 /// model remains the persistence substrate while projects gain a broader
 /// product identity.
+/// Case order is the picker order: Video / DIT first (most offloads).
 enum ProjectWorkflow: String, Codable, CaseIterable, Sendable {
-    case photography
     case videoDIT
+    case photography
     case general
 
     var title: String {

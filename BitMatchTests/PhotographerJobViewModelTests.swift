@@ -73,7 +73,7 @@ struct PhotographerJobViewModelTests {
             updatedAt: now
         )
         let store = DeferredPhotographerJobStore(storedJobs: [job])
-        let viewModel = PhotographerJobViewModel(store: store)
+        let viewModel = PhotographerJobViewModel(store: store, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
 
         #expect(viewModel.jobs.isEmpty)
         store.becomeAvailable()
@@ -428,7 +428,8 @@ struct PhotographerJobViewModelTests {
                     relativePath: "A.ARW",
                     size: 100
                 )]
-            }
+            },
+            workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography)
         )
         let original = setupSignature()
         viewModel.startPreparingDraftCard(sourceURL: source, setupSignature: original)
@@ -509,7 +510,7 @@ struct PhotographerJobViewModelTests {
         let viewModel = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), now: { self.now }, entryEnumerator: { url in
             gate.wait()
             return [FileEntry(url: url.appendingPathComponent("A.ARW"), relativePath: "A.ARW", size: 100)]
-        })
+        }, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
         let first = URL(fileURLWithPath: "/Volumes/CARD1")
         viewModel.startPreparingDraftCard(sourceURL: first, setupSignature: setupSignature())
         await Task.yield()
@@ -528,7 +529,7 @@ struct PhotographerJobViewModelTests {
             gate.wait()
             try Task.checkCancellation()
             return [FileEntry(url: url, relativePath: "A.ARW", size: 100)]
-        })
+        }, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
 
         viewModel.startPreparingDraftCard(sourceURL: URL(fileURLWithPath: "/Volumes/CARD1"), setupSignature: setupSignature())
         #expect(viewModel.isPreparing)
@@ -550,7 +551,7 @@ struct PhotographerJobViewModelTests {
             gate.wait()
             try Task.checkCancellation()
             return [FileEntry(url: url, relativePath: "A.ARW", size: 100)]
-        })
+        }, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
 
         viewModel.startPreparingDraftCard(sourceURL: URL(fileURLWithPath: "/Volumes/CARD1"), setupSignature: setupSignature())
         #expect(viewModel.isPreparing)
@@ -833,7 +834,8 @@ struct PhotographerJobViewModelTests {
             confirmedAnalyzer: { rows in
                 analyzedDestinationPaths.append(rows.compactMap(\.destinationPath))
                 return "confirmed"
-            }
+            },
+            workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography)
         )
         viewModel.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: eventDate)
         try viewModel.prepareCard(photographerName: "Mike", cameraName: "Sony A7 IV", analysis: analysis("preliminary"))
@@ -871,7 +873,7 @@ struct PhotographerJobViewModelTests {
     }
 
     private func makeViewModel(store: InMemoryPhotographerJobStore) -> PhotographerJobViewModel {
-        PhotographerJobViewModel(store: store, now: { now })
+        PhotographerJobViewModel(store: store, now: { now }, workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography))
     }
 
     private func summaryJob(id: UUID, cardID: UUID, updatedAt: Date) -> PhotographerJob {

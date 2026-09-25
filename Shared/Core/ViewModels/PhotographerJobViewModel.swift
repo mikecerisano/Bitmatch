@@ -85,9 +85,11 @@ final class PhotographerJobViewModel: ObservableObject {
         preliminaryAnalyzer: @escaping PreliminaryAnalyzer = PhotographerCardAnalyzer.preliminaryAnalysis,
         confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint,
         entryEnumerator: @escaping EntryEnumerator = FileTreeEnumerator.enumerateRegularFiles,
-        remoteBackupCoordinator: (any ProjectRemoteCoordinator)? = nil
+        remoteBackupCoordinator: (any ProjectRemoteCoordinator)? = nil,
+        workflowDefaults: UserDefaults = .standard
     ) {
         self.store = store
+        self.workflowDefaults = workflowDefaults
         self.now = now
         self.preliminaryAnalyzer = preliminaryAnalyzer
         self.confirmedAnalyzer = confirmedAnalyzer
@@ -134,6 +136,16 @@ final class PhotographerJobViewModel: ObservableObject {
         }
     }
 
+    private let workflowDefaults: UserDefaults
+    static let lastWorkflowKey = "BitMatchLastProjectWorkflow"
+
+    /// Most people use one project type: the last one chosen, or the first
+    /// option on a first launch. An open project's own workflow still wins.
+    private var rememberedWorkflow: ProjectWorkflow {
+        workflowDefaults.string(forKey: Self.lastWorkflowKey)
+            .flatMap(ProjectWorkflow.init(rawValue:)) ?? ProjectWorkflow.allCases[0]
+    }
+
     func selectWorkflow(_ workflow: ProjectWorkflow) {
         guard selectedWorkflow != workflow else { return }
 
@@ -142,6 +154,7 @@ final class PhotographerJobViewModel: ObservableObject {
             return
         }
         selectedWorkflow = workflow
+        workflowDefaults.set(workflow.rawValue, forKey: Self.lastWorkflowKey)
         draftRecipe = workflow.defaultRecipe
         setupPreparationInvalidated = true
         setupTask?.cancel()
@@ -856,7 +869,7 @@ final class PhotographerJobViewModel: ObservableObject {
             jobs = recoveredJobs.sorted { $0.updatedAt > $1.updatedAt }
             activeJob = jobs.first
             dashboardJobID = activeJob?.id
-            selectedWorkflow = activeJob?.workflow ?? .photography
+            selectedWorkflow = activeJob?.workflow ?? rememberedWorkflow
             draftRecipe = activeJob?.recipe ?? selectedWorkflow.defaultRecipe
             if recoveredCardCount > 0 {
                 lastError = "Recovered \(recoveredCardCount) interrupted photographer \(recoveredCardCount == 1 ? "card" : "cards") and marked them as issues. Set up a new card to retry."

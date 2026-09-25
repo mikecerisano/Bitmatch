@@ -148,7 +148,8 @@ private final class SnapshotFixture {
         journal = LocalTransferJournal(fileURL: root.appendingPathComponent("transfer-history.json"))
         let viewModel = PhotographerJobViewModel(
             store: store,
-            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: store)
+            remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: store),
+            workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography)
         )
         sharedCoordinator = SharedAppCoordinator(
             platformManager: MacOSPlatformManager.shared,

@@ -18,7 +18,7 @@ struct SharedCoordinatorMacParityTests {
     @Test func preparedCardSurvivesCoordinatorInit() async throws {
         let folders = try CoordinatorFolders()
         defer { folders.cleanup() }
-        let jobs = PhotographerJobViewModel(store: InMemoryPhotographerJobStore())
+        let jobs = PhotographerJobViewModel(store: InMemoryPhotographerJobStore(), workflowDefaults: .isolatedWorkflowDefaults())
         jobs.createWeddingJob(clientName: "Smith", jobName: "Smith Wedding", eventDate: Date(timeIntervalSince1970: 100))
         try jobs.prepareCard(
             photographerName: "Mike",

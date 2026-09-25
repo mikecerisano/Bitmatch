@@ -223,7 +223,8 @@ class SharedAppCoordinator: ObservableObject {
             let selectedProjectStore = projectStore ?? UserDefaultsPhotographerJobStore()
             self.photographerJobViewModel = PhotographerJobViewModel(
                 store: selectedProjectStore,
-                remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore)
+                remoteBackupCoordinator: UnavailableRemoteProjectCoordinator(store: selectedProjectStore),
+                workflowDefaults: selectedPreferences
             )
         }
         self.reportSettings = reportPrefsStore.load()
