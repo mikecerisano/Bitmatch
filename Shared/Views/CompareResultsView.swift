@@ -16,27 +16,30 @@ struct CompareResultsView: View {
 
     private static let maxListedPaths = 200
 
+    /// Headline wording and tone come from the shared model, so Quick mode
+    /// can only ever say "Sizes match, not verified" (amber), never green.
+    private var verdict: CompareVerdictPresentation {
+        let outcome = CompareOutcome.resolve(stats: stats, end: .completed, mode: verificationMode) ?? .differ
+        return CompareVerdictPresentation.make(
+            outcome,
+            leftName: leftName,
+            rightName: rightName,
+            mode: verificationMode,
+            stats: stats
+        )
+    }
+
+    private var verifiesContents: Bool {
+        CompareCheckPlan.make(for: verificationMode).verifiesContents
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(stats.isClean ? "Folders match" : "Folders differ")
-                    .font(.headline)
-                Spacer()
-                Text("\(stats.commonCount) \(verificationMode == .quick ? "same size" : "matching") · \(verificationMode.rawValue)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if stats.isClean {
-                Group {
-                    if verificationMode == .quick {
-                        Text("Every file in \(leftName) has the same size as \(rightName). Contents were not checksum-verified.")
-                    } else {
-                        Text("Every file in \(leftName) matches \(rightName).")
-                    }
-                }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
+            CompareVerdictHeader(verdict: verdict)
+            Text("\(stats.commonCount) \(verifiesContents ? "matching" : "same size") · \(verificationMode.rawValue) mode")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !stats.isClean {
                 pathSection(
                     title: "Only in \(leftName)",
                     systemImage: "minus.circle",
@@ -48,7 +51,7 @@ struct CompareResultsView: View {
                     paths: stats.onlyInRightPaths
                 )
                 pathSection(
-                    title: verificationMode == .quick ? "Size differs" : "Content differs",
+                    title: verifiesContents ? "Content differs" : "Size differs",
                     systemImage: "exclamationmark.triangle",
                     paths: stats.mismatchedPaths
                 )
@@ -63,10 +66,12 @@ struct CompareResultsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Menu("Export") {
+                Menu("Export differences") {
                     Button("JSON report") { export(asCSV: false) }
                     Button("CSV paths") { export(asCSV: true) }
                 }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
                 .disabled(stats.isClean)
                 Spacer()
             }

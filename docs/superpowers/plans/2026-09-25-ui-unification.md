@@ -563,6 +563,16 @@ Each step ships on its own: it builds both schemes, passes both test suites, and
 - [ ] Cancel toast wording from `MainScreen` + mode: "Compare cancelled" vs "Transfer cancelled".
 - [ ] Check at 390, 700 and 1,100 pt on iOS simulators and at 580 and 1,200 pt on the Mac. Use keyboard only on the Mac.
 
+**Status of 4.1 and 4.2 (branch `cloud/compare-screen`, not compiled):** implemented, with these differences from the text above:
+- 4.0 is not done. Instead of `MainScreen`, each shell routes Compare mode to its mode view, and `SharedAppCoordinator.lastOperationWasCompare` keeps a finished compare out of the transfer outcome (`showsOutcomeSummary`, Mac `mainContentSwitch`). `BitMatchStyle` was not needed: the screen uses system styles.
+- 4.6 is not done, so Compare has its own "Advanced" disclosure (one `Picker`) instead of `TransferOptionsSection`.
+- How a compare ended is `SharedAppCoordinator.lastCompareEnd` (`CompareRunEnd`), not the shared `operationState`, which transfers also write.
+- A folder whose details could not be read does not block Compare (iOS picks can fail that scan); it shows "Folder details unavailable". Only still-loading details block.
+- The checks per mode are `CompareCheckPlan`, used by both `ComparisonCoordinator` and the screen. Paranoid is byte-by-byte plus SHA-256 independent of `VerificationMode.checksumTypes`.
+- The mode switcher lock is `ModeSwitchPolicy` (running operation or running queue). iOS switchers call `switchMode(to:)` and are disabled; the Mac hides its selector as before and guards ⌘1–3.
+- Tests are in `BitMatchTests/ComparePresentationTests.swift` and `BitMatchTests/SharedCompareFlowTests.swift`, each with its **Plant:** line.
+- Still to do by someone with Xcode: build both schemes, run both suites, plant each bug, and check 390/700/1,100 pt on iOS and 580/1,200 pt on the Mac.
+
 ### Step 4.3: Completion guidance fix (no locked files; ships alone, before anything else in Completion)
 
 - [ ] `CompletionSummaryView.swift:281`: replace `CompletionVerdictPresentation.make(verdict).sourceGuidance` with the state-aware `make(state:rows:hasErrors:hasCriticalErrors:)`'s `sourceGuidance`, which the header already computes (`:84-91`). Hide `ErrorDetailsView` when the state is `.cancelled` (`:63-69`).

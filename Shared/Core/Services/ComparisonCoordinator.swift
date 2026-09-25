@@ -60,6 +60,8 @@ final class ComparisonCoordinator {
         let common = sourceSet.intersection(destSet)
 
         var mismatched: Set<String> = []
+        // One plan for engine and screen: Paranoid is byte-by-byte plus SHA-256.
+        let plan = CompareCheckPlan.make(for: verificationMode)
         let totalCommon = common.count
         var processedCommon = 0
 
@@ -80,32 +82,8 @@ final class ComparisonCoordinator {
 
             if src.size != dst.size {
                 mismatched.insert(key)
-            } else if verificationMode == .quick {
-                // size-only comparison already done
-            } else if verificationMode == .paranoid {
-                let matches = try await platformManager.checksum.performByteComparison(
-                    sourceURL: src.url,
-                    destinationURL: dst.url,
-                    progressCallback: nil
-                )
-                if !matches { mismatched.insert(key) }
-            } else if verificationMode.useChecksum {
-                var allMatch = true
-                let types = verificationMode == .thorough ? verificationMode.checksumTypes : [verificationMode.checksumTypes.first ?? .sha256]
-                for type in types {
-                    let result = try await platformManager.checksum.verifyFileIntegrity(
-                        sourceURL: src.url,
-                        destinationURL: dst.url,
-                        type: type,
-                        useCache: false,
-                        progressCallback: nil
-                    )
-                    if !result.matches {
-                        allMatch = false
-                        break
-                    }
-                }
-                if !allMatch { mismatched.insert(key) }
+            } else if !(try await contentsMatch(src.url, dst.url, plan: plan)) {
+                mismatched.insert(key)
             }
             try throwIfCancelled()
 
@@ -140,6 +118,32 @@ final class ComparisonCoordinator {
     }
 
     // MARK: - Private Helpers
+
+    /// Runs every check in `plan` and stops at the first one that fails.
+    /// An empty plan (Quick) reads no contents and reports a match; the
+    /// screen labels that "Sizes match, not verified".
+    private func contentsMatch(_ source: URL, _ destination: URL, plan: CompareCheckPlan) async throws -> Bool {
+        if plan.byteByByte {
+            let identical = try await platformManager.checksum.performByteComparison(
+                sourceURL: source,
+                destinationURL: destination,
+                progressCallback: nil
+            )
+            if !identical { return false }
+            try throwIfCancelled()
+        }
+        for type in plan.checksums {
+            let result = try await platformManager.checksum.verifyFileIntegrity(
+                sourceURL: source,
+                destinationURL: destination,
+                type: type,
+                useCache: false,
+                progressCallback: nil
+            )
+            if !result.matches { return false }
+        }
+        return true
+    }
 
     /// Finder writes these into any folder it displays, so a card and its offload
     /// differ as soon as someone browses one of them (GitHub issue #8). They are

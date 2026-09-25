@@ -15,7 +15,7 @@ struct HeaderTabsView: View {
             ForEach([AppMode.copyAndVerify, AppMode.compareFolders, AppMode.masterReport], id: \.self) { appMode in
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        coordinator.currentMode = appMode
+                        coordinator.switchMode(to: appMode)
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -27,7 +27,7 @@ struct HeaderTabsView: View {
                     .foregroundColor(coordinator.currentMode == appMode ? .white : .white.opacity(0.5))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .frame(minHeight: 36) // Ensure minimum touch target height
+                    .frame(minHeight: 44) // Minimum touch target height
                     .background(
                         RoundedRectangle(cornerRadius: 8)
                             .fill(coordinator.currentMode == appMode ? Color.white.opacity(0.15) : Color.clear)
@@ -35,8 +35,11 @@ struct HeaderTabsView: View {
                     .contentShape(Rectangle()) // Make entire button area clickable
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(coordinator.currentMode == appMode ? .isSelected : [])
             }
         }
+        // Decision C-2: no mode switch while anything runs.
+        .disabled(coordinator.isModeSwitchLocked)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.white.opacity(0.05))
@@ -63,7 +66,7 @@ struct AdaptiveModeNavigation: View {
                     ForEach(AppMode.allCases, id: \.self) { mode in
                         Button {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                coordinator.currentMode = mode
+                                coordinator.switchMode(to: mode)
                             }
                         } label: {
                             Label(mode.shortTitle, systemImage: mode.systemImage)
@@ -75,8 +78,13 @@ struct AdaptiveModeNavigation: View {
                         .foregroundColor(.white.opacity(0.9))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
+                        .frame(minHeight: 44)
                         .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.09)))
                 }
+                // Decision C-2: no mode switch while anything runs.
+                .disabled(coordinator.isModeSwitchLocked)
+                .accessibilityLabel("Mode")
+                .accessibilityValue(coordinator.currentMode.shortTitle)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
@@ -94,7 +102,7 @@ struct AdaptiveModeNavigation: View {
                 ForEach(AppMode.allCases, id: \.self) { mode in
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            coordinator.currentMode = mode
+                            coordinator.switchMode(to: mode)
                         }
                     } label: {
                         Label(mode.shortTitle, systemImage: mode.systemImage)
@@ -106,7 +114,9 @@ struct AdaptiveModeNavigation: View {
                             .background(RoundedRectangle(cornerRadius: 9).fill(coordinator.currentMode == mode ? Color.white.opacity(0.12) : .clear))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(coordinator.currentMode == mode ? .isSelected : [])
                 }
+                .disabled(coordinator.isModeSwitchLocked)
                 Spacer()
             }
             .frame(width: 208, alignment: .leading)

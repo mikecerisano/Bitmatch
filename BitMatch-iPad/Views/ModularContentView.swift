@@ -30,7 +30,11 @@ struct ModularContentView: View {
             mainContentArea
             if showCancelToast {
                 VStack {
-                    ToastView(icon: "xmark.circle", message: "User cancelled transfer", tint: .red)
+                    ToastView(
+                        icon: "xmark.circle",
+                        message: coordinator.currentMode == .compareFolders ? "Compare cancelled" : "Transfer cancelled",
+                        tint: .red
+                    )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Spacer()
                 }
@@ -79,8 +83,12 @@ extension ModularContentView {
             ) { showingTransfers = true }
                 .padding(.horizontal)
             
-            // Three-state architecture using components
-            if coordinator.isOperationInProgress {
+            // Three-state architecture using components. Compare shows its own
+            // progress and outcome inside CompareScreen, so it stays on the
+            // mode view instead of the transfer progress/completion screens.
+            if coordinator.currentMode == .compareFolders {
+                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation)
+            } else if coordinator.isOperationInProgress {
                 // OPERATION STATE: Show progress interface
                 OperationProgressView(coordinator: coordinator)
                     .onAppear {
@@ -163,6 +171,8 @@ struct IdleStateView: View {
                         .frame(maxWidth: 1_100)
                 case .compareFolders:
                     CompareFoldersView(coordinator: coordinator)
+                        .frame(maxWidth: 1_100)
+                        .padding(.horizontal, 20)
                 case .masterReport:
                     MasterReportView(coordinator: coordinator)
                 }
@@ -172,312 +182,66 @@ struct IdleStateView: View {
     }
 }
 
-// MARK: - Compare Folders View Component
+// MARK: - Compare Folders (adapter over the shared CompareScreen)
 
+/// Builds the shared `ComparePresentation` from `SharedAppCoordinator`.
+/// Readiness, progress and the outcome all render inside `CompareScreen`;
+/// Compare never routes to the transfer progress or completion screens.
 struct CompareFoldersView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            // Header section
-            CompareFoldersHeaderView()
-            
-            if coordinator.isOperationInProgress {
-                // Show comparison progress
-                ComparisonProgressView(coordinator: coordinator)
-            } else {
-                // Show folder selection interface
-                VStack(spacing: 20) {
-                    // Side-by-side folder selection
-                    HStack(spacing: 16) {
-                        FolderSelectionCard(
-                            title: "LEFT FOLDER",
-                            subtitle: "Source of truth",
-                            url: coordinator.leftURL,
-                            folderInfo: coordinator.leftFolderInfo?.asFolderInfo,
-                            isLoading: coordinator.leftURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
-                            color: .blue,
-                            onSelect: { Task { await coordinator.selectLeftFolder() } },
-                            onClear: { coordinator.leftURL = nil }
-                        )
-                        
-                        FolderSelectionCard(
-                            title: "RIGHT FOLDER",
-                            subtitle: "To compare",
-                            url: coordinator.rightURL,
-                            folderInfo: coordinator.rightFolderInfo?.asFolderInfo,
-                            isLoading: coordinator.rightURL.map { coordinator.isFolderInfoLoading(for: $0) } ?? false,
-                            color: .green,
-                            onSelect: { Task { await coordinator.selectRightFolder() } },
-                            onClear: { coordinator.rightURL = nil }
-                        )
-                    }
-                    
-                    // Comparison controls
-                    if coordinator.leftURL != nil && coordinator.rightURL != nil {
-                        ComparisonControlsView(coordinator: coordinator)
-                    }
+    @State private var advancedExpanded = false
 
-                    // Retained differences with export
-                    if let stats = coordinator.lastCompareStats {
-                        CompareResultsView(
-                            stats: stats,
-                            leftName: coordinator.leftURL?.lastPathComponent ?? "Source",
-                            rightName: coordinator.rightURL?.lastPathComponent ?? "Destination",
-                            verificationMode: coordinator.verificationMode
-                        )
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-    }
-}
-
-// MARK: - Compare Folders Sub-Components
-
-struct CompareFoldersHeaderView: View {
-    var body: some View {
-        MobileWorkflowHeader(
-            title: "Compare folders",
-            detail: "Check two folders for differences.",
-            symbol: "folder.badge.questionmark",
-            tint: .purple
+    static func presentation(for coordinator: SharedAppCoordinator) -> ComparePresentation {
+        ComparePresentation.make(
+            left: slot(url: coordinator.leftURL, info: coordinator.leftFolderInfo, coordinator: coordinator),
+            right: slot(url: coordinator.rightURL, info: coordinator.rightFolderInfo, coordinator: coordinator),
+            mode: coordinator.verificationMode,
+            isRunning: coordinator.isOperationInProgress,
+            progress: coordinator.progress.map {
+                CompareProgressPresentation(
+                    fraction: $0.overallProgress,
+                    filesProcessed: $0.filesProcessed,
+                    totalFiles: $0.totalFiles,
+                    currentFile: $0.currentFile
+                )
+            },
+            stats: coordinator.lastCompareStats,
+            end: coordinator.lastCompareEnd
         )
     }
-}
 
-struct FolderSelectionCard: View {
-    let title: String
-    let subtitle: String
-    let url: URL?
-    let folderInfo: FolderInfo?
-    let isLoading: Bool
-    let color: Color
-    let onSelect: () -> Void
-    let onClear: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            // Header
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.6))
-                    .tracking(1.0)
-                
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.5))
-            }
-            
-            // Content area
-            Button {
-                if url != nil {
-                    // Already selected - could show details or clear
-                } else {
-                    onSelect()
-                }
-            } label: {
-                VStack(spacing: 12) {
-                    if let url = url, let info = folderInfo {
-                        // Show folder details
-                        VStack(spacing: 8) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(color)
-                            
-                            Text(url.lastPathComponent)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
-                                .lineLimit(1)
-                            
-                            VStack(spacing: 4) {
-                                HStack {
-                                    Text("\(info.formattedFileCount) files")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.white.opacity(0.7))
-                                    
-                                    Spacer()
-                                    
-                                    Text(info.formattedSize)
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.white.opacity(0.8))
-                                }
-                                
-                                Text(url.path)
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                    } else if isLoading {
-                        // Show loading state
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: color))
-                                .scaleEffect(1.2)
-                            
-                            Text("Analyzing folder...")
-                                .font(.system(size: 13))
-                                .foregroundColor(.white.opacity(0.7))
-                        }
-                        .padding(.vertical, 20)
-                    } else {
-                        // Show selection prompt
-                        VStack(spacing: 12) {
-                            Image(systemName: "folder.badge.plus")
-                                .font(.system(size: 32))
-                                .foregroundColor(color.opacity(0.6))
-                            
-                            Text("Select Folder")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.white.opacity(0.8))
-                            
-                            Text("Tap to choose")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                        .padding(.vertical, 20)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(url != nil ? color.opacity(0.1) : Color.white.opacity(0.03))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(url != nil ? color.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                        )
-                )
-            }
-            .buttonStyle(.plain)
-            
-            // Clear button if folder is selected
-            if url != nil {
-                Button {
-                    onClear()
-                } label: {
-                    Text("Clear Selection")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(color)
-                }
-                .buttonStyle(.plain)
-            }
-        }
+    private static func slot(
+        url: URL?,
+        info: EnhancedFolderInfo?,
+        coordinator: SharedAppCoordinator
+    ) -> CompareFolderSlot {
+        CompareFolderSlot.make(
+            url: url,
+            infoURL: info?.url,
+            fileCount: info?.fileCount,
+            totalSize: info?.totalSize,
+            // A scan that has not started yet (no entry) counts as loading, so
+            // Compare cannot enable in the moment between picking and scanning.
+            isFetching: url.map { coordinator.folderInfoLoadingState[$0] != false } ?? false
+        )
     }
-}
 
-struct ComparisonControlsView: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    
     var body: some View {
-        VStack(spacing: 16) {
-            // Comparison options
-            VStack(spacing: 12) {
-                Text("COMPARISON OPTIONS")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.6))
-                    .tracking(1.0)
-                
-                Picker("Verification", selection: $coordinator.verificationMode) {
-                    ForEach(VerificationMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(coordinator.verificationMode.description)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.03))
+        CompareScreen(
+            presentation: Self.presentation(for: coordinator),
+            verificationMode: $coordinator.verificationMode,
+            advancedExpanded: $advancedExpanded,
+            actions: CompareActions(
+                pickLeft: { Task { await coordinator.selectLeftFolder() } },
+                pickRight: { Task { await coordinator.selectRightFolder() } },
+                clearLeft: { coordinator.leftURL = nil },
+                clearRight: { coordinator.rightURL = nil },
+                dropLeft: nil,
+                dropRight: nil,
+                compare: { Task { await coordinator.compareFolders() } },
+                cancel: { coordinator.cancelOperation() }
             )
-            
-            // Start comparison button
-            Button {
-                Task {
-                    await coordinator.compareFolders()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Compare Folders")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.purple)
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-}
-
-struct ComparisonProgressView: View {
-    @ObservedObject var coordinator: SharedAppCoordinator
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Comparing Folders...")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
-            
-            if let progress = coordinator.progress {
-                VStack(spacing: 12) {
-                    ProgressView(value: progress.overallProgress)
-                        .progressViewStyle(LinearProgressViewStyle(tint: .purple))
-                        .scaleEffect(y: 2.0)
-                    
-                    HStack {
-                        Text("Files analyzed: \(progress.filesProcessed)/\(progress.totalFiles)")
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.8))
-                        
-                        Spacer()
-                        
-                        Text("\(Int(progress.overallProgress * 100))%")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.03))
-                )
-            }
-            
-            Button {
-                coordinator.cancelOperation()
-            } label: {
-                Text("Cancel Comparison")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.red.opacity(0.2))
-                    )
-            }
-            .buttonStyle(.plain)
-        }
+        )
     }
 }
 

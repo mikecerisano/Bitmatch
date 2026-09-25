@@ -193,27 +193,41 @@ final class SafetyValidator {
 
     // MARK: - Path Safety
 
-    static func destinationSafetyIssue(source: URL, destination: URL) -> String? {
-        let sourcePath = canonicalPath(source)
-        let destPath = canonicalPath(destination)
+    /// How two folders overlap on disk, after resolving symlinks.
+    enum FolderOverlap: Equatable, Sendable {
+        /// Both URLs name the same folder.
+        case same
+        /// `second` is inside `first`.
+        case secondInsideFirst
+        /// `first` is inside `second`.
+        case firstInsideSecond
+    }
 
-        // Don't copy to self
-        if sourcePath == destPath {
-            return "Destination is the source folder"
-        }
-
-        // Don't copy into the source tree. This can recursively grow the transfer.
-        if pathIsWithin(destPath, root: sourcePath) {
-            return "Destination is inside the source folder"
-        }
-
-        // Don't use a parent of the source as the destination root. BitMatch writes
-        // into destination/sourceName, which can collide with the original source.
-        if pathIsWithin(sourcePath, root: destPath) {
-            return "Destination contains the source folder"
-        }
-
+    /// The one path-overlap rule behind copy destinations and Compare.
+    static func folderOverlap(_ first: URL, _ second: URL) -> FolderOverlap? {
+        let firstPath = canonicalPath(first)
+        let secondPath = canonicalPath(second)
+        if firstPath == secondPath { return .same }
+        if pathIsWithin(secondPath, root: firstPath) { return .secondInsideFirst }
+        if pathIsWithin(firstPath, root: secondPath) { return .firstInsideSecond }
         return nil
+    }
+
+    static func destinationSafetyIssue(source: URL, destination: URL) -> String? {
+        switch folderOverlap(source, destination) {
+        case .same:
+            // Don't copy to self
+            return "Destination is the source folder"
+        case .secondInsideFirst:
+            // Don't copy into the source tree. This can recursively grow the transfer.
+            return "Destination is inside the source folder"
+        case .firstInsideSecond:
+            // Don't use a parent of the source as the destination root. BitMatch writes
+            // into destination/sourceName, which can collide with the original source.
+            return "Destination contains the source folder"
+        case nil:
+            return nil
+        }
     }
 
     static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
