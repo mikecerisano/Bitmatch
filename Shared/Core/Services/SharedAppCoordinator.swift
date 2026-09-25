@@ -387,9 +387,12 @@ class SharedAppCoordinator: ObservableObject {
     private func presentProgress(_ prog: OperationProgress) {
         let presentation = progressPresentation
         presentation.setFileCountTotal(prog.totalFiles)
-        presentation.setPlannedTotalBytes(prog.totalBytes)
-        presentation.fileCountCompleted = prog.filesProcessed
         let destinationCount = presentedDestinationCount ?? destinationURLs.count
+        // Time left is measured against the copy work actually planned: the
+        // scanned source once per backup. The engine's `totalBytes` covers
+        // one backup, and is a 1 GB guess when the source was not scanned.
+        presentation.setPlannedTotalBytes(sourceFolderInfo.map { $0.totalSize * Int64(destinationCount) })
+        presentation.fileCountCompleted = prog.filesProcessed
         if let totals = prog.perDestinationTotals, let completed = prog.perDestinationCompleted,
            totals.count == destinationCount, completed.count == destinationCount {
             presentation.setPerDestinationProgress(totals: totals, completed: completed)
@@ -1452,7 +1455,6 @@ struct OperationReadinessAssessment {
     /// Everything in the way, including "not chosen yet".
     let issues: [String]
     let warnings: [String]
-    let estimatedDuration: String?
     /// Only real findings: `issues` without the two "not chosen yet" lines,
     /// which the setup screens show as the next step instead.
     var blockingIssues: [String] = []
@@ -1518,8 +1520,7 @@ extension OperationReadinessAssessment {
             return OperationReadinessAssessment(
                 isReady: false,
                 issues: [noSourceIssue],
-                warnings: [],
-                estimatedDuration: nil
+                warnings: []
             )
         }
 
@@ -1577,7 +1578,6 @@ extension OperationReadinessAssessment {
             isReady: issues.isEmpty && !isAnalysingSource,
             issues: issues,
             warnings: warnings,
-            estimatedDuration: sourceFileCount.map { verificationMode.estimatedTime(fileCount: $0) },
             blockingIssues: blocking,
             isAnalysing: isAnalysingSource
         )

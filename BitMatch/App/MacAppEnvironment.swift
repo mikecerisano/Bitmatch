@@ -1,35 +1,28 @@
 // MacAppEnvironment.swift - builds the Mac app's state once
 //
 // SharedAppCoordinator is the only state owner, as on iPad and iPhone. The
-// Mac adds four small companions that read from and write to it and keep no
+// Mac adds three small companions that read from and write to it and keep no
 // copy of its state: SFTP off-site backups (the thesis's named Mac
-// exception), the drive-benchmark estimate, volume access and backup-drive
-// discovery, and choosing a detected camera card as the source.
+// exception), volume access and backup-drive discovery, and choosing a
+// detected camera card as the source.
 import SwiftUI
 
 @MainActor
 final class MacAppEnvironment: ObservableObject {
     let coordinator: SharedAppCoordinator
     let remoteBackups: MacRemoteBackupController
-    let estimate: TransferEstimateModel
     let volumeAccess: MacVolumeAccessModel
     let cameraAutoSource: MacCameraAutoSourceController
 
     init(
         coordinator: SharedAppCoordinator,
         remoteBackups: MacRemoteBackupController,
-        estimate: TransferEstimateModel? = nil,
         monitorsVolumes: Bool = true
     ) {
         self.coordinator = coordinator
         self.remoteBackups = remoteBackups
-        // Built here, not as a default argument: default arguments are
-        // evaluated outside the main actor.
-        let estimate = estimate ?? TransferEstimateModel()
-        self.estimate = estimate
         self.volumeAccess = MacVolumeAccessModel(shared: coordinator, enableVolumeMonitoring: monitorsVolumes)
         self.cameraAutoSource = MacCameraAutoSourceController(shared: coordinator, startMonitoring: monitorsVolumes)
-        estimate.bind(to: coordinator)
     }
 
     /// The app: the Core Data project store and its job view model, the
@@ -50,7 +43,7 @@ final class MacAppEnvironment: ObservableObject {
     }
 
     /// Tests and previews: the given coordinator, no volume or camera
-    /// monitoring, no SFTP queue or scheduler, and no drive benchmark.
+    /// monitoring, and no SFTP queue or scheduler.
     static func makeForTesting(coordinator: SharedAppCoordinator) -> MacAppEnvironment {
         MacAppEnvironment(
             coordinator: coordinator,
@@ -58,7 +51,6 @@ final class MacAppEnvironment: ObservableObject {
                 photographerJobViewModel: coordinator.photographerJobViewModel,
                 results: { [weak coordinator] in coordinator?.results ?? [] }
             ),
-            estimate: TransferEstimateModel { _, _, _, _ in nil },
             monitorsVolumes: false
         )
     }
@@ -71,6 +63,5 @@ extension View {
         self
             .environmentObject(environment.remoteBackups)
             .environmentObject(environment.volumeAccess)
-            .environmentObject(environment.estimate)
     }
 }

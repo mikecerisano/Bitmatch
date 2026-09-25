@@ -12,7 +12,6 @@ struct TransferOptionsSection<LabelContent: View>: View {
     private let generateASCMHL: Binding<Bool>?
     private let makeReport: Binding<Bool>?
     private let cameraLabel: String?
-    private let estimateText: String?
     private let showsLabelContent: Bool
     private let labelContent: LabelContent
     @State private var availableWidth: CGFloat = 0
@@ -24,7 +23,6 @@ struct TransferOptionsSection<LabelContent: View>: View {
         generateASCMHL: Binding<Bool>,
         makeReport: Binding<Bool>,
         cameraLabel: String?,
-        estimateText: String? = nil,
         @ViewBuilder labelContent: () -> LabelContent
     ) {
         _isExpanded = isExpanded
@@ -32,7 +30,6 @@ struct TransferOptionsSection<LabelContent: View>: View {
         self.generateASCMHL = generateASCMHL
         self.makeReport = makeReport
         self.cameraLabel = cameraLabel
-        self.estimateText = estimateText
         self.showsLabelContent = true
         self.labelContent = labelContent()
     }
@@ -111,11 +108,6 @@ struct TransferOptionsSection<LabelContent: View>: View {
                     .font(.optionsDetail)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let estimateText {
-                    Text(estimateText)
-                        .font(.optionsDetail)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             if let generateASCMHL {
@@ -144,15 +136,13 @@ extension TransferOptionsSection where LabelContent == EmptyView {
     /// Compare: the verification picker only.
     init(
         isExpanded: Binding<Bool>,
-        verificationMode: Binding<VerificationMode>,
-        estimateText: String? = nil
+        verificationMode: Binding<VerificationMode>
     ) {
         _isExpanded = isExpanded
         _verificationMode = verificationMode
         self.generateASCMHL = nil
         self.makeReport = nil
         self.cameraLabel = nil
-        self.estimateText = estimateText
         self.showsLabelContent = false
         self.labelContent = EmptyView()
     }

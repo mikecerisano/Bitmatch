@@ -168,28 +168,6 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
         case .paranoid: return [.sha256]
         }
     }
-    
-    func estimatedTime(fileCount: Int) -> String {
-        let complexityFactor: Double
-        switch self {
-        case .quick: complexityFactor = 0.5
-        case .standard: complexityFactor = 1.0
-        case .thorough: complexityFactor = 1.8
-        case .paranoid: complexityFactor = 2.5
-        }
-        
-        let baseTimeMinutes = Double(fileCount) * 0.02 * complexityFactor
-        
-        if baseTimeMinutes < 1.0 {
-            return "~\(Int(baseTimeMinutes * 60))s"
-        } else if baseTimeMinutes < 60.0 {
-            return "~\(Int(baseTimeMinutes))m"
-        } else {
-            let hours = Int(baseTimeMinutes / 60)
-            let minutes = Int(baseTimeMinutes.truncatingRemainder(dividingBy: 60))
-            return minutes > 0 ? "~\(hours)h \(minutes)m" : "~\(hours)h"
-        }
-    }
 }
 
 

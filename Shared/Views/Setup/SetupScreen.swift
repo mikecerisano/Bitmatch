@@ -268,11 +268,6 @@ struct SetupScreen<Locations: View, Problems: View, ProjectSetup: View, LabelCon
     private var startArea: some View {
         let start = presentation.start
         return VStack(alignment: .leading, spacing: 8) {
-            if let estimate = presentation.estimateText, start.nextStep == nil {
-                Label(estimate, systemImage: "clock")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
             Button(action: actions.start) {
                 Label(start.title, systemImage: start.symbol)
                     .frame(maxWidth: .infinity, minHeight: 32)

@@ -128,8 +128,7 @@ struct SetupPresentationTests {
             sourceFileCount: 1,
             sourceBytes: 4,
             destinationCount: 1,
-            hasProjectEvidence: false,
-            estimateText: nil
+            hasProjectEvidence: false
         )
 
         #expect(presentation.workflow == .project)
@@ -188,14 +187,14 @@ struct SetupProjectGateCoordinatorTests {
     }
 
     /// The one adapter reads the choice from the coordinator.
-    /// Plant: in `SetupPresentation.make(coordinator:estimateText:)`, pass
+    /// Plant: in `SetupPresentation.make(coordinator:)`, pass
     /// `usesProjectWorkflow: false`.
     @Test func adapterShowsTheCardSetupStep() async throws {
         let fixture = try await SharedProjectFixture.make(prepareCard: false)
         defer { fixture.folders.cleanup() }
 
         fixture.coordinator.usesProjectWorkflow = true
-        let presentation = SetupPresentation.make(coordinator: fixture.coordinator, estimateText: nil)
+        let presentation = SetupPresentation.make(coordinator: fixture.coordinator)
 
         #expect(presentation.workflow == .project)
         #expect(presentation.start.nextStep == .prepareCard)

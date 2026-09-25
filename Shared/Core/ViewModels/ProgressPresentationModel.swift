@@ -1,6 +1,7 @@
 // ProgressPresentationModel.swift - smoothed progress for display
 //
-// Interpolated progress, EMA speed, rolling ETA, per-destination fractions
+// Interpolated progress, EMA speed, time left from observed copy speed,
+// per-destination fractions
 // and reused-copy counts, fed by SharedAppCoordinator from the engine's
 // progress. Presentation only: no verdict or evidence is read from here.
 import Foundation
@@ -14,7 +15,6 @@ final class ProgressPresentationModel: ObservableObject {
     @Published var progressMessage = "Ready"
     @Published var bytesPerSecond: Double = 0
     @Published var filesPerSecond: Double = 0
-    @Published var estimatedTimeRemaining: TimeInterval?
     
     // MARK: - File Counting
     @Published var fileCountTotal = 0
@@ -105,7 +105,6 @@ final class ProgressPresentationModel: ObservableObject {
         matchCount = 0
         bytesPerSecond = 0
         filesPerSecond = 0
-        estimatedTimeRemaining = nil
         progressMessage = "Ready"
         totalBytesProcessed = 0
         reusedFileCopies = 0
@@ -316,21 +315,18 @@ final class ProgressPresentationModel: ObservableObject {
             emaBytesPerSecond = instantaneousBps
         }
 
-        // Update rolling average samples
-        rateSamples.append((time: now, bytesDelta: bytesDelta, duration: timeDelta))
+        // Update rolling average samples. The interval that ends with the
+        // first bytes also spans the preparation before copying began, so it
+        // is not a copy-speed sample.
+        if lastBytesProcessed > 0 {
+            rateSamples.append((time: now, bytesDelta: bytesDelta, duration: timeDelta))
+        }
         byteSamples.append((time: now, bytes: totalBytesProcessed))
         // Drop samples older than window
         let cutoff = now.addingTimeInterval(-rollingWindowSeconds)
         while let first = rateSamples.first, first.time < cutoff { rateSamples.removeFirst() }
         while let first = byteSamples.first, first.time < cutoff { byteSamples.removeFirst() }
-        
-        if filesPerSecond > 0 && fileCountTotal > fileCountCompleted {
-            let filesRemaining = fileCountTotal - fileCountCompleted
-            estimatedTimeRemaining = Double(filesRemaining) / filesPerSecond
-        } else {
-            estimatedTimeRemaining = nil
-        }
-        
+
         lastUpdateTime = now
         lastFileCount = fileCountCompleted
         lastBytesProcessed = totalBytesProcessed
@@ -343,7 +339,8 @@ final class ProgressPresentationModel: ObservableObject {
 
 // MARK: - Progress Display Helpers
 extension ProgressPresentationModel {
-    // Configure planned total bytes (overall)
+    /// The copy work planned for the whole run, in bytes: every backup's
+    /// copy of the source. Nil when unknown, which shows no time left.
     func setPlannedTotalBytes(_ total: Int64?) {
         plannedTotalBytes = total
     }
@@ -384,18 +381,32 @@ extension ProgressPresentationModel {
         return nil
     }
     
+    /// How much copying must be measured before time left is shown. Shorter
+    /// samples swing wildly (caches, the first small files).
+    static let minimumObservedCopySeconds: TimeInterval = 2
+
+    /// Time left, from observed copy speed only (thesis decision: no drive
+    /// benchmark, no guess from file counts). The copy bytes still to go,
+    /// over the rate measured across the rolling window.
+    /// - `TransferProgressPresentation.estimatingTimeLeft` while copy work
+    ///   remains but less than `minimumObservedCopySeconds` of copying has
+    ///   been measured.
+    /// - Nil when the planned copy work is unknown or already copied:
+    ///   verification speed is not measured, so nothing is guessed for it.
     var formattedTimeRemaining: String? {
-        // Prefer bytes-based ETA when available
-        if let total = plannedTotalBytes, total > 0 {
-            let rate = rollingActiveBytesPerSecond ?? rollingBytesPerSecond ?? bytesPerSecond
-            if rate > 0 {
-                let remainingBytes = max(0, total - totalBytesProcessed)
-                let seconds = Double(remainingBytes) / rate
-                return formatSeconds(seconds)
-            }
+        guard let total = plannedTotalBytes, total > 0 else { return nil }
+        let remainingBytes = total - totalBytesProcessed
+        guard remainingBytes > 0 else { return nil }
+        guard observedCopySeconds >= Self.minimumObservedCopySeconds,
+              let rate = rollingActiveBytesPerSecond, rate > 0 else {
+            return TransferProgressPresentation.estimatingTimeLeft
         }
-        guard let remaining = estimatedTimeRemaining else { return nil }
-        return formatSeconds(remaining)
+        return formatSeconds(Double(remainingBytes) / rate)
+    }
+
+    /// Active copying (intervals in which bytes moved) in the rolling window.
+    private var observedCopySeconds: TimeInterval {
+        rateSamples.filter { $0.bytesDelta > 0 }.reduce(0) { $0 + $1.duration }
     }
 
     // Rate over rolling window excluding zero-byte intervals

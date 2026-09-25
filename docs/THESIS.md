@@ -48,7 +48,7 @@ Mike delegated these to the recommendations; the plans in `docs/superpowers/plan
 
 **Engine (step 5)**
 - iPad and iPhone get a PDF report too (P3, P5); later, low priority.
-- Delete `DriveBenchmarkService`; estimate time from observed copy speed.
+- Delete `DriveBenchmarkService`; estimate time from observed copy speed. **Done 2026-09-25** on branch `cloud/estimate-from-speed`: the benchmark, `TransferEstimateModel` and the iOS per-file-count guess are gone, so Setup shows no time estimate on any platform. The progress screen shows time left from measured copy speed across every backup, and "Estimating…" until two seconds of copying are measured.
 
 **UI (step 4)**
 - Compare blocks a same-folder or nested compare, and the mode switcher is disabled during any running operation on every platform.

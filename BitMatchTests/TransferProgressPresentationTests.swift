@@ -17,7 +17,8 @@ struct TransferProgressPresentationTests {
         total: Int = 8,
         totals: [Int]? = nil,
         completed: [Int]? = nil,
-        bytes: Int64? = nil
+        bytes: Int64? = nil,
+        totalBytes: Int64? = nil
     ) -> OperationProgress {
         OperationProgress(
             overallProgress: overall,
@@ -31,7 +32,7 @@ struct TransferProgressPresentationTests {
             averageSpeed: nil,
             peakSpeed: nil,
             bytesProcessed: bytes,
-            totalBytes: nil,
+            totalBytes: totalBytes,
             stageProgress: nil,
             reusedCopies: nil,
             perDestinationTotals: totals,
@@ -168,6 +169,100 @@ struct TransferProgressPresentationTests {
         let rate = model.averageBytesPerSecond ?? 0
         #expect(rate > 9_000_000)
         #expect(rate < 11_000_000)
+    }
+
+    // MARK: Time left from observed copy speed (thesis decision, step 5)
+
+    /// Time left is not shown from a sliver of data: "Estimating…" until two
+    /// seconds of copying have been measured.
+    /// Plant: in `ProgressPresentationModel.formattedTimeRemaining`, delete
+    /// `observedCopySeconds >= Self.minimumObservedCopySeconds,` from the guard.
+    @Test func timeLeftWaitsForMeasuredCopySpeed() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let model = ProgressPresentationModel(clock: { now })
+        model.reset()
+        model.setFileCountTotal(100)
+        model.setPlannedTotalBytes(1_000_000_000)
+        #expect(model.formattedTimeRemaining == TransferProgressPresentation.estimatingTimeLeft)
+
+        now = now.addingTimeInterval(1)
+        model.updateBytesProcessed(10_000_000) // first bytes: not a speed sample
+        now = now.addingTimeInterval(1)
+        model.updateBytesProcessed(10_000_000) // one second measured
+        #expect(model.formattedTimeRemaining == TransferProgressPresentation.estimatingTimeLeft)
+
+        now = now.addingTimeInterval(1)
+        model.updateBytesProcessed(10_000_000) // two seconds at 10 MB/s
+        // 970 MB left at 10 MB/s is 97 s.
+        #expect(model.formattedTimeRemaining == "1 min")
+    }
+
+    /// The time before the first bytes (scanning, safety checks, opening
+    /// the backups) is not copy speed, so it must not slow the estimate.
+    /// Plant: in `ProgressPresentationModel.updatePerformanceMetrics`, change
+    /// `if lastBytesProcessed > 0 {` to `if true {`.
+    @Test func preparationTimeIsNotCopySpeed() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let model = ProgressPresentationModel(clock: { now })
+        model.reset()
+        model.setFileCountTotal(100)
+        model.setPlannedTotalBytes(1_000_000_000)
+
+        now = now.addingTimeInterval(30) // 30 s of preparation
+        model.updateBytesProcessed(10_000_000)
+        for _ in 0..<2 {
+            now = now.addingTimeInterval(1)
+            model.updateBytesProcessed(10_000_000)
+        }
+
+        // 970 MB left at the measured 10 MB/s, not at 30 MB over 32 s.
+        #expect(model.formattedTimeRemaining == "1 min")
+    }
+
+    /// Time left counts every backup's copy: with two backups, one finished
+    /// backup is half the work, so time is still left.
+    /// Plant: in `SharedAppCoordinator.presentProgress`, pass `prog.totalBytes`
+    /// to `setPlannedTotalBytes` (the engine's total covers one backup).
+    @Test func timeLeftCountsEveryBackup() async throws {
+        let folders = try CoordinatorFolders()
+        defer { folders.cleanup() }
+        let coordinator = SharedAppCoordinator(
+            platformManager: RecordingPlatformManager(fileOperations: RecordingFileOperations()),
+            transferJournal: LocalTransferJournal(fileURL: folders.journalURL),
+            projectStore: InMemoryPhotographerJobStore()
+        )
+        coordinator.destinationURLs = [folders.primary, folders.secondary]
+        coordinator.sourceURL = folders.source
+        // The source holds one 4-byte file.
+        #expect(await waitUntil(timeout: .seconds(5)) { coordinator.sourceFolderInfo?.totalSize == 4 })
+
+        coordinator.operationState = .inProgress
+        coordinator.progress = progress(stage: .copying, overall: 0.25, files: 1, total: 2, bytes: 4, totalBytes: 4)
+        #expect(await waitUntil { coordinator.progressPresentation.totalBytesProcessed == 4 })
+
+        #expect(coordinator.progressPresentation.formattedTimeRemaining == TransferProgressPresentation.estimatingTimeLeft)
+    }
+
+    /// Before copying there is no speed yet, and the screen says so rather
+    /// than showing nothing or a guess.
+    /// Plant: in `TransferProgressPresentation.timeLeft`, change
+    /// `case .preparing: return estimatingTimeLeft` to return `measured`.
+    @Test func preparingSaysEstimating() {
+        let preparing = make(state: .inProgress, progress: nil, timeRemaining: nil)
+
+        #expect(preparing.phase == .preparing)
+        #expect(preparing.timeRemaining == TransferProgressPresentation.estimatingTimeLeft)
+    }
+
+    /// Once copying is done, copy speed says nothing about what is left
+    /// (reports, finishing), so no time is shown.
+    /// Plant: in `TransferProgressPresentation.timeLeft`, move `.writingReports`
+    /// into the `case .copying, .verifying: return measured` line.
+    @Test func noTimeLeftWhileWritingReports() {
+        let reports = make(state: .inProgress, progress: progress(stage: .generating, overall: 0.99))
+
+        #expect(reports.phase == .writingReports)
+        #expect(reports.timeRemaining == nil)
     }
 
     /// Resuming (`.resuming`, then `.inProgress`) keeps the run's byte and

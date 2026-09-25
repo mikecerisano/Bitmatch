@@ -432,7 +432,7 @@ Each stage is one PR, green on `bash test.sh mac-test` and `bash test.sh ipad-bu
 
 **Stage 8: app targets to Swift 6**
 - [ ] Set `SWIFT_STRICT_CONCURRENCY = complete` on both app targets (Swift 5 mode), and fix §6's app-side rows. Then set `SWIFT_VERSION = 6.0`.
-- [ ] Delete `DriveBenchmarkService` (§8), coordinating with the step-3 `TransferEstimateModel` task so that it reads the shared estimate instead.
+- [x] Delete `DriveBenchmarkService` (§8). Done on `cloud/estimate-from-speed`: `TransferEstimateModel` went with it, and no platform shows a pre-start estimate (the per-mode `estimatedTime(fileCount:)` guess was not honest either).
 
 ## 11. Questions for Mike
 
