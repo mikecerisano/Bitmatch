@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Settings: Mac Preferences tabs are full-size click targets (clicking the empty margin around a tab icon used to do nothing) and the tab icons now sit on one shared baseline. Every Preferences page and the iPad/iPhone Settings sheet are reorganized into Verification, Backups, Reports and (Mac only) Cameras sections with a plain-language sentence explaining each one's current behavior; no setting was added, removed, or changed in what it does.
 - Mac: Project transfers show the project dashboard (with off-site backup actions) on the completion screen again; the shared Outcome screen had silently dropped it.
 - Engine: copy, verify, compare, evidence and the safety rules are one Swift package (`Packages/BitMatchEngine`), built with Swift 6 strict concurrency, as are both apps. Pausing a transfer pauses only that transfer (it used to hold a Compare or another run's checksum reads too), verification can no longer outlive a finished or cancelled run, and the iPhone Live Activity shows the same time left as the progress screen.
 - Copy & Verify: free space is checked by one rule everywhere, the measured source plus 1 GB, which is what Setup shows. The engine no longer runs a second check against the progress estimate, which could refuse a transfer that fit.

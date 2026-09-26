@@ -264,44 +264,63 @@ struct CompareFoldersView: View {
     }
 }
 
-// MARK: - Settings Sheet Component (Placeholder)
+// MARK: - Settings Sheet
 
 struct SettingsSheetView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         NavigationView {
             Form {
-                Section("Verification") {
+                Section {
+                    Text("Every backup is checked against your card before BitMatch calls it verified. This sets how thoroughly that check runs.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } header: {
+                    Text("Verification")
+                }
+
+                Section("Current mode") {
                     Text(coordinator.verificationMode == .standard ? "Verified copy · SHA-256" : coordinator.verificationMode.rawValue)
-                    DisclosureGroup("Advanced verification") {
-                        Picker("Verification", selection: $coordinator.verificationMode) {
+                    DisclosureGroup("Change verification mode") {
+                        Picker("Mode", selection: $coordinator.verificationMode) {
                             ForEach(VerificationMode.allCases) { mode in
                                 Text(mode.rawValue).tag(mode)
                             }
                         }
                         .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
                         Text(coordinator.verificationMode.description).font(.footnote)
-                        Toggle("ASC MHL handoff record", isOn: $coordinator.generateASCMHL)
-                            .disabled(!TransferOptionsPresentation.ascMHLEnabled(for: coordinator.verificationMode))
-                        Text(TransferOptionsPresentation.ascMHLFootnote(for: coordinator.verificationMode)).font(.footnote)
                     }
                 }
 
-                Section("Reports") {
+                Section("Handoff record") {
+                    Toggle("ASC MHL handoff record", isOn: $coordinator.generateASCMHL)
+                        .disabled(!TransferOptionsPresentation.ascMHLEnabled(for: coordinator.verificationMode))
+                    Text(TransferOptionsPresentation.ascMHLFootnote(for: coordinator.verificationMode)).font(.footnote)
+                }
+
+                Section {
+                    Text("A report is a record of what happened during a transfer, saved next to your backups so you can hand it to anyone.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } header: {
+                    Text("Reports")
+                }
+
+                Section {
                     Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.reportSettings.makeReport)
                     Button(role: .destructive) {
                         clearReportInfo()
                     } label: {
                         HStack {
                             Image(systemName: "trash")
-                            Text("Clear Report Info")
+                            Text("Clear Project Details")
                         }
                     }
                 }
 
-                Section("Off-site destinations") {
+                Section("Backups") {
                     RemoteDestinationSettingsSection(coordinator: coordinator)
                 }
 
