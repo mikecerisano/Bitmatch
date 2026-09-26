@@ -74,7 +74,7 @@ struct EngineGuardTests {
 
     /// A pipelined Standard run returns one row per (file, backup), each
     /// verified, and the stream's last row for each key is the verify row.
-    /// Plant: in `ResultStore.upsert`, replace `list[idx] = r` with `list.append(r)`.
+    /// Plant: in `RunLedger.store`, replace `rows[index] = row` with `rows.append(row)`.
     @Test func operationReturnsOneVerifiedRowPerFile() async throws {
         try await FileOperationsTestLock.shared.run {
             let fixture = try DisposableTransferFixture(seed: 61, fileCount: 12, bytesPerFile: 8 * 1024)

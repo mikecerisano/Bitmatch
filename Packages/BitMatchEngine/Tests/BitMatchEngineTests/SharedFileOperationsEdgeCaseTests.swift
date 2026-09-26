@@ -426,8 +426,8 @@ struct SharedFileOperationsEdgeCaseTests {
     }
 
     @Test
-    func testResultStoreRetainsLargeResultSetAndUpserts() async throws {
-        let store = ResultStore()
+    func testRunLedgerRetainsLargeResultSetAndUpserts() async throws {
+        let store = RunLedger(destinationCount: 1, filesPerDestination: 12_000, throttle: 0.5)
         let baseSource = URL(fileURLWithPath: "/tmp/bitmatch-result-store-source")
         let baseDest = URL(fileURLWithPath: "/tmp/bitmatch-result-store-dest")
 
@@ -441,7 +441,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 verificationResult: nil,
                 processingTime: 0
             )
-            await store.upsert(result)
+            await store.record(result)
         }
 
         let updated = FileOperationResult(
@@ -453,9 +453,9 @@ struct SharedFileOperationsEdgeCaseTests {
             verificationResult: nil,
             processingTime: 0
         )
-        await store.upsert(updated)
+        await store.record(updated)
 
-        let snapshot = await store.snapshot()
+        let snapshot = await store.results()
         #expect(snapshot.count == 12_000)
         #expect(snapshot.filter { $0.sourceURL.lastPathComponent == "file-42.mov" }.count == 1)
         #expect(snapshot.first { $0.sourceURL.lastPathComponent == "file-42.mov" }?.success == false)
