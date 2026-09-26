@@ -2,14 +2,14 @@
 import Foundation
 
 // MARK: - Checksum Algorithm
-enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
+public enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
     case sha256 = "SHA-256"
     case sha1 = "SHA-1"
     case md5 = "MD5"
 
-    var id: String { self.rawValue }
+    public var id: String { self.rawValue }
 
-    var description: String {
+    public var description: String {
         switch self {
         case .sha256: return "SHA-256 (Recommended)"
         case .sha1: return "SHA-1"
@@ -18,7 +18,7 @@ enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
     }
 
     /// Security 9: MD5 and SHA-1 are cryptographically broken; kept only for MHL compatibility
-    var isDeprecated: Bool {
+    public var isDeprecated: Bool {
         switch self {
         case .sha256: return false
         case .sha1, .md5: return true
@@ -27,7 +27,7 @@ enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
 }
 
 // MARK: - BitMatch Error Types
-enum BitMatchError: LocalizedError {
+public enum BitMatchError: LocalizedError {
     case fileAccessDenied(URL)
     case fileNotFound(URL)
     case checksumMismatch(String, String)
@@ -36,7 +36,7 @@ enum BitMatchError: LocalizedError {
     case networkError(String)
     case unknownError(String)
     
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .fileAccessDenied(let url):
             return "Access denied to file: \(url.lastPathComponent)"
@@ -57,17 +57,17 @@ enum BitMatchError: LocalizedError {
 }
 
 // MARK: - Verification Result
-struct VerificationResult: Codable {
-    let sourceChecksum: String
-    let destinationChecksum: String
-    let matches: Bool
-    let checksumType: ChecksumAlgorithm
-    let processingTime: TimeInterval
-    let fileSize: Int64
+public struct VerificationResult: Codable {
+    public let sourceChecksum: String
+    public let destinationChecksum: String
+    public let matches: Bool
+    public let checksumType: ChecksumAlgorithm
+    public let processingTime: TimeInterval
+    public let fileSize: Int64
     
-    var isValid: Bool { matches }
+    public var isValid: Bool { matches }
     
-    var description: String {
+    public var description: String {
         if matches {
             return "✅ Files match - \(checksumType.rawValue) verified"
         } else {
@@ -77,15 +77,15 @@ struct VerificationResult: Codable {
 }
 
 // MARK: - Verification Mode
-enum VerificationMode: String, CaseIterable, Identifiable, Codable {
+public enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     case quick = "Quick"
     case standard = "Standard"
     case thorough = "Thorough" 
     case paranoid = "Paranoid"
     
-    var id: String { self.rawValue }
+    public var id: String { self.rawValue }
     
-    var description: String {
+    public var description: String {
         switch self {
         case .quick: return "Quick checks file sizes only; file contents are not checksum-verified."
         case .standard: return "Standard compares SHA-256 checksums to verify each copy matches its source."
@@ -94,14 +94,14 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    var requiresMHL: Bool {
+    public var requiresMHL: Bool {
         switch self {
         case .quick, .standard: return false
         case .thorough, .paranoid: return true
         }
     }
     
-    var useChecksum: Bool {
+    public var useChecksum: Bool {
         switch self {
         case .quick: return false
         case .standard, .thorough, .paranoid: return true
@@ -110,7 +110,7 @@ enum VerificationMode: String, CaseIterable, Identifiable, Codable {
     
     /// Checksums computed for this mode. Paranoid adds a byte-by-byte
     /// comparison on top of SHA-256; it does not add MD5 or SHA-1.
-    var checksumTypes: [ChecksumAlgorithm] {
+    public var checksumTypes: [ChecksumAlgorithm] {
         switch self {
         case .quick: return []
         case .standard: return [.sha256]

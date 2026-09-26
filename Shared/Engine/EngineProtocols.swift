@@ -5,7 +5,7 @@ import Foundation
 
 /// What the engine needs from the file system: access scopes, listing,
 /// sizes, directory creation and free space. No pickers.
-protocol FileAccess: Sendable {
+public protocol FileAccess: Sendable {
     func validateFileAccess(url: URL) async -> Bool
     func startAccessing(url: URL) -> Bool
     func stopAccessing(url: URL)
@@ -18,7 +18,7 @@ protocol FileAccess: Sendable {
 }
 
 // MARK: - Checksum Service Protocol
-protocol ChecksumService: Sendable {
+public protocol ChecksumService: Sendable {
     typealias ProgressCallback = @Sendable (Double, String?) -> Void
     
     func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String
@@ -27,7 +27,7 @@ protocol ChecksumService: Sendable {
 }
 
 // MARK: - File Operations Service Protocol
-protocol FileOperationsService: Sendable {
+public protocol FileOperationsService: Sendable {
     typealias ProgressCallback = @Sendable (OperationProgress) -> Void
     typealias FileResultCallback = @Sendable (FileOperationResult) async -> Void
     
@@ -48,38 +48,38 @@ protocol FileOperationsService: Sendable {
 
 // MARK: - Shared Result Types
 
-struct FileOperation {
-    let id = UUID()
-    let sourceURL: URL
-    let destinationURLs: [URL]
-    let startTime: Date
-    var endTime: Date?
-    let results: [FileOperationResult]
-    let verificationMode: VerificationMode
-    let settings: CameraLabelSettings
-    let estimatedTotalBytes: Int64? // For improved ETA calculation
+public struct FileOperation {
+    public let id = UUID()
+    public let sourceURL: URL
+    public let destinationURLs: [URL]
+    public let startTime: Date
+    public var endTime: Date?
+    public let results: [FileOperationResult]
+    public let verificationMode: VerificationMode
+    public let settings: CameraLabelSettings
+    public let estimatedTotalBytes: Int64? // For improved ETA calculation
     
-    var duration: TimeInterval? {
+    public var duration: TimeInterval? {
         guard let endTime = endTime else { return nil }
         return endTime.timeIntervalSince(startTime)
     }
 }
 
-struct FileOperationResult {
-    let sourceURL: URL
-    let destinationURL: URL
-    let success: Bool
-    let error: Error?
-    let fileSize: Int64
-    let verificationResult: VerificationResult?
-    let processingTime: TimeInterval
+public struct FileOperationResult {
+    public let sourceURL: URL
+    public let destinationURL: URL
+    public let success: Bool
+    public let error: Error?
+    public let fileSize: Int64
+    public let verificationResult: VerificationResult?
+    public let processingTime: TimeInterval
     
-    var outcome: ResultOutcome {
+    public var outcome: ResultOutcome {
         if let verification = verificationResult {
             return verification.isValid ? .verified : .checksumMismatch
         }
         return success ? .copiedUnverified : .failed
     }
 
-    var statusDescription: String { outcome.statusText }
+    public var statusDescription: String { outcome.statusText }
 }

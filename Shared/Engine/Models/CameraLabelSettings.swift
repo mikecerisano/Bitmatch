@@ -2,14 +2,14 @@
 import Foundation
 
 // MARK: - Camera Label Settings
-struct CameraLabelSettings: Codable {
-    var label: String = ""
-    var position: LabelPosition = .prefix
-    var separator: Separator = .underscore
-    var autoNumber: Bool = true
-    var groupByCamera: Bool = false
-    var generateUniqueName: Bool = true
-    var destinationPathComponents: [String]? = nil
+public struct CameraLabelSettings: Codable {
+    public var label: String = ""
+    public var position: LabelPosition = .prefix
+    public var separator: Separator = .underscore
+    public var autoNumber: Bool = true
+    public var groupByCamera: Bool = false
+    public var generateUniqueName: Bool = true
+    public var destinationPathComponents: [String]? = nil
 
     /// Sanitizes a string for safe use as a folder/file name component.
     /// Prevents path traversal attacks and removes dangerous characters.
@@ -19,7 +19,7 @@ struct CameraLabelSettings: Codable {
     /// - Traversal components (., ..)
     /// - Control characters (ASCII 0-31 and DEL 0x7F)
     /// - Length limits for filesystem compatibility
-    static func sanitizePathComponent(_ input: String) -> String {
+    public static func sanitizePathComponent(_ input: String) -> String {
         // Step 1: Loop-decode URL-encoded input to catch double-encoding attacks
         // e.g., %252e%252e → %2e%2e → ..
         var decoded = input
@@ -71,7 +71,7 @@ struct CameraLabelSettings: Codable {
         return result
     }
 
-    func formattedFolderName(for baseName: String) -> String {
+    public func formattedFolderName(for baseName: String) -> String {
         let rawBase = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBase = rawBase.isEmpty ? "" : Self.sanitizePathComponent(rawBase)
@@ -93,18 +93,18 @@ struct CameraLabelSettings: Codable {
         }
     }
     
-    enum LabelPosition: String, CaseIterable, Codable {
+    public enum LabelPosition: String, CaseIterable, Codable {
         case prefix = "Prefix"
         case suffix = "Suffix"
     }
     
-    enum Separator: String, CaseIterable, Codable {
+    public enum Separator: String, CaseIterable, Codable {
         case underscore = "_"
         case dash = "-"
         case dot = "."
         case space = " "
         
-        var displayName: String {
+        public var displayName: String {
             switch self {
             case .underscore: return "Underscore (_)"
             case .dash: return "Dash (-)"

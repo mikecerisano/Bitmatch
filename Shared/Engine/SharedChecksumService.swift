@@ -3,8 +3,8 @@ import Foundation
 import CryptoKit
 
 /// Shared checksum service that works on both macOS and iOS
-final class SharedChecksumService: ChecksumService, Sendable {
-    static let shared = SharedChecksumService()
+public final class SharedChecksumService: ChecksumService, Sendable {
+    public static let shared = SharedChecksumService()
 
     private struct FileReadSnapshot: Equatable {
         let size: Int64
@@ -16,7 +16,7 @@ final class SharedChecksumService: ChecksumService, Sendable {
     
     // MARK: - ChecksumService Protocol Implementation
     
-    func generateChecksum(
+    public func generateChecksum(
         for fileURL: URL,
         type: ChecksumAlgorithm,
         progressCallback: ProgressCallback? = nil
@@ -52,7 +52,7 @@ final class SharedChecksumService: ChecksumService, Sendable {
         return checksum
     }
 
-    func verifyFileIntegrity(
+    public func verifyFileIntegrity(
         sourceURL: URL,
         destinationURL: URL,
         type: ChecksumAlgorithm,
@@ -103,7 +103,7 @@ final class SharedChecksumService: ChecksumService, Sendable {
     }
 
     
-    func performByteComparison(
+    public func performByteComparison(
         sourceURL: URL,
         destinationURL: URL,
         progressCallback: ProgressCallback? = nil

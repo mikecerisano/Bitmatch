@@ -5,35 +5,35 @@ import Foundation
 /// Master Report needs. Mac and iPad/iPhone share this one rule for which
 /// files count, how large they may be, which day they belong to, and what
 /// "verified" means. The app's `ReportScanner` turns each into a card.
-enum EvidenceReader {
+public enum EvidenceReader {
     /// Reports larger than this are skipped rather than read into memory.
     /// A JSON report lists every file, so this allows roughly 150,000 files.
-    static let maxReportBytes = 64 * 1024 * 1024
+    public static let maxReportBytes = 64 * 1024 * 1024
 
     /// A report from the chosen day that was found but not listed, so the
     /// Master Report can say so instead of leaving it only in the log.
-    struct SkippedReport: Equatable, Identifiable, Sendable {
-        enum Reason: Equatable, Sendable {
+    public struct SkippedReport: Equatable, Identifiable, Sendable {
+        public enum Reason: Equatable, Sendable {
             case tooLarge
             case unreadable
         }
-        let url: URL
+        public let url: URL
         /// The path under the scanned folder, e.g. `Backup/Reports/BitMatch_Report_….json`.
         /// Exporter filenames repeat across backups, so the folder is part of the name.
-        let displayName: String
-        let reason: Reason
-        var id: URL { url }
+        public let displayName: String
+        public let reason: Reason
+        public var id: URL { url }
     }
 
     /// A report that was found and decoded.
-    struct FoundReport: Sendable {
-        let url: URL
-        let snapshot: Snapshot
+    public struct FoundReport: Sendable {
+        public let url: URL
+        public let snapshot: Snapshot
     }
 
-    struct ScanResult: Sendable {
-        let reports: [FoundReport]
-        let skipped: [SkippedReport]
+    public struct ScanResult: Sendable {
+        public let reports: [FoundReport]
+        public let skipped: [SkippedReport]
     }
 
     /// Scans `root` recursively for reports last written on the same calendar
@@ -41,7 +41,7 @@ enum EvidenceReader {
     /// needs for a folder from the document picker and which is harmless
     /// elsewhere. Stops early, returning what it found so far, when the task
     /// is cancelled. `maxBytes` exists for tests.
-    static func scanReports(at root: URL, day: Date = Date(), calendar: Calendar = .current,
+    public static func scanReports(at root: URL, day: Date = Date(), calendar: Calendar = .current,
                             maxBytes: Int = maxReportBytes) async -> ScanResult {
         let scoped = root.startAccessingSecurityScopedResource()
         defer { if scoped { root.stopAccessingSecurityScopedResource() } }
@@ -100,7 +100,7 @@ enum EvidenceReader {
     }
 
     /// The path of `url` under `root`, or its filename when it is not under it.
-    static func displayName(of url: URL, under root: URL) -> String {
+    public static func displayName(of url: URL, under root: URL) -> String {
         let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
@@ -113,7 +113,7 @@ enum EvidenceReader {
     /// One filename rule for every platform. It covers what the exporter
     /// writes (`BitMatch_Report_<date>.json`, and `-2` etc. when that exists),
     /// plus the older names each platform used to look for.
-    static func isReportFilename(_ name: String) -> Bool {
+    public static func isReportFilename(_ name: String) -> Bool {
         let lower = name.lowercased()
         guard lower.hasSuffix(".json") else { return false }
         return lower == "bitmatchreport.json"
@@ -124,13 +124,13 @@ enum EvidenceReader {
 
     /// Names only BitMatch writes, as opposed to the generic `*_report.json`
     /// that `isReportFilename` also accepts for older reports.
-    static func isBitMatchNamed(_ name: String) -> Bool {
+    public static func isBitMatchNamed(_ name: String) -> Bool {
         name.lowercased().hasPrefix("bitmatch")
     }
 
     /// Reads the verification mode the report recorded. `nil` means the report
     /// does not say, and such a report is never treated as verified.
-    static func verificationMode(method: String?, algorithm: String?) -> VerificationMode? {
+    public static func verificationMode(method: String?, algorithm: String?) -> VerificationMode? {
         guard let method else { return nil }
         switch method.lowercased() {
         case "size-only", "quick": return .quick
@@ -148,7 +148,7 @@ enum EvidenceReader {
     /// Verified means every file matched, at least one file was checked, and
     /// the report says contents were compared. A Quick (size-only) copy or a
     /// report with no recorded method is never verified (promise 2).
-    static func isVerified(matches: Int, issues: Int, mode: VerificationMode?) -> Bool {
+    public static func isVerified(matches: Int, issues: Int, mode: VerificationMode?) -> Bool {
         guard let mode, mode != .quick else { return false }
         return issues == 0 && matches > 0
     }
@@ -158,35 +158,35 @@ enum EvidenceReader {
     /// The fields the Master Report needs. Decoding only these lets older
     /// reports that lack newer fields still be found. A missing `verification`
     /// block reads as "not verified", not as a failure to parse.
-    struct Snapshot: Decodable, Sendable {
-        let timestamp: Date
-        let source: Source
-        let destinations: [Destination]
-        let statistics: Statistics
-        let performance: Performance
-        let verification: Verification?
+    public struct Snapshot: Decodable, Sendable {
+        public let timestamp: Date
+        public let source: Source
+        public let destinations: [Destination]
+        public let statistics: Statistics
+        public let performance: Performance
+        public let verification: Verification?
 
-        struct Source: Decodable {
-            let path: String
-            let name: String?
-            let totalSize: Int64
-            let fileCount: Int
-            let cameraDetected: String?
+        public struct Source: Decodable {
+            public let path: String
+            public let name: String?
+            public let totalSize: Int64
+            public let fileCount: Int
+            public let cameraDetected: String?
         }
-        struct Destination: Decodable { let path: String }
-        struct Statistics: Decodable {
-            let matches: Int
-            let issues: Int
+        public struct Destination: Decodable { let path: String }
+        public struct Statistics: Decodable {
+            public let matches: Int
+            public let issues: Int
         }
-        struct Performance: Decodable { let totalDuration: TimeInterval }
-        struct Verification: Decodable {
-            let method: String
-            let algorithm: String?
+        public struct Performance: Decodable { let totalDuration: TimeInterval }
+        public struct Verification: Decodable {
+            public let method: String
+            public let algorithm: String?
         }
     }
 
     /// Returns nil for JSON that is not a BitMatch report.
-    static func snapshot(reportData: Data, reportURL: URL) -> Snapshot? {
+    public static func snapshot(reportData: Data, reportURL: URL) -> Snapshot? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let report = try? decoder.decode(Snapshot.self, from: reportData) else {

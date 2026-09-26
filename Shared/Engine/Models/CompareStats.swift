@@ -1,19 +1,19 @@
 // CompareStats.swift - What a folder comparison found.
 import Foundation
 
-struct CompareStats: Equatable {
-    let onlyInLeftCount: Int
-    let onlyInRightCount: Int
-    let commonCount: Int
-    let mismatchedCount: Int
+public struct CompareStats: Equatable {
+    public let onlyInLeftCount: Int
+    public let onlyInRightCount: Int
+    public let commonCount: Int
+    public let mismatchedCount: Int
     /// Relative paths behind the counts, sorted for stable display and export.
     /// Retained so a reported difference (e.g. one destination-only item from a
     /// camera-card offload) names the file instead of ending at a count.
-    let onlyInLeftPaths: [String]
-    let onlyInRightPaths: [String]
-    let mismatchedPaths: [String]
+    public let onlyInLeftPaths: [String]
+    public let onlyInRightPaths: [String]
+    public let mismatchedPaths: [String]
 
-    init(
+    public init(
         onlyInLeftCount: Int,
         onlyInRightCount: Int,
         commonCount: Int,
@@ -32,7 +32,7 @@ struct CompareStats: Equatable {
     }
 
     /// True only when both folders contain the same files with matching content.
-    var isClean: Bool {
+    public var isClean: Bool {
         onlyInLeftCount == 0 && onlyInRightCount == 0 && mismatchedCount == 0
     }
 }

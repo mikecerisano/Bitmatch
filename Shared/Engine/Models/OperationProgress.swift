@@ -2,7 +2,7 @@
 import Foundation
 
 // MARK: - Progress Stage
-enum ProgressStage: Codable {
+public enum ProgressStage: Codable {
     case idle
     case preparing
     case copying
@@ -10,7 +10,7 @@ enum ProgressStage: Codable {
     case generating
     case completed
     
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .idle: return "Ready"
         case .preparing: return "Preparing..."
@@ -23,29 +23,29 @@ enum ProgressStage: Codable {
 }
 
 // MARK: - Operation Progress
-struct OperationProgress: Codable {
-    let overallProgress: Double
-    let currentFile: String?
-    let filesProcessed: Int
-    let totalFiles: Int
-    let currentStage: ProgressStage
-    let speed: Double? // bytes per second
-    let timeRemaining: TimeInterval?
-    let reusedCopies: Int?
+public struct OperationProgress: Codable {
+    public let overallProgress: Double
+    public let currentFile: String?
+    public let filesProcessed: Int
+    public let totalFiles: Int
+    public let currentStage: ProgressStage
+    public let speed: Double? // bytes per second
+    public let timeRemaining: TimeInterval?
+    public let reusedCopies: Int?
     
     // Enhanced timing information
-    let elapsedTime: TimeInterval?
-    let averageSpeed: Double?
-    let peakSpeed: Double?
-    let bytesProcessed: Int64?
-    let totalBytes: Int64?
-    let stageProgress: Double? // Progress within current stage
+    public let elapsedTime: TimeInterval?
+    public let averageSpeed: Double?
+    public let peakSpeed: Double?
+    public let bytesProcessed: Int64?
+    public let totalBytes: Int64?
+    public let stageProgress: Double? // Progress within current stage
     // Per-destination progress (optional)
-    let perDestinationTotals: [Int]?
-    let perDestinationCompleted: [Int]?
+    public let perDestinationTotals: [Int]?
+    public let perDestinationCompleted: [Int]?
     
     // Convenience initializer for backward compatibility
-    init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, reusedCopies: Int? = nil) {
+    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, reusedCopies: Int? = nil) {
         self.overallProgress = overallProgress
         self.currentFile = currentFile
         self.filesProcessed = filesProcessed
@@ -65,7 +65,7 @@ struct OperationProgress: Codable {
     }
     
     // Full initializer with timing information
-    init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, elapsedTime: TimeInterval?, averageSpeed: Double?, peakSpeed: Double?, bytesProcessed: Int64?, totalBytes: Int64?, stageProgress: Double? = nil, reusedCopies: Int? = nil, perDestinationTotals: [Int]? = nil, perDestinationCompleted: [Int]? = nil) {
+    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, elapsedTime: TimeInterval?, averageSpeed: Double?, peakSpeed: Double?, bytesProcessed: Int64?, totalBytes: Int64?, stageProgress: Double? = nil, reusedCopies: Int? = nil, perDestinationTotals: [Int]? = nil, perDestinationCompleted: [Int]? = nil) {
         self.overallProgress = overallProgress
         self.currentFile = currentFile
         self.filesProcessed = filesProcessed

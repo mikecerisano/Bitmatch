@@ -13,11 +13,11 @@ private struct FileResultKey: Hashable {
 }
 
 // Thread-safe accumulator for results coalescing (copy -> verified)
-actor ResultStore {
+public actor ResultStore {
     private var list: [FileOperationResult] = []
     private var indexByKey: [FileResultKey: Int] = [:]
 
-    func upsert(_ r: FileOperationResult) {
+    public func upsert(_ r: FileOperationResult) {
         let key = FileResultKey(sourceURL: r.sourceURL, destinationURL: r.destinationURL)
         if let idx = indexByKey[key] {
             list[idx] = r
@@ -26,61 +26,61 @@ actor ResultStore {
             list.append(r)
         }
     }
-    func snapshot() -> [FileOperationResult] { list }
+    public func snapshot() -> [FileOperationResult] { list }
 }
 
-actor VerifyCounter {
+public actor VerifyCounter {
     private var value: Int = 0
 
-    func reset() {
+    public func reset() {
         value = 0
     }
 
-    func increment() -> Int {
+    public func increment() -> Int {
         value += 1
         return value
     }
 
-    func current() -> Int {
+    public func current() -> Int {
         value
     }
 }
 
 /// Thread-safe progress tracking for multi-destination copies (Bug 1 fix)
-actor DestinationProgress {
+public actor DestinationProgress {
     private var completed: [Int]
     private let totals: [Int]
 
-    init(destinationCount: Int, perSourceFileCount: Int) {
+    public init(destinationCount: Int, perSourceFileCount: Int) {
         self.completed = Array(repeating: 0, count: destinationCount)
         self.totals = Array(repeating: perSourceFileCount, count: destinationCount)
     }
 
-    func increment(destIndex: Int) {
+    public func increment(destIndex: Int) {
         guard destIndex < completed.count else { return }
         completed[destIndex] += 1
     }
 
-    func snapshot() -> (completed: [Int], totals: [Int]) {
+    public func snapshot() -> (completed: [Int], totals: [Int]) {
         (completed, totals)
     }
 }
 
 /// Serialized progress state to avoid data races across concurrent copy/verify tasks.
-actor ProgressState {
+public actor ProgressState {
     private var processedFiles = 0
     private var totalBytesProcessed: Int64 = 0
     private var lastProgressCallbackTime = Date.distantPast
     private var lastCopyLogCount = 0
 
-    struct CopyUpdate {
-        let processedFiles: Int
-        let totalBytesProcessed: Int64
-        let shouldEmitProgress: Bool
-        let shouldLog: Bool
+    public struct CopyUpdate {
+        public let processedFiles: Int
+        public let totalBytesProcessed: Int64
+        public let shouldEmitProgress: Bool
+        public let shouldLog: Bool
     }
 
-    func recordCopy(fileSize: Int64, totalFiles: Int, now: Date, throttleInterval: TimeInterval) -> CopyUpdate {
+    public func recordCopy(fileSize: Int64, totalFiles: Int, now: Date, throttleInterval: TimeInterval) -> CopyUpdate {
         processedFiles += 1
         totalBytesProcessed += max(0, fileSize)
 
@@ -103,12 +103,12 @@ actor ProgressState {
         )
     }
 
-    func recordCopyError() -> (processedFiles: Int, totalBytesProcessed: Int64) {
+    public func recordCopyError() -> (processedFiles: Int, totalBytesProcessed: Int64) {
         processedFiles += 1
         return (processedFiles, totalBytesProcessed)
     }
 
-    func shouldEmitVerify(now: Date, throttleInterval: TimeInterval, force: Bool) -> Bool {
+    public func shouldEmitVerify(now: Date, throttleInterval: TimeInterval, force: Bool) -> Bool {
         if force || now.timeIntervalSince(lastProgressCallbackTime) >= throttleInterval {
             lastProgressCallbackTime = now
             return true
@@ -116,16 +116,16 @@ actor ProgressState {
         return false
     }
 
-    func snapshot() -> (processedFiles: Int, totalBytesProcessed: Int64) {
+    public func snapshot() -> (processedFiles: Int, totalBytesProcessed: Int64) {
         (processedFiles, totalBytesProcessed)
     }
 }
 
 /// Serialized storage for pipelined verification tasks.
-actor VerifyTaskStore {
+public actor VerifyTaskStore {
     private var tasks: [Task<Void, Never>] = []
 
-    func enqueue(_ task: Task<Void, Never>, maxQueued: Int) -> Task<Void, Never>? {
+    public func enqueue(_ task: Task<Void, Never>, maxQueued: Int) -> Task<Void, Never>? {
         tasks.append(task)
         if tasks.count >= max(1, maxQueued) {
             return tasks.removeFirst()
@@ -133,7 +133,7 @@ actor VerifyTaskStore {
         return nil
     }
 
-    func drain() -> [Task<Void, Never>] {
+    public func drain() -> [Task<Void, Never>] {
         let pending = tasks
         tasks.removeAll()
         return pending
@@ -148,7 +148,7 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
 
 /// Owns the single operation admitted by a service instance.
 /// Cancellation never releases the slot; only the matching operation's exit does.
-final class ActiveOperationRegistry: @unchecked Sendable {
+public final class ActiveOperationRegistry: @unchecked Sendable {
     private struct Entry {
         var task: Task<FileOperation, Error>?
         var cancellationRequested = false
@@ -158,7 +158,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
     private var activeID: UUID?
     private var entries: [UUID: Entry] = [:]
 
-    func reserve(_ id: UUID) -> Bool {
+    public func reserve(_ id: UUID) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard activeID == nil else { return false }
@@ -167,7 +167,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
         return true
     }
 
-    func attach(_ task: Task<FileOperation, Error>, to id: UUID) {
+    public func attach(_ task: Task<FileOperation, Error>, to id: UUID) {
         lock.lock()
         guard activeID == id, var entry = entries[id] else {
             lock.unlock()
@@ -184,7 +184,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
         }
     }
 
-    func requestCancellation() {
+    public func requestCancellation() {
         lock.lock()
         guard let id = activeID, var entry = entries[id] else {
             lock.unlock()
@@ -198,7 +198,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
         task?.cancel()
     }
 
-    func clear(_ id: UUID) {
+    public func clear(_ id: UUID) {
         lock.lock()
         defer { lock.unlock() }
         guard activeID == id else { return }
@@ -207,7 +207,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
     }
 }
 
-final class SharedFileOperationsService: FileOperationsService, Sendable {
+public final class SharedFileOperationsService: FileOperationsService, Sendable {
 
     private let fileSystem: any FileAccess
     private let checksumService: any ChecksumService
@@ -223,7 +223,7 @@ final class SharedFileOperationsService: FileOperationsService, Sendable {
     private let pauseGate = PauseGate()
     private let verifyCounter = VerifyCounter()
 
-    init(
+    public init(
         fileSystem: any FileAccess,
         checksum: any ChecksumService,
         pipelinedVerification: Bool = true,
@@ -237,7 +237,7 @@ final class SharedFileOperationsService: FileOperationsService, Sendable {
     
     // MARK: - FileOperationsService Protocol Implementation
     
-    func performFileOperation(
+    public func performFileOperation(
         sourceURL: URL,
         destinationURLs: [URL],
         verificationMode: VerificationMode,
@@ -282,15 +282,15 @@ final class SharedFileOperationsService: FileOperationsService, Sendable {
         }
     }
     
-    func cancelOperation() {
+    public func cancelOperation() {
         activeOperations.requestCancellation()
     }
     
-    func pauseOperation() async {
+    public func pauseOperation() async {
         pauseGate.pause()
     }
 
-    func resumeOperation() async {
+    public func resumeOperation() async {
         pauseGate.resume()
     }
 

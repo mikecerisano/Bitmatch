@@ -24,8 +24,8 @@ import Foundation
 /// - A source still being analysed waits (`analysing`), after any blocker.
 /// - Warnings: Quick mode, and a source that needs more than 70% of a
 ///   backup's free space.
-struct TransferReadiness: Equatable, Sendable {
-    enum Status: Equatable, Sendable {
+public struct TransferReadiness: Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
         case needsSource
         case needsDestination
         case analysing
@@ -33,20 +33,20 @@ struct TransferReadiness: Equatable, Sendable {
         case ready
     }
 
-    let status: Status
+    public let status: Status
     /// Real findings, one wording for every platform.
-    let blockers: [String]
-    let warnings: [String]
+    public let blockers: [String]
+    public let warnings: [String]
 
-    var isReady: Bool { status == .ready }
+    public var isReady: Bool { status == .ready }
 
     /// The runtime's margin, shared with the copy's own check.
-    static let requiredHeadroomBytes: Int64 = SafetyValidator.requiredHeadroomBytes
+    public static let requiredHeadroomBytes: Int64 = SafetyValidator.requiredHeadroomBytes
 
-    static let noSourceIssue = "No source folder selected"
-    static let noDestinationIssue = "No destination folders selected"
+    public static let noSourceIssue = "No source folder selected"
+    public static let noDestinationIssue = "No destination folders selected"
 
-    static func assess(
+    public static func assess(
         source: URL?,
         sourceBytes: Int64?,
         isAnalysingSource: Bool,
@@ -131,7 +131,7 @@ struct TransferReadiness: Equatable, Sendable {
     /// writable here and is left to the copy's own check, so the preflight
     /// never refuses what it cannot inspect. iOS holds a security scope for
     /// the check, as the copy does.
-    static func isWritableFolder(_ url: URL) -> Bool {
+    public static func isWritableFolder(_ url: URL) -> Bool {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         var isDirectory: ObjCBool = false

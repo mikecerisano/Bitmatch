@@ -1,8 +1,8 @@
 import Foundation
 import os.log
 
-enum SharedLogger {
-      enum Category: String {
+public enum SharedLogger {
+      public enum Category: String {
           case general = "General"
           case transfer = "Transfer"
           case error = "Error"
@@ -17,19 +17,19 @@ enum SharedLogger {
       // All platforms log through os.Logger: interpolated values stay
       // private/redacted by default, and nothing spams stdout in Release.
       // Use a DEBUG print only when actively diagnosing on-device.
-      static func info(_ message: String, category: Category = .general) {
+      public static func info(_ message: String, category: Category = .general) {
           logger(for: category).info("\(message)")
       }
 
-      static func debug(_ message: String, category: Category = .general) {
+      public static func debug(_ message: String, category: Category = .general) {
           logger(for: category).debug("\(message)")
       }
 
-      static func warning(_ message: String, category: Category = .general) {
+      public static func warning(_ message: String, category: Category = .general) {
           logger(for: category).notice("\(message)")
       }
 
-      static func error(_ message: String, category: Category = .error) {
+      public static func error(_ message: String, category: Category = .error) {
           logger(for: category).error("\(message)")
       }
 }

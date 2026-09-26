@@ -10,16 +10,16 @@ import Foundation
 /// collectable. The queue itself is lock-guarded (not actor-isolated)
 /// because continuation bodies and cancellation handlers are synchronous
 /// and cannot hop to the actor.
-actor AsyncSemaphore {
+public actor AsyncSemaphore {
     private let queue: PermitQueue
 
-    init(count: Int) {
+    public init(count: Int) {
         self.queue = PermitQueue(count: count)
     }
 
     /// Acquire a permit, suspending while none is available.
     /// Throws CancellationError when the task is cancelled first.
-    func wait() async throws {
+    public func wait() async throws {
         try Task.checkCancellation()
         if queue.takePermit() { return }
         let id = UUID()
@@ -32,7 +32,7 @@ actor AsyncSemaphore {
         }
     }
 
-    func signal() {
+    public func signal() {
         queue.signal()
     }
 }
@@ -111,7 +111,7 @@ private final class PermitQueue: @unchecked Sendable {
 /// If acquisition itself is cancelled, the operation never runs and no
 /// permit is held or released.
 @inline(__always)
-func withSemaphore<T>(_ semaphore: AsyncSemaphore, _ operation: () async throws -> T) async throws -> T {
+public func withSemaphore<T>(_ semaphore: AsyncSemaphore, _ operation: () async throws -> T) async throws -> T {
     try await semaphore.wait()
     do {
         let result = try await operation()

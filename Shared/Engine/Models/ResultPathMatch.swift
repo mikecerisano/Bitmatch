@@ -3,10 +3,10 @@ import Foundation
 
 /// Path text for deciding which backup a written file belongs to, without
 /// touching the disk (the files may be gone, and there can be 100k rows).
-enum ResultPathMatch {
+public enum ResultPathMatch {
     /// `/private/var`, `/private/tmp` and `/private/etc` are where macOS's
     /// `/var`, `/tmp` and `/etc` symlinks point, so both spellings compare equal.
-    static func comparablePath(_ path: String) -> String {
+    public static func comparablePath(_ path: String) -> String {
         PathContainment.comparablePath(path)
     }
 }

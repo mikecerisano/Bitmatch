@@ -1,7 +1,7 @@
 import Foundation
 
-extension URL {
-    func relativePath(to base: URL) -> String {
+public extension URL {
+    public func relativePath(to base: URL) -> String {
         let base = base.standardizedFileURL.resolvingSymlinksInPath()
         let me = self.standardizedFileURL.resolvingSymlinksInPath()
         let a = base.pathComponents
@@ -10,13 +10,13 @@ extension URL {
         return b.dropFirst(a.count).joined(separator: "/")
     }
 
-    func isAncestor(of other: URL) -> Bool {
+    public func isAncestor(of other: URL) -> Bool {
         let a = standardizedFileURL.resolvingSymlinksInPath().pathComponents
         let b = other.standardizedFileURL.resolvingSymlinksInPath().pathComponents
         return b.starts(with: a)
     }
 
-    func nonConflictingSibling(maxAttempts: Int = 9_999) -> URL {
+    public func nonConflictingSibling(maxAttempts: Int = 9_999) -> URL {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else { return self }
 

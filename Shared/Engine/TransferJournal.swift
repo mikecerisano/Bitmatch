@@ -3,24 +3,24 @@ import Foundation
 import Darwin
 import Synchronization
 
-enum LocalTransferState: String, Codable, Sendable {
+public enum LocalTransferState: String, Codable, Sendable {
     case queued, running, interrupted, completed, issues, cancelled
 
-    var canRetry: Bool { self == .queued || self == .interrupted || self == .issues || self == .cancelled }
+    public var canRetry: Bool { self == .queued || self == .interrupted || self == .issues || self == .cancelled }
 
     /// States shown under the Queue tab. Cancelled transfers stay here because
     /// they are retryable; surfacing Retry in the queue keeps recovery discoverable.
-    var showsInQueue: Bool { self == .queued || self == .running || self == .interrupted || self == .issues || self == .cancelled }
+    public var showsInQueue: Bool { self == .queued || self == .running || self == .interrupted || self == .issues || self == .cancelled }
 }
 
 /// The original selection, including its identity. Never substitute a new disk at the same path.
-struct LocalTransferResource: Codable, Sendable {
-    let url: URL
-    let bookmark: Data
-    let volumeID: String?
-    let resourceID: String?
+public struct LocalTransferResource: Codable, Sendable {
+    public let url: URL
+    public let bookmark: Data
+    public let volumeID: String?
+    public let resourceID: String?
 
-    init(url: URL) throws {
+    public init(url: URL) throws {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .volumeUUIDStringKey, .fileResourceIdentifierKey])
@@ -69,28 +69,28 @@ struct LocalTransferResource: Codable, Sendable {
     }
 }
 
-struct LocalTransferRecord: Identifiable, Codable, Sendable {
-    let id: UUID
-    let createdAt: Date
+public struct LocalTransferRecord: Identifiable, Codable, Sendable {
+    public let id: UUID
+    public let createdAt: Date
     /// Refreshable access tokens for the same immutable selection. Reauthorization
     /// replaces these only after the original volume and folder identity match.
-    var source: LocalTransferResource
-    var destinations: [LocalTransferResource]
-    let verificationMode: VerificationMode
-    let cameraSettings: CameraLabelSettings
-    let reportSettings: ReportPrefs
-    let generateASCMHL: Bool
-    let projectID: UUID?
-    var state: LocalTransferState = .queued
-    var startedAt: Date?
-    var endedAt: Date?
-    var summary: String = "Ready to copy"
-    var results: [ResultRow] = []
+    public var source: LocalTransferResource
+    public var destinations: [LocalTransferResource]
+    public let verificationMode: VerificationMode
+    public let cameraSettings: CameraLabelSettings
+    public let reportSettings: ReportPrefs
+    public let generateASCMHL: Bool
+    public let projectID: UUID?
+    public var state: LocalTransferState = .queued
+    public var startedAt: Date?
+    public var endedAt: Date?
+    public var summary: String = "Ready to copy"
+    public var results: [ResultRow] = []
 
-    var title: String { source.url.lastPathComponent }
-    var canRetry: Bool { state.canRetry && projectID == nil }
+    public var title: String { source.url.lastPathComponent }
+    public var canRetry: Bool { state.canRetry && projectID == nil }
 
-    init(id: UUID, createdAt: Date, source: LocalTransferResource, destinations: [LocalTransferResource],
+    public init(id: UUID, createdAt: Date, source: LocalTransferResource, destinations: [LocalTransferResource],
          verificationMode: VerificationMode, cameraSettings: CameraLabelSettings, reportSettings: ReportPrefs,
          generateASCMHL: Bool = true, projectID: UUID? = nil) {
         self.id = id
@@ -109,7 +109,7 @@ struct LocalTransferRecord: Identifiable, Codable, Sendable {
         case generateASCMHL, projectID, state, startedAt, endedAt, summary, results
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
@@ -126,13 +126,13 @@ struct LocalTransferRecord: Identifiable, Codable, Sendable {
         summary = try c.decode(String.self, forKey: .summary)
         results = try c.decode([ResultRow].self, forKey: .results)
     }
-    var issueCount: Int { results.filter { !$0.isSuccessStatus }.count }
+    public var issueCount: Int { results.filter { !$0.isSuccessStatus }.count }
 }
 
 /// Retain this lease for the entire operation, then release it (or let it deinitialize).
-final class LocalTransferAccess: Sendable {
-    let sourceURL: URL
-    let destinationURLs: [URL]
+public final class LocalTransferAccess: Sendable {
+    public let sourceURL: URL
+    public let destinationURLs: [URL]
     private let scopedURLs: Mutex<[URL]>
 
     fileprivate init(sourceURL: URL, destinationURLs: [URL], scopedURLs: [URL]) {
@@ -142,7 +142,7 @@ final class LocalTransferAccess: Sendable {
     }
 
     /// Stops access once; later calls do nothing.
-    func release() {
+    public func release() {
         let urls = scopedURLs.withLock { urls in
             defer { urls.removeAll() }
             return urls
@@ -153,11 +153,11 @@ final class LocalTransferAccess: Sendable {
     deinit { release() }
 }
 
-enum LocalTransferJournalError: LocalizedError {
+public enum LocalTransferJournalError: LocalizedError {
     case unavailable(String), invalidState, missingDestinations, unreadableJournal(String), busy
     case identityMismatch(name: String), unverifiableIdentity(name: String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .unavailable(let name): return "Reconnect or reselect \(name). Its original folder could not be confirmed."
         case .busy: return "Transfer history is already open in another app instance. Close it before starting another transfer."
@@ -175,7 +175,7 @@ enum LocalTransferJournalError: LocalizedError {
 /// Durable foreground queue and history shared by Mac, iPhone, and iPad.
 /// All mutations reach disk before becoming visible. This store never starts
 /// work itself. Safe to use from any thread; one process holds the file lock.
-final class TransferJournal: Sendable {
+public final class TransferJournal: Sendable {
     private struct State {
         var records: [LocalTransferRecord] = []
         var persistenceError: String?
@@ -186,10 +186,10 @@ final class TransferJournal: Sendable {
     private let fileURL: URL
     private let lockDescriptor: Int32
 
-    var records: [LocalTransferRecord] { state.withLock { $0.records } }
-    var persistenceError: String? { state.withLock { $0.persistenceError } }
+    public var records: [LocalTransferRecord] { state.withLock { $0.records } }
+    public var persistenceError: String? { state.withLock { $0.persistenceError } }
 
-    init(fileURL: URL? = nil) {
+    public init(fileURL: URL? = nil) {
         let fileURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BitMatch/transfer-history.json")
         var initial = State()
@@ -230,7 +230,7 @@ final class TransferJournal: Sendable {
     }
 
     @discardableResult
-    func enqueue(sourceURL: URL, destinationURLs: [URL], verificationMode: VerificationMode,
+    public func enqueue(sourceURL: URL, destinationURLs: [URL], verificationMode: VerificationMode,
                  cameraSettings: CameraLabelSettings, reportSettings: ReportPrefs, generateASCMHL: Bool = true, projectID: UUID? = nil) throws -> UUID {
         guard !destinationURLs.isEmpty else { throw LocalTransferJournalError.missingDestinations }
         let record = LocalTransferRecord(id: UUID(), createdAt: Date(), source: try LocalTransferResource(url: sourceURL),
@@ -243,7 +243,7 @@ final class TransferJournal: Sendable {
 
     /// A retry is a new attempt, preserving the previous attempt and its evidence.
     @discardableResult
-    func requeue(id: UUID, generateASCMHL: Bool? = nil) throws -> UUID {
+    public func requeue(id: UUID, generateASCMHL: Bool? = nil) throws -> UUID {
         guard let original = records.first(where: { $0.id == id }), original.canRetry,
               original.state != .queued else { throw LocalTransferJournalError.invalidState }
         let access = try prepareToRun(id: id)
@@ -256,7 +256,7 @@ final class TransferJournal: Sendable {
         return retry.id
     }
 
-    func prepareToRun(id: UUID) throws -> LocalTransferAccess {
+    public func prepareToRun(id: UUID) throws -> LocalTransferAccess {
         guard let record = records.first(where: { $0.id == id }), (record.state == .queued || record.canRetry) else {
             throw LocalTransferJournalError.invalidState
         }
@@ -279,7 +279,7 @@ final class TransferJournal: Sendable {
 
     /// Indexes into `[source] + destinations` whose stored access no longer
     /// resolves to the original folder (stale bookmark, unplugged drive).
-    func staleResourceIndexes(id: UUID) throws -> [Int] {
+    public func staleResourceIndexes(id: UUID) throws -> [Int] {
         guard let record = records.first(where: { $0.id == id }) else {
             throw LocalTransferJournalError.invalidState
         }
@@ -300,7 +300,7 @@ final class TransferJournal: Sendable {
     /// Refreshes one stored location after access expired. The replacement must
     /// be the original volume and folder: anything else is rejected rather than
     /// silently substituted. Earlier attempts and their evidence are untouched.
-    func reauthorize(id: UUID, resourceIndex: Int, newURL: URL) throws {
+    public func reauthorize(id: UUID, resourceIndex: Int, newURL: URL) throws {
         guard var record = records.first(where: { $0.id == id }),
               record.state == .queued || record.canRetry else {
             throw LocalTransferJournalError.invalidState
@@ -351,7 +351,7 @@ final class TransferJournal: Sendable {
         }
     }
 
-    func markRunning(id: UUID) throws {
+    public func markRunning(id: UUID) throws {
         try commit { records in
             guard !records.contains(where: { $0.state == .running }) else { throw LocalTransferJournalError.invalidState }
             return try Self.updated(records, id: id) { record in
@@ -364,7 +364,7 @@ final class TransferJournal: Sendable {
         }
     }
 
-    func finish(id: UUID, results: [ResultRow], summary: String, hadIssues: Bool) throws {
+    public func finish(id: UUID, results: [ResultRow], summary: String, hadIssues: Bool) throws {
         try update(id: id) { record in
             guard record.state == .running else { throw LocalTransferJournalError.invalidState }
             record.results = results
@@ -375,7 +375,7 @@ final class TransferJournal: Sendable {
         }
     }
 
-    func interrupt(id: UUID, summary: String, results: [ResultRow]? = nil) throws {
+    public func interrupt(id: UUID, summary: String, results: [ResultRow]? = nil) throws {
         try update(id: id) { record in
             guard record.state == .running else { throw LocalTransferJournalError.invalidState }
             record.state = .interrupted
@@ -385,7 +385,7 @@ final class TransferJournal: Sendable {
         }
     }
 
-    func cancel(id: UUID, summary: String = "Cancelled", results: [ResultRow]? = nil) throws {
+    public func cancel(id: UUID, summary: String = "Cancelled", results: [ResultRow]? = nil) throws {
         try update(id: id) { record in
             guard record.state != .completed else { throw LocalTransferJournalError.invalidState }
             record.state = .cancelled

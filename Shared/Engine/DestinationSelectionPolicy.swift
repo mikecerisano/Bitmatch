@@ -16,34 +16,34 @@ import Foundation
 /// this rule can only refuse more, never let more in.
 ///
 /// Source: only a folder, and not overlapping a chosen backup.
-enum DestinationSelectionPolicy {
-    enum Decision: Equatable, Sendable {
+public enum DestinationSelectionPolicy {
+    public enum Decision: Equatable, Sendable {
         case accept
         case reject(String)
 
-        var reason: String? {
+        public var reason: String? {
             if case .reject(let reason) = self { return reason }
             return nil
         }
     }
 
     /// What a chosen location is on disk.
-    enum ItemKind: Equatable, Sendable {
+    public enum ItemKind: Equatable, Sendable {
         case folder
         case file
         /// Not there, or not visible to the app.
         case missing
     }
 
-    static let foldersOnlyReason = "Only folders can be used here"
-    static let systemFolderReason = "System directories cannot be used"
+    public static let foldersOnlyReason = "Only folders can be used here"
+    public static let systemFolderReason = "System directories cannot be used"
 
     // MARK: - Decisions
 
     /// Whether `url` may become a backup, given what is already chosen.
     /// `replacing` is the index of the backup a drop replaces; that backup
     /// does not count as a duplicate.
-    static func evaluateBackup(
+    public static func evaluateBackup(
         _ url: URL,
         source: URL?,
         existing: [URL],
@@ -75,7 +75,7 @@ enum DestinationSelectionPolicy {
     }
 
     /// Whether `url` may become the source, given the chosen backups.
-    static func evaluateSource(
+    public static func evaluateSource(
         _ url: URL,
         backups: [URL],
         kind: (URL) -> ItemKind = itemKind,
@@ -100,7 +100,7 @@ enum DestinationSelectionPolicy {
     /// `SharedAppCoordinator.addDestination`). `existing` is read again
     /// before each one, so a batch with the same folder twice refuses the
     /// second. Returns every refusal, in order, to show the user.
-    static func addBackups(
+    public static func addBackups(
         _ urls: [URL],
         source: URL?,
         existing: () -> [URL],
@@ -132,7 +132,7 @@ enum DestinationSelectionPolicy {
 
     /// Reads the file system, holding a security scope for the check (a
     /// Files-picker folder on iOS is not visible without one).
-    static func itemKind(_ url: URL) -> ItemKind {
+    public static func itemKind(_ url: URL) -> ItemKind {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         var isDirectory: ObjCBool = false
@@ -145,7 +145,7 @@ enum DestinationSelectionPolicy {
     /// macOS system folders (`SafetyValidator.isProtectedSystemPath`). Not
     /// applied on iOS: every Files location there lives under
     /// `/private/var/mobile`, which that rule would refuse.
-    static func isMacSystemFolder(_ url: URL) -> Bool {
+    public static func isMacSystemFolder(_ url: URL) -> Bool {
         #if os(macOS)
         return SafetyValidator.isProtectedSystemPath(url)
         #else
@@ -154,7 +154,7 @@ enum DestinationSelectionPolicy {
     }
 
     /// `BackupTargetPolicy` for a user's own pick, with real volume facts.
-    static func userChoiceRefusal(_ url: URL, source: URL?) -> String? {
+    public static func userChoiceRefusal(_ url: URL, source: URL?) -> String? {
         BackupTargetPolicy.refusal(for: url, origin: .userChoice, source: source)
     }
 

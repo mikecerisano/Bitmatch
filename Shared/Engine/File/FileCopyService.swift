@@ -8,8 +8,8 @@ import Darwin
 /// Owns an already-open destination directory.  All writes below this point use
 /// descriptor-relative calls so renaming a pathname after setup cannot redirect
 /// a copy outside the selected destination.
-final class PinnedDestinationDirectory: @unchecked Sendable {
-    let logicalRootURL: URL
+public final class PinnedDestinationDirectory: @unchecked Sendable {
+    public let logicalRootURL: URL
     private let directoryFD: Int32
 
     private init(logicalRootURL: URL, directoryFD: Int32) {
@@ -19,7 +19,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
 
     deinit { _ = Darwin.close(directoryFD) }
 
-    static func open(destination: URL, rootComponents: [String]) throws -> PinnedDestinationDirectory {
+    public static func open(destination: URL, rootComponents: [String]) throws -> PinnedDestinationDirectory {
         let destinationFD = try openDirectory(at: destination, description: "selected destination")
         var currentFD = destinationFD
         var logicalRoot = destination
@@ -38,7 +38,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
         }
     }
 
-    func openOrCreateDirectory(at relativeComponents: [String]) throws -> Int32 {
+    public func openOrCreateDirectory(at relativeComponents: [String]) throws -> Int32 {
         var currentFD = Darwin.dup(directoryFD)
         guard currentFD >= 0 else { throw Self.posixError("Unable to duplicate pinned destination directory") }
         do {
@@ -55,14 +55,14 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
         }
     }
 
-    func destinationURL(for relativePath: String) -> URL {
+    public func destinationURL(for relativePath: String) -> URL {
         logicalRootURL.appendingPathComponent(relativePath)
     }
 
     /// Opens a destination file below the pinned directory. The returned
     /// descriptor, not `logicalRootURL`, is the authority for subsequent
     /// reads. This is deliberately separate from the display URL above.
-    func openRegularFile(at relativeComponents: [String]) throws -> PinnedDestinationFile {
+    public func openRegularFile(at relativeComponents: [String]) throws -> PinnedDestinationFile {
         guard let name = relativeComponents.last else {
             throw FileOperationError.unsafeOperation("Invalid destination file path")
         }
@@ -71,7 +71,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
         return try PinnedDestinationFile.open(named: name, relativeTo: parentFD)
     }
 
-    static func isExistingRegularFile(named name: String, relativeTo parentFD: Int32) throws -> Bool {
+    public static func isExistingRegularFile(named name: String, relativeTo parentFD: Int32) throws -> Bool {
         var info = stat()
         let status = name.withCString { fstatat(parentFD, $0, &info, AT_SYMLINK_NOFOLLOW) }
         if status == 0 {
@@ -84,21 +84,21 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
         return false
     }
 
-    static func createTemporaryFile(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
+    public static func createTemporaryFile(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
         let flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC
         let fd = name.withCString { openat(parentFD, $0, flags, 0o600) }
         guard fd >= 0 else { throw posixError("Unable to create temporary destination file") }
         return fd
     }
 
-    static func removeItem(named name: String, relativeTo parentFD: Int32) {
+    public static func removeItem(named name: String, relativeTo parentFD: Int32) {
         _ = name.withCString { unlinkat(parentFD, $0, 0) }
     }
 
     /// `linkat` plus removal is an atomic no-replace publication in the same
     /// pinned directory. Unlike `renameat`, it cannot overwrite a destination
     /// file that appeared while the copy was in progress.
-    static func publishTemporaryFile(named temporaryName: String, as name: String, relativeTo parentFD: Int32) throws {
+    public static func publishTemporaryFile(named temporaryName: String, as name: String, relativeTo parentFD: Int32) throws {
         // errno is read inside the closure, before anything can overwrite it.
         let (status, linkError) = temporaryName.withCString { temporaryNamePointer in
             name.withCString { namePointer in
@@ -126,7 +126,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
     /// recreated at this exact name between that check and the rename could
     /// be replaced. The identity is read after fsync because macOS's exFAT
     /// driver reports a temporary inode for a file until it is committed.
-    static func publishByClaimingName(temporaryName: String, name: String, relativeTo parentFD: Int32) throws {
+    public static func publishByClaimingName(temporaryName: String, name: String, relativeTo parentFD: Int32) throws {
         let flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC
         let claimFD = name.withCString { openat(parentFD, $0, flags, 0o600) }
         guard claimFD >= 0 else { throw posixError("Destination file appeared during copy; refusing to overwrite it") }
@@ -251,7 +251,7 @@ final class PinnedDestinationDirectory: @unchecked Sendable {
 /// A regular file opened relative to a pinned directory. It owns a descriptor
 /// so symlink swaps of presentation paths cannot redirect checksum or byte
 /// verification reads.
-final class PinnedDestinationFile: @unchecked Sendable {
+public final class PinnedDestinationFile: @unchecked Sendable {
     private let fileFD: Int32
     private let parentFD: Int32
     private let name: String
@@ -267,7 +267,7 @@ final class PinnedDestinationFile: @unchecked Sendable {
         _ = Darwin.close(parentFD)
     }
 
-    static func open(named name: String, relativeTo parentFD: Int32) throws -> PinnedDestinationFile {
+    public static func open(named name: String, relativeTo parentFD: Int32) throws -> PinnedDestinationFile {
         let fileFD = try openRegularFile(named: name, relativeTo: parentFD)
         let retainedParentFD = Darwin.dup(parentFD)
         guard retainedParentFD >= 0 else {
@@ -277,7 +277,7 @@ final class PinnedDestinationFile: @unchecked Sendable {
         return PinnedDestinationFile(fileFD: fileFD, parentFD: retainedParentFD, name: name)
     }
 
-    func snapshot() throws -> stat {
+    public func snapshot() throws -> stat {
         var info = stat()
         guard fstat(fileFD, &info) == 0 else {
             throw Self.posixError("Unable to inspect pinned destination file")
@@ -291,7 +291,7 @@ final class PinnedDestinationFile: @unchecked Sendable {
     /// A fresh `openat` is required for every reader. `dup` would retain the
     /// same open-file description and its current offset, so a second Thorough
     /// checksum could otherwise start at EOF.
-    func readingHandle() throws -> FileHandle {
+    public func readingHandle() throws -> FileHandle {
         let expected = try snapshot()
         let readerFD = try Self.openRegularFile(named: name, relativeTo: parentFD)
         var actual = stat()
@@ -327,7 +327,7 @@ final class PinnedDestinationFile: @unchecked Sendable {
 }
 #endif
 
-final class FileCopyService {
+public final class FileCopyService {
     // Perf 1: actor wrapping pre-enumerated file list for concurrent worker access
     private actor _ArraySource {
         private let urls: [URL]
@@ -344,7 +344,7 @@ final class FileCopyService {
     /// Descriptor-pinned variant for local destinations. The pathname is used
     /// only for display/reporting; directory creation and publication stay on
     /// the directory descriptor owned by `pinnedRoot`.
-    static func copyAllSafely(
+    public static func copyAllSafely(
         from src: URL,
         toPinnedRoot pinnedRoot: PinnedDestinationDirectory,
         verificationMode: VerificationMode,
@@ -639,7 +639,7 @@ final class FileCopyService {
     /// actually exercised (this is also what lets tests observe and control
     /// verification timing/cancellation) without ever reading the
     /// destination by path.
-    static func verifyPinnedDestinationFile(
+    public static func verifyPinnedDestinationFile(
         source: URL,
         pinnedRoot: PinnedDestinationDirectory,
         relativePath: String,
@@ -898,7 +898,7 @@ final class FileCopyService {
 }
 
 #if canImport(Darwin)
-extension FileCopyService {
+public extension FileCopyService {
     private static func logMemoryUsage(context: String) {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<Int32>.size)
@@ -914,7 +914,7 @@ extension FileCopyService {
     }
 }
 #else
-extension FileCopyService {
+public extension FileCopyService {
     private static func logMemoryUsage(context: String) {}
 }
 #endif

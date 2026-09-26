@@ -6,10 +6,10 @@ import Foundation
 /// Thrown when the requested automatic report cannot be saved. Carried into the
 /// completion message, the journal record, and the queue decision so verified
 /// media is never confused with a failed requested report.
-enum ReportExportError: LocalizedError {
+public enum ReportExportError: LocalizedError {
     case noSaveLocation
     case missingChecksum(String)
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .noSaveLocation: "Cannot find a valid directory to save reports"
         case .missingChecksum(let path): "No recorded checksum for \(path)."
@@ -20,98 +20,98 @@ enum ReportExportError: LocalizedError {
 // MARK: - Enhanced JSON Report Structures
 /// `Project` is the optional project section (`photographyJob`); the app
 /// supplies its own type, and the engine only encodes it.
-struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable {
+public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable {
     // Version 3.0 adds the optional photographyJob object. When it is nil,
     // every pre-existing report field retains its 2.0 meaning.
-    let reportVersion: String
-    let timestamp: Date
-    let jobId: UUID
-    let mode: String
-    let source: SourceInfo
-    let destinations: [DestinationInfo]
+    public let reportVersion: String
+    public let timestamp: Date
+    public let jobId: UUID
+    public let mode: String
+    public let source: SourceInfo
+    public let destinations: [DestinationInfo]
     
     // Enhanced statistics
-    let statistics: Statistics
-    let extensions: [String: Int]  // File extension breakdown
-    let performance: Performance
-    let verification: Verification
-    let results: [JSONReportItem]
-    let photographyJob: Project?
-    var notes: String? = nil
+    public let statistics: Statistics
+    public let extensions: [String: Int]  // File extension breakdown
+    public let performance: Performance
+    public let verification: Verification
+    public let results: [JSONReportItem]
+    public let photographyJob: Project?
+    public var notes: String? = nil
     
-    struct SourceInfo: Codable {
-        let path: String
-        let name: String
-        let totalSize: Int64
-        let fileCount: Int
-        let cameraDetected: String?
-        let driveType: String  // "NVMe", "SSD", "HDD", "Network"
+    public struct SourceInfo: Codable {
+        public let path: String
+        public let name: String
+        public let totalSize: Int64
+        public let fileCount: Int
+        public let cameraDetected: String?
+        public let driveType: String  // "NVMe", "SSD", "HDD", "Network"
     }
     
-    struct DestinationInfo: Codable {
-        let path: String
-        let name: String
-        let availableSpace: Int64
-        let driveType: String
+    public struct DestinationInfo: Codable {
+        public let path: String
+        public let name: String
+        public let availableSpace: Int64
+        public let driveType: String
         /// Not measured per backup; nil rather than a guess (Promise 3).
-        let copyDuration: TimeInterval?
-        let verifyDuration: TimeInterval?
+        public let copyDuration: TimeInterval?
+        public let verifyDuration: TimeInterval?
     }
     
-    struct Statistics: Codable {
-        let totalFiles: Int
-        let totalBytes: Int64
-        let matches: Int
-        let issues: Int
-        let successRate: Double
-        let averageFileSize: Int64
-        let largestFile: FileInfo?
-        let smallestFile: FileInfo?
+    public struct Statistics: Codable {
+        public let totalFiles: Int
+        public let totalBytes: Int64
+        public let matches: Int
+        public let issues: Int
+        public let successRate: Double
+        public let averageFileSize: Int64
+        public let largestFile: FileInfo?
+        public let smallestFile: FileInfo?
     }
     
-    struct FileInfo: Codable {
-        let path: String
-        let size: Int64
+    public struct FileInfo: Codable {
+        public let path: String
+        public let size: Int64
     }
     
-    struct Performance: Codable {
-        let totalDuration: TimeInterval
+    public struct Performance: Codable {
+        public let totalDuration: TimeInterval
         /// Copy, verify and peak speed are not measured separately; nil
         /// rather than a guess (Promise 3).
-        let copyDuration: TimeInterval?
-        let verifyDuration: TimeInterval?
-        let throughputMBps: Double
-        let peakSpeedMBps: Double?
-        let averageSpeedMBps: Double
-        let filesPerSecond: Double
-        let workers: Int
-        let bottleneck: String?  // "Source Read", "Destination Write", "CPU", "Network"
+        public let copyDuration: TimeInterval?
+        public let verifyDuration: TimeInterval?
+        public let throughputMBps: Double
+        public let peakSpeedMBps: Double?
+        public let averageSpeedMBps: Double
+        public let filesPerSecond: Double
+        public let workers: Int
+        public let bottleneck: String?  // "Source Read", "Destination Write", "CPU", "Network"
     }
     
-    struct Verification: Codable {
-        let method: String
-        let algorithm: String?
-        let issuesByType: [String: Int]
-        let checksumCache: CacheStats?
+    public struct Verification: Codable {
+        public let method: String
+        public let algorithm: String?
+        public let issuesByType: [String: Int]
+        public let checksumCache: CacheStats?
     }
     
-    struct CacheStats: Codable {
-        let hits: Int
-        let misses: Int
-        let hitRate: Double
+    public struct CacheStats: Codable {
+        public let hits: Int
+        public let misses: Int
+        public let hitRate: Double
     }
 }
 
 // MARK: - JSON Report Item Structure
-struct JSONReportItem: Codable {
-    let path: String
-    let target: String?
-    let status: String
-    let fileExtension: String
-    let checksum: String?
-    let byteCount: Int64?
+public struct JSONReportItem: Codable {
+    public let path: String
+    public let target: String?
+    public let status: String
+    public let fileExtension: String
+    public let checksum: String?
+    public let byteCount: Int64?
 
-    init(from row: ResultRow) {
+    public init(from row: ResultRow) {
         self.path = row.path
         self.target = row.destinationPath ?? row.destination
         self.status = row.status.isEmpty ? "Unknown" : row.status
@@ -124,12 +124,12 @@ struct JSONReportItem: Codable {
 // MARK: - Evidence kinds and project evidence
 
 /// What produced the evidence: decides the JSON `mode` and where it is saved.
-enum EvidenceKind: Sendable {
+public enum EvidenceKind: Sendable {
     case copyAndVerify
     case compareFolders
     case masterReport
 
-    var jsonMode: String {
+    public var jsonMode: String {
         switch self {
         case .copyAndVerify: "copy-and-verify"
         case .compareFolders: "compare-folders"
@@ -140,33 +140,33 @@ enum EvidenceKind: Sendable {
 
 /// Project details the CSV carries, built by the app from its own project
 /// model: the same provenance on every row, plus summary rows at the end.
-struct ProjectCSVEvidence: Sendable {
-    let job: String
-    let photographer: String
-    let camera: String
-    let card: String
-    let packagePath: String
-    let summaryRows: [[String]]
+public struct ProjectCSVEvidence: Sendable {
+    public let job: String
+    public let photographer: String
+    public let camera: String
+    public let card: String
+    public let packagePath: String
+    public let summaryRows: [[String]]
 }
 
 // MARK: - Evidence Writer
-enum EvidenceWriter {
+public enum EvidenceWriter {
     
     /// `BitMatch_Report_<finish time>.<ext>`. The PDF, CSV, JSON and checksum
     /// files share this name; `ReportScanner` looks for the JSON one.
-    static func reportFileName(finished: Date, pathExtension: String) -> String {
+    public static func reportFileName(finished: Date, pathExtension: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = .withInternetDateTime
         let dateString = formatter.string(from: finished).replacingOccurrences(of: ":", with: "-")
         return "BitMatch_Report_\(dateString).\(pathExtension)"
     }
 
-    static func normalizedNotes(_ notes: String) -> String? {
+    public static func normalizedNotes(_ notes: String) -> String? {
         let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func verificationDescription(for prefs: ReportPrefs) -> (method: String, label: String, algorithm: String?, primaryAlgorithm: ChecksumAlgorithm?) {
+    public static func verificationDescription(for prefs: ReportPrefs) -> (method: String, label: String, algorithm: String?, primaryAlgorithm: ChecksumAlgorithm?) {
         switch prefs.verificationMode {
         case .quick:
             return ("size-only", "Size check only — contents not checksum verified", nil, nil)
@@ -185,7 +185,7 @@ enum EvidenceWriter {
 
     /// Saves the evidence next to the transfer: `Reports/` in the first
     /// backup for Copy & Verify, otherwise the Desktop (or Documents).
-    static func write<Project: Codable & Sendable>(kind: EvidenceKind,
+    public static func write<Project: Codable & Sendable>(kind: EvidenceKind,
                                         destinationURLs: [URL],
                                         pdfData: Data?,
                                         results: [ResultRow],
@@ -307,7 +307,7 @@ enum EvidenceWriter {
         try csvContent.data(using: .utf8)?.write(to: url)
     }
 
-    static func makeEnhancedCSV(
+    public static func makeEnhancedCSV(
         results: [ResultRow],
         started: Date,
         duration: TimeInterval,
@@ -406,14 +406,14 @@ enum EvidenceWriter {
     }
 
     /// The bytes written for a JSON report. `ReportScanner` reads these back.
-    static func encodeEnhancedJSONReport<Project>(_ report: EnhancedJSONReport<Project>) throws -> Data {
+    public static func encodeEnhancedJSONReport<Project>(_ report: EnhancedJSONReport<Project>) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return try encoder.encode(report)
     }
 
-    static func makeEnhancedJSONReport<Project: Codable & Sendable>(
+    public static func makeEnhancedJSONReport<Project: Codable & Sendable>(
         results: [ResultRow],
         jobID: UUID,
         started: Date,
@@ -582,7 +582,7 @@ enum EvidenceWriter {
     
     /// Automatic reports use the checksums retained by verification. Re-reading
     /// files later would replace the evidence and outlive the transfer's access lease.
-    static func writeRecordedChecksumManifest(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) throws {
+    public static func writeRecordedChecksumManifest(results: [ResultRow], algorithm: ChecksumAlgorithm, to url: URL) throws {
         var content = "# BitMatch Checksum Manifest\n# Algorithm: \(algorithm.rawValue)\n# Format: CHECKSUM  FILENAME\n\n"
         for row in results where row.isSuccessStatus {
             try Task.checkCancellation()

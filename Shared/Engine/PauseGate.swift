@@ -10,11 +10,11 @@ import Synchronization
 /// A run installs its gate as `PauseGate.current` for its own task tree, so
 /// checksum and destination reads deep in the engine pause with that run and
 /// no other. Work outside a run (Compare, off-site checks) sees no gate.
-final class PauseGate: Sendable {
-    @TaskLocal static var current: PauseGate?
+public final class PauseGate: Sendable {
+    @TaskLocal public static var current: PauseGate?
 
     /// Waits on the current run's gate, if there is one.
-    static func waitIfCurrentIsPaused() async throws {
+    public static func waitIfCurrentIsPaused() async throws {
         try await current?.wait()
     }
 
@@ -25,13 +25,13 @@ final class PauseGate: Sendable {
 
     private let state = Mutex(State())
 
-    var isPaused: Bool { state.withLock { $0.paused } }
+    public var isPaused: Bool { state.withLock { $0.paused } }
 
-    func pause() {
+    public func pause() {
         state.withLock { $0.paused = true }
     }
 
-    func resume() {
+    public func resume() {
         let waiters = state.withLock { state in
             state.paused = false
             defer { state.waiters.removeAll() }
@@ -40,7 +40,7 @@ final class PauseGate: Sendable {
         waiters.forEach { $0.resume() }
     }
 
-    func wait() async throws {
+    public func wait() async throws {
         try Task.checkCancellation()
         guard isPaused else { return }
         let id = UUID()

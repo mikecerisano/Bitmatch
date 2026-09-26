@@ -4,13 +4,13 @@ import Darwin
 #endif
 
 /// Lightweight entry for cached file enumeration (Perf 1)
-struct FileEntry: Sendable {
-    let url: URL
-    let relativePath: String
-    let size: Int64
-    let modificationDate: Date?
+public struct FileEntry: Sendable {
+    public let url: URL
+    public let relativePath: String
+    public let size: Int64
+    public let modificationDate: Date?
 
-    init(url: URL, relativePath: String, size: Int64, modificationDate: Date? = nil) {
+    public init(url: URL, relativePath: String, size: Int64, modificationDate: Date? = nil) {
         self.url = url
         self.relativePath = relativePath
         self.size = size
@@ -23,11 +23,11 @@ struct FileEntry: Sendable {
 /// /private/var, and Foundation strips /private again when resolving), so both forms
 /// are compared. It never guesses: an item that cannot be placed below the base
 /// throws, because flattening it to a bare filename would misplace or overwrite data.
-struct RelativePathResolver: Sendable {
-    let base: URL
+public struct RelativePathResolver: Sendable {
+    public let base: URL
     private let basePaths: [String]
 
-    init(base: URL) {
+    public init(base: URL) {
         self.base = base
         var paths = [base.path, base.resolvingSymlinksInPath().path, base.standardizedFileURL.path]
         paths = paths.map { $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0 }
@@ -36,7 +36,7 @@ struct RelativePathResolver: Sendable {
         basePaths = unique
     }
 
-    func resolve(_ item: URL) throws -> String {
+    public func resolve(_ item: URL) throws -> String {
         for candidate in [item.path, item.resolvingSymlinksInPath().path] {
             for basePath in basePaths where candidate.hasPrefix(basePath + "/") {
                 return String(candidate.dropFirst(basePath.count + 1))
@@ -50,13 +50,13 @@ struct RelativePathResolver: Sendable {
     }
 }
 
-enum FileTreeEnumerator {
+public enum FileTreeEnumerator {
     /// macOS volume metadata directories written to the root of removable media. They are
     /// not user data and are frequently unreadable without Full Disk Access, so descending
     /// into them would abort the whole transfer with a permission error. Only direct
     /// children of the source root are skipped; a user folder that happens to share one
     /// of these names deeper in the tree is real data and is kept.
-    static let skippedVolumeMetadataDirectories: Set<String> = [
+    public static let skippedVolumeMetadataDirectories: Set<String> = [
         ".Spotlight-V100",
         ".fseventsd",
         ".Trashes",
@@ -67,7 +67,7 @@ enum FileTreeEnumerator {
     /// A metadata name is skipped only when the root item is actually a
     /// directory. A user file with the same name remains part of the
     /// manifest, and a symlink is never treated as metadata.
-    static func isRootVolumeMetadataDirectory(_ url: URL) -> Bool {
+    public static func isRootVolumeMetadataDirectory(_ url: URL) -> Bool {
         guard skippedVolumeMetadataDirectories.contains(url.lastPathComponent) else {
             return false
         }
@@ -88,7 +88,7 @@ enum FileTreeEnumerator {
     /// Perf 1: Enumerate regular files once and cache the list.
     /// Pass result to both copy and verify phases to eliminate triple filesystem walk.
     /// ~20 bytes per entry overhead for 100K files ≈ 20MB - acceptable.
-    static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
+    public static func enumerateRegularFiles(base: URL) throws -> [FileEntry] {
         try Task.checkCancellation()
         let fileManager = FileManager.default
         let resolver = RelativePathResolver(base: base)

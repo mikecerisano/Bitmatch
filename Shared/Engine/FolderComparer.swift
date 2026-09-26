@@ -4,13 +4,13 @@ import Foundation
 /// Compares two folder trees with the checks a verification mode asks for
 /// (`CompareCheckPlan`). Runs off the main actor and stops at task
 /// cancellation. `ComparisonCoordinator` is the app's wrapper around it.
-struct FolderComparer: Sendable {
-    let fileAccess: any FileAccess
-    let checksum: any ChecksumService
+public struct FolderComparer: Sendable {
+    public let fileAccess: any FileAccess
+    public let checksum: any ChecksumService
 
     /// Reports progress through `progress`, which is awaited so updates
     /// arrive in order and before the result.
-    func compare(
+    public func compare(
         left: URL,
         right: URL,
         verificationMode: VerificationMode,
@@ -128,7 +128,7 @@ struct FolderComparer: Sendable {
     /// Finder writes these into any folder it displays, so a card and its offload
     /// differ as soon as someone browses one of them (GitHub issue #8). They are
     /// view state, not footage, and are ignored on both sides.
-    static func isFinderMetadata(_ relativePath: String) -> Bool {
+    public static func isFinderMetadata(_ relativePath: String) -> Bool {
         let name = (relativePath as NSString).lastPathComponent
         return name == ".DS_Store" || name == "Icon\r" || name.hasPrefix("._")
     }
@@ -137,7 +137,7 @@ struct FolderComparer: Sendable {
     /// `ascmhl/` history and legacy `.mhl` / `.mhl.md5` files (BitMatch 0.1.4
     /// paranoid transfers). Only ignored when the destination alone has them;
     /// one on the source that was not copied is still reported.
-    static func isOffloadManifest(_ relativePath: String) -> Bool {
+    public static func isOffloadManifest(_ relativePath: String) -> Bool {
         let parts = relativePath.split(separator: "/")
         if parts.count > 1 { return parts[0].lowercased() == "ascmhl" }
         let name = relativePath.lowercased()

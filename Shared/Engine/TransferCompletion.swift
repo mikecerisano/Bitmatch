@@ -5,10 +5,10 @@ import Foundation
 /// per backup, which backups get an ASC MHL history, and the verdict. The
 /// app's `CopyVerifyExecutor` runs these and owns progress, timing and the
 /// project lifecycle.
-enum TransferCompletion {
+public enum TransferCompletion {
     // MARK: - Rows
 
-    static func row(from result: FileOperationResult, destinationRoots: [URL]) -> ResultRow {
+    public static func row(from result: FileOperationResult, destinationRoots: [URL]) -> ResultRow {
         ResultRow(
             path: result.sourceURL.path,
             status: result.statusDescription,
@@ -19,14 +19,14 @@ enum TransferCompletion {
         )
     }
 
-    static func rows(from operation: FileOperation) -> [ResultRow] {
+    public static func rows(from operation: FileOperation) -> [ResultRow] {
         operation.results.map { row(from: $0, destinationRoots: operation.destinationURLs) }
     }
 
     /// The backup a written file belongs to, as reports name it: the drive
     /// under /Volumes, otherwise the chosen backup folder. `/var` and
     /// `/private/var` spellings agree (see `ResultPathMatch`).
-    static func destinationLabel(for file: URL, roots: [URL]) -> String {
+    public static func destinationLabel(for file: URL, roots: [URL]) -> String {
         let filePath = ResultPathMatch.comparablePath(file.path)
         let root = roots
             .map { URL(fileURLWithPath: ResultPathMatch.comparablePath($0.path)) }
@@ -41,14 +41,14 @@ enum TransferCompletion {
 
     // MARK: - ASC MHL
 
-    struct ASCMHLJob: Sendable {
-        let root: URL
-        let files: [ASCMHLGenerator.VerifiedFile]
+    public struct ASCMHLJob: Sendable {
+        public let root: URL
+        public let files: [ASCMHLGenerator.VerifiedFile]
     }
 
     /// A history is written only for a backup whose every file verified
     /// with SHA-256; each other backup gets an issue saying why not.
-    static func ascmhlPlan(
+    public static func ascmhlPlan(
         results: [FileOperationResult],
         destinations: [URL],
         source: URL,
@@ -87,7 +87,7 @@ enum TransferCompletion {
 
     /// Writes each planned history and returns every issue: the plan's and
     /// any write failures. Blocking file I/O; run it off the main actor.
-    static func writeASCMHL(
+    public static func writeASCMHL(
         _ jobs: [ASCMHLJob],
         planIssues: [String],
         startTime: Date,
@@ -114,24 +114,24 @@ enum TransferCompletion {
     // MARK: - Verdict
 
     /// What a project (photographer job) contributed to the outcome.
-    struct ProjectGate: Sendable {
+    public struct ProjectGate: Sendable {
         /// The project's records were saved.
-        let didPersist: Bool
+        public let didPersist: Bool
         /// `nil` when no project finalizer ran (an ordinary copy).
-        let locallySafe: Bool?
+        public let locallySafe: Bool?
 
-        var permitsSuccess: Bool { didPersist && (locallySafe ?? true) }
+        public var permitsSuccess: Bool { didPersist && (locallySafe ?? true) }
     }
 
-    struct Verdict: Equatable, Sendable {
-        let success: Bool
-        let message: String
+    public struct Verdict: Equatable, Sendable {
+        public let success: Bool
+        public let message: String
     }
 
     /// Success needs every file on every backup to succeed, a checksum mode
     /// (never Quick), every requested ASC MHL written, the requested report
     /// saved, and the project (if any) saved and locally safe (Promise 2).
-    static func verdict(
+    public static func verdict(
         rows: [ResultRow],
         mode: VerificationMode,
         generateASCMHL: Bool,

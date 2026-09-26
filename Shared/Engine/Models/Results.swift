@@ -4,7 +4,7 @@ import Foundation
 /// How one file on one backup ended. The engine writes `statusText` into
 /// `ResultRow.status`, and `ResultRow.isSuccessStatus` reads it back through
 /// `init(statusText:)`, so the text and the rule that judges it cannot drift.
-enum ResultOutcome: CaseIterable, Equatable, Sendable {
+public enum ResultOutcome: CaseIterable, Equatable, Sendable {
     /// Copied and confirmed by checksum or byte comparison.
     case verified
     /// Copied without verification (Quick mode). A success, never "verified".
@@ -12,7 +12,7 @@ enum ResultOutcome: CaseIterable, Equatable, Sendable {
     case checksumMismatch
     case failed
 
-    var statusText: String {
+    public var statusText: String {
         switch self {
         case .verified: "✅ Verified"
         case .copiedUnverified: "✅ Copied"
@@ -21,26 +21,26 @@ enum ResultOutcome: CaseIterable, Equatable, Sendable {
         }
     }
 
-    var isSuccess: Bool { self == .verified || self == .copiedUnverified }
-    var isVerified: Bool { self == .verified }
+    public var isSuccess: Bool { self == .verified || self == .copiedUnverified }
+    public var isVerified: Bool { self == .verified }
 
-    init?(statusText: String) {
+    public init?(statusText: String) {
         guard let match = Self.allCases.first(where: { $0.statusText == statusText }) else { return nil }
         self = match
     }
 }
 
 // MARK: - Result Row
-struct ResultRow: Identifiable {
-    let id: UUID
-    let path: String
-    let status: String
-    let size: Int64
-    let checksum: String?
-    let destination: String?
-    let destinationPath: String?
+public struct ResultRow: Identifiable {
+    public let id: UUID
+    public let path: String
+    public let status: String
+    public let size: Int64
+    public let checksum: String?
+    public let destination: String?
+    public let destinationPath: String?
     
-    init(id: UUID = UUID(),
+    public init(id: UUID = UUID(),
          path: String,
          status: String,
          size: Int64,
@@ -56,15 +56,15 @@ struct ResultRow: Identifiable {
         self.destinationPath = destinationPath
     }
     
-    var fileName: String {
+    public var fileName: String {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
-    var formattedSize: String {
+    public var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
-    var isSuccessStatus: Bool {
+    public var isSuccessStatus: Bool {
         Self.isSuccessStatus(status)
     }
 
@@ -73,7 +73,7 @@ struct ResultRow: Identifiable {
     /// carry no failure marker; anything unrecognized counts as an issue.
     /// Substring checks like `lowercased().contains("match")` are forbidden
     /// here — "Checksum Mismatch" contains "match".
-    static func isSuccessStatus(_ status: String) -> Bool {
+    public static func isSuccessStatus(_ status: String) -> Bool {
         if let outcome = ResultOutcome(statusText: status) {
             return outcome.isSuccess
         }
@@ -84,14 +84,14 @@ struct ResultRow: Identifiable {
         return !failureMarkers.contains { lowercased.contains($0) }
     }
 
-    var isVerifiedStatus: Bool {
+    public var isVerifiedStatus: Bool {
         Self.isVerifiedStatus(status)
     }
 
     /// Whether a row counts as verified, not just copied (Promise 2): only
     /// `.verified`, or older text that is a success and says "verified" or
     /// "match" without "unverified" / "not verified".
-    static func isVerifiedStatus(_ status: String) -> Bool {
+    public static func isVerifiedStatus(_ status: String) -> Bool {
         guard isSuccessStatus(status) else { return false }
         if let outcome = ResultOutcome(statusText: status) {
             return outcome.isVerified
@@ -104,25 +104,25 @@ struct ResultRow: Identifiable {
 }
 
 // MARK: - Report Preferences  
-struct ReportPrefs: Codable {
+public struct ReportPrefs: Codable {
     /// Actual copy mode; nil preserves legacy folder-comparison preferences.
-    var verificationMode: VerificationMode? = nil
-    var includeThumbnails: Bool = false
-    var clientName: String = ""
-    var projectName: String = ""
-    var production: String = ""
-    var company: String = ""
-    var notes: String = ""
-    var makeReport: Bool = true
-    var verifyWithChecksum: Bool = true
-    var enableAutoCameraDetection: Bool = true
-    var autoPopulateSource: Bool = false
-    var showCameraDetectionNotifications: Bool = true
-    var checksumAlgorithm: ChecksumAlgorithm = .sha256
+    public var verificationMode: VerificationMode? = nil
+    public var includeThumbnails: Bool = false
+    public var clientName: String = ""
+    public var projectName: String = ""
+    public var production: String = ""
+    public var company: String = ""
+    public var notes: String = ""
+    public var makeReport: Bool = true
+    public var verifyWithChecksum: Bool = true
+    public var enableAutoCameraDetection: Bool = true
+    public var autoPopulateSource: Bool = false
+    public var showCameraDetectionNotifications: Bool = true
+    public var checksumAlgorithm: ChecksumAlgorithm = .sha256
 }
 
 extension ResultRow: Codable {
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case id, path, status, size, checksum, destination, destinationPath
     }
 

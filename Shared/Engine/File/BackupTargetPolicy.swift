@@ -36,9 +36,9 @@
 // pick gets `message` back to show.
 import Foundation
 
-enum BackupTargetPolicy {
+public enum BackupTargetPolicy {
     /// Who is adding the backup.
-    enum Origin: Equatable, Sendable {
+    public enum Origin: Equatable, Sendable {
         /// The user picked or dropped it (also queue replay, whose backups
         /// the user picked when queuing, and the debug tools).
         case userChoice
@@ -50,25 +50,25 @@ enum BackupTargetPolicy {
 
     /// What the file system says about the volume a folder is on. Read by
     /// `read(_:)`; tests pass their own.
-    struct VolumeFacts: Equatable, Sendable {
+    public struct VolumeFacts: Equatable, Sendable {
         /// The volume's mount point, symlinks resolved.
-        var volumeRootPath: String
+        public var volumeRootPath: String
         /// The volume UUID, when the file system has one.
-        var volumeID: String?
-        var volumeName: String?
+        public var volumeID: String?
+        public var volumeName: String?
         /// The sealed system volume mounted at "/".
-        var isRootFileSystem: Bool
+        public var isRootFileSystem: Bool
         /// nil when the system does not say.
-        var isInternal: Bool?
-        var isRemovable: Bool
-        var isEjectable: Bool
+        public var isInternal: Bool?
+        public var isRemovable: Bool
+        public var isEjectable: Bool
         /// False for a network volume (a NAS or SMB share); nil when the
         /// system does not say. Defaulted so existing call sites compile.
-        var isLocal: Bool? = nil
+        public var isLocal: Bool? = nil
 
         /// Facts for the volume holding `url`, or nil when they cannot be
         /// read (nothing there, or no access).
-        static func read(_ url: URL) -> VolumeFacts? {
+        public static func read(_ url: URL) -> VolumeFacts? {
             let resolved = URL(fileURLWithPath: BackupTargetPolicy.canonicalPath(url))
             guard let values = try? resolved.resourceValues(forKeys: [
                 .volumeURLKey,
@@ -94,16 +94,16 @@ enum BackupTargetPolicy {
             )
         }
 
-        var isRemovableMedia: Bool { isRemovable || isEjectable }
+        public var isRemovableMedia: Bool { isRemovable || isEjectable }
 
         /// A NAS or SMB share, as the system reports it.
-        var isNetwork: Bool { isLocal == false }
+        public var isNetwork: Bool { isLocal == false }
     }
 
     /// Why `target` may not be added as a backup by `origin`, or nil when
     /// it may. Pure apart from resolving symlinks in the two paths; volume
     /// facts come from `facts`.
-    static func refusal(
+    public static func refusal(
         for target: URL,
         origin: Origin,
         source: URL?,
@@ -195,7 +195,7 @@ enum BackupTargetPolicy {
     /// system roles and the duplicate-mount names macOS gives them, in any
     /// letter case (APFS names are case-insensitive by default, so
     /// "RECOVERY" is the same name).
-    static func isSystemVolumeName(_ name: String) -> Bool {
+    public static func isSystemVolumeName(_ name: String) -> Bool {
         let name = name.lowercased()
         if name.hasSuffix(" - data") { return true }
         var base = Substring(name)
@@ -261,7 +261,7 @@ enum BackupTargetPolicy {
         return "/Volumes/" + components[2]
     }
 
-    static func canonicalPath(_ url: URL) -> String {
+    public static func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }

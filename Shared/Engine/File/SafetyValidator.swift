@@ -4,15 +4,15 @@ import Foundation
 
 /// Validates file operations for safety before execution
 /// Used by both macOS and iOS to prevent dangerous operations
-final class SafetyValidator {
+public final class SafetyValidator {
     /// Free space a backup needs beyond the source size. The copy refuses to
     /// start without it, and the preflight uses the same number.
-    static let requiredHeadroomBytes: Int64 = 1_000_000_000
+    public static let requiredHeadroomBytes: Int64 = 1_000_000_000
 
 
     // MARK: - Pre-Operation Safety Checks
 
-    static func performSafetyChecks(
+    public static func performSafetyChecks(
         source: URL,
         destinations: [URL],
         sourceSizeBytes: Int64
@@ -47,7 +47,7 @@ final class SafetyValidator {
         SharedLogger.info("Safety checks passed for \(destinations.count) destinations", category: .transfer)
     }
 
-    static func performComparisonChecks(left: URL, right: URL) async throws {
+    public static func performComparisonChecks(left: URL, right: URL) async throws {
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: left.path) else {
@@ -142,7 +142,7 @@ final class SafetyValidator {
 
     // MARK: - Network Drive Detection
 
-    static func isNetworkVolume(_ url: URL) -> Bool {
+    public static func isNetworkVolume(_ url: URL) -> Bool {
         do {
             let resourceValues = try url.resourceValues(forKeys: [.volumeIsLocalKey, .volumeIsRemovableKey])
             return !(resourceValues.volumeIsLocal ?? true)
@@ -162,7 +162,7 @@ final class SafetyValidator {
     /// component is a symlink, or nil when every prefix is a real directory.
     /// Unlike the loop check below this also catches a plain symlinked
     /// ancestor (which the descriptor-pinned open would reject later).
-    static func firstSymlinkComponent(in url: URL) -> String? {
+    public static func firstSymlinkComponent(in url: URL) -> String? {
         let components = url.standardizedFileURL.pathComponents
         var prefix = URL(fileURLWithPath: "/", isDirectory: true)
         for (index, component) in components.dropFirst().enumerated() {
@@ -203,7 +203,7 @@ final class SafetyValidator {
     // MARK: - Path Safety
 
     /// How two folders overlap on disk, after resolving symlinks.
-    enum FolderOverlap: Equatable, Sendable {
+    public enum FolderOverlap: Equatable, Sendable {
         /// Both URLs name the same folder.
         case same
         /// `second` is inside `first`.
@@ -213,7 +213,7 @@ final class SafetyValidator {
     }
 
     /// The one path-overlap rule behind copy destinations and Compare.
-    static func folderOverlap(_ first: URL, _ second: URL) -> FolderOverlap? {
+    public static func folderOverlap(_ first: URL, _ second: URL) -> FolderOverlap? {
         let firstPath = canonicalPath(first)
         let secondPath = canonicalPath(second)
         if PathContainment.isSamePath(firstPath, secondPath) { return .same }
@@ -222,7 +222,7 @@ final class SafetyValidator {
         return nil
     }
 
-    static func destinationSafetyIssue(source: URL, destination: URL) -> String? {
+    public static func destinationSafetyIssue(source: URL, destination: URL) -> String? {
         switch folderOverlap(source, destination) {
         case .same:
             // Don't copy to self
@@ -239,7 +239,7 @@ final class SafetyValidator {
         }
     }
 
-    static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
+    public static func resolvedDestinationRoot(source: URL, destination: URL, settings: CameraLabelSettings) -> URL {
         return destinationRootComponents(source: source, settings: settings).reduce(destination) { root, component in
             root.appendingPathComponent(component)
         }
@@ -248,7 +248,7 @@ final class SafetyValidator {
     /// The exact relative layout used below every selected destination. Keeping
     /// this separate from URL resolution lets descriptor-pinned writes preserve
     /// legacy camera-grouping behavior without re-resolving a pathname later.
-    static func destinationRootComponents(source: URL, settings: CameraLabelSettings) -> [String] {
+    public static func destinationRootComponents(source: URL, settings: CameraLabelSettings) -> [String] {
         if let components = settings.destinationPathComponents {
             return components.map(CameraLabelSettings.sanitizePathComponent)
         }
@@ -264,7 +264,7 @@ final class SafetyValidator {
         return [labeledCardName.isEmpty ? cardName : labeledCardName]
     }
 
-    static func resolvedDestinationRootChecked(
+    public static func resolvedDestinationRootChecked(
         source: URL,
         destination: URL,
         settings: CameraLabelSettings
@@ -374,7 +374,7 @@ final class SafetyValidator {
         return resolved.standardizedFileURL.path
     }
 
-    static func validateResolvedDestinationRoots(source: URL, destinations: [URL], settings: CameraLabelSettings) throws {
+    public static func validateResolvedDestinationRoots(source: URL, destinations: [URL], settings: CameraLabelSettings) throws {
         let roots = try destinations.map {
             try resolvedDestinationRootChecked(source: source, destination: $0, settings: settings)
         }
@@ -408,7 +408,7 @@ final class SafetyValidator {
         }
     }
 
-    static func validateSourceTreeForCopy(source: URL) throws {
+    public static func validateSourceTreeForCopy(source: URL) throws {
         let fm = FileManager.default
         let resolver = RelativePathResolver(base: source)
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]
@@ -444,7 +444,7 @@ final class SafetyValidator {
         try validatePortableRelativePaths(relativePaths)
     }
 
-    static func validatePortableRelativePaths(_ relativePaths: [String]) throws {
+    public static func validatePortableRelativePaths(_ relativePaths: [String]) throws {
         let locale = Locale(identifier: "en_US_POSIX")
         var seen: [String: String] = [:]
 
@@ -487,7 +487,7 @@ final class SafetyValidator {
     /// `volumeAvailableCapacityForImportantUsage` is only meaningful on APFS. On exFAT/FAT
     /// (typical external SSDs and camera cards) macOS reports it as 0, not nil, so a
     /// non-positive value must fall back to the standard capacity.
-    static func resolvedAvailableSpace(
+    public static func resolvedAvailableSpace(
         importantUsage: Int64?,
         standardCapacity: Int?
     ) -> Int64 {
@@ -497,7 +497,7 @@ final class SafetyValidator {
         return Int64(standardCapacity ?? 0)
     }
 
-    static func checkedRequiredSpace(sourceBytes: Int64, headroomBytes: Int64) throws -> Int64 {
+    public static func checkedRequiredSpace(sourceBytes: Int64, headroomBytes: Int64) throws -> Int64 {
         guard sourceBytes >= 0, headroomBytes >= 0 else {
             throw FileOperationError.unsafeOperation("Source size exceeds the supported range")
         }
@@ -519,7 +519,7 @@ final class SafetyValidator {
     /// storage below /private/var/mobile, not a system folder.
     private static let iOSUserStorageRoots: [String] = ["/var/mobile", "/private/var/mobile"]
 
-    static func isProtectedSystemPath(_ url: URL) -> Bool {
+    public static func isProtectedSystemPath(_ url: URL) -> Bool {
         let path = canonicalPath(url)
         let temporaryPath = canonicalPath(FileManager.default.temporaryDirectory)
         if PathContainment.isWithin(path, root: temporaryPath) {
@@ -540,7 +540,7 @@ final class SafetyValidator {
 
 // MARK: - Error Types
 
-enum FileOperationError: LocalizedError, Equatable {
+public enum FileOperationError: LocalizedError, Equatable {
     case operationAlreadyInProgress
     case sourceNotFound(String)
     case sourceNotDirectory(String)
@@ -549,7 +549,7 @@ enum FileOperationError: LocalizedError, Equatable {
     case symlinkLoop(String)
     case insufficientSpace(String, available: Double, required: Double)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .operationAlreadyInProgress:
             return "Another file operation is already active or cancelling."

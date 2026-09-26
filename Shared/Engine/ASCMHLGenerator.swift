@@ -6,18 +6,18 @@ import Darwin
 /// Existing histories are intentionally never replaced or extended. SHA-256 remains
 /// the copy-verification algorithm; an independent MD5 digest provides ASC compatibility.
 /// No directory/root hashes are claimed: only the supplied files are inventoried.
-enum ASCMHLGenerator {
-    struct VerifiedFile: Sendable {
-        let relativePath: String
-        let size: Int64
-        let expectedSHA256: String
+public enum ASCMHLGenerator {
+    public struct VerifiedFile: Sendable {
+        public let relativePath: String
+        public let size: Int64
+        public let expectedSHA256: String
     }
 
-    enum GenerationError: LocalizedError {
+    public enum GenerationError: LocalizedError {
         case sourceOverlap
         case emptyInventory, existingHistory, invalidPath(String), duplicatePath(String)
         case changedFile(String), invalidChecksum(String), unsupportedFile(String)
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .sourceOverlap: return "ASC MHL cannot write inside the source or to a destination containing the source."
             case .emptyInventory: return "ASC MHL needs at least one verified file."
@@ -34,7 +34,7 @@ enum ASCMHLGenerator {
     /// Call only after every expected file in this destination completed verification.
     /// Re-reads each destination file before publishing anything, supports cancellation,
     /// and atomically publishes the new history directory without overwriting one.
-    static func generateInitialHistory(
+    public static func generateInitialHistory(
         destinationURL: URL, files: [VerifiedFile], startTime: Date, sourceURL: URL? = nil,
         toolVersion: String
     ) throws -> URL {
@@ -272,7 +272,7 @@ enum ASCMHLGenerator {
     }
 
     /// C4 is the SHA-512 integer encoded in base 58, padded to 88 characters, prefixed c4.
-    static func c4(_ data: Data) -> String {
+    public static func c4(_ data: Data) -> String {
         let alphabet = Array("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
         var bytes = Array(SHA512.hash(data: data))
         var output = ""
