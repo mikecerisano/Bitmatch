@@ -6,7 +6,11 @@ Paths are relative to the repository root. Symbols are cited by type or function
 
 ## Targets
 
-`BitMatch.xcodeproj` defines six targets. None has Swift package dependencies. Every target is built in Swift 5 language mode, and the two app targets set `SWIFT_STRICT_CONCURRENCY = targeted`.
+`BitMatch.xcodeproj` defines six targets. Both apps depend on one local Swift package, `Packages/BitMatchEngine` (the engine; see below). Every target, and the package, builds in Swift 6 language mode with no concurrency warnings.
+
+### The engine package
+
+`Packages/BitMatchEngine` holds the code that makes promises 1-3 true, with no UI imports: `TransferPipeline` (one copy-and-verify run), `CardSource` (the fail-closed source manifest), `DestinationWriter` (pinned, never-replace writes and verified reads), `ChecksumEngine`, `FolderComparer` (Compare), `TransferCompletion` (result rows, the ASC MHL plan and the verdict), `TransferJournal`, `EvidenceWriter` and `EvidenceReader` (CSV, JSON, checksum manifest; reading reports back), `ASCMHLGenerator`, and the shared rules `SafetyValidator`, `BackupTargetPolicy`, `DestinationSelectionPolicy`, `TransferReadiness` and `PathContainment`. App files `import BitMatchEngine`. Its own tests run with `bash test.sh engine-test` (`swift test`, about 15 seconds); tests that need app types stay in `BitMatchTests`.
 
 | Target | Product | Platform | Compiles |
 |---|---|---|---|
@@ -29,7 +33,8 @@ Test targets reach app code through `@testable import`. `test.sh` wraps the `xco
 | Folder | Role | Built into |
 |---|---|---|
 | `Shared/Core/Models/` | Value types (operation state, progress, results and `ResultOutcome`, verification modes, camera, photographer and remote-backup models), the pure rules `TransferReadiness` and `DestinationSelectionPolicy`, and the view-ready `*Presentation` types each shared screen draws | Both apps |
-| `Shared/Core/Services/` | The engine: copy, verify and safety (`File/`, including `BackupTargetPolicy`), checksums, compare, ASC MHL, reports, journal and queue, camera detection (`Camera/`), timing, errors, and `SharedAppCoordinator` | Both apps |
+| `Packages/BitMatchEngine/` | The engine package (above) | Both apps, as a package product |
+| `Shared/Core/Services/` | App services around the engine: `SharedAppCoordinator`, `CopyVerifyExecutor` (runs a transfer and its project lifecycle), `ComparisonCoordinator`, `ReportExporter` (PDF and project evidence), `ReportScanner`, `LocalTransferJournal` (observable journal), camera detection (`Camera/`), timing, errors | Both apps |
 | `Shared/Core/ViewModels/` | `PhotographerJobViewModel`, `CameraLabelModel` (label suggestion, per-card memory, saved settings), `ProgressPresentationModel` (smoothed progress, speed and time left), `LiveProgressFeed` and `LiveResultsFeed` (live progress and per-file rows, observed apart from the coordinator) | Both apps |
 | `Shared/Views/` | The SwiftUI screens both apps show: `Setup/`, `Progress/`, `Outcome/`, `Compare/`, `MasterReport/`, plus `TransferLibraryView` (queue and history), `CompareResultsView`, `TransferAttentionBanner` and `SkippedReportsNotice` | Both apps |
 | `Platforms/iOS/Services/` | `IOSPlatformManager`, `IOSFileSystemService`, `IOSDriverScanner` (the Files folder picker for Master Report) | iOS app |
@@ -85,23 +90,23 @@ The Mac also shows `BitMatch/Views/ResultsTableView.swift`, a live per-file resu
 
 State is stored once. `OperationStateService.currentState` (`Shared/Core/Services/OperationStateService.swift`) is the only stored `OperationState` (`Shared/Core/Models/OperationModels.swift`). `SharedAppCoordinator.operationState` is a computed property over it: reading returns `stateService.currentState`, and writing calls `stateService.adopt(_:)`, which records the state as reported and logs, rather than rejects, a transition that `OperationStateMachine` does not list. The service's own lifecycle calls (start, pause, resume, complete, fail, cancel) go through `OperationStateMachine.transition(to:)`, which can reject them. The coordinator forwards the service's `objectWillChange`, so views observing the coordinator see every change. `pauseOperation()` and `resumeOperation()` pause or resume the engine first, then update the service.
 
-The verdict is derived from results. Each file result's `outcome` (`FileOperationResult`, `Shared/Core/Services/ServiceProtocols.swift`) is a `ResultOutcome` (`Shared/Core/Models/TransferModels.swift`): `verified`, `copiedUnverified`, `checksumMismatch` or `failed`. The engine writes `ResultOutcome.statusText` into `ResultRow.status`, and `ResultRow.isSuccessStatus` reads it back through `ResultOutcome(statusText:)`. Text that is none of the four (older saved history) falls back to a fail-safe rule: it must contain "✅" and no failure marker. `copiedUnverified` counts as a success but never as verified.
+The verdict is derived from results. Each file result's `outcome` (`FileOperationResult`, `Packages/BitMatchEngine/Sources/BitMatchEngine/EngineProtocols.swift`) is a `ResultOutcome` (`Shared/Core/Models/TransferModels.swift`): `verified`, `copiedUnverified`, `checksumMismatch` or `failed`. The engine writes `ResultOutcome.statusText` into `ResultRow.status`, and `ResultRow.isSuccessStatus` reads it back through `ResultOutcome(statusText:)`. Text that is none of the four (older saved history) falls back to a fail-safe rule: it must contain "✅" and no failure marker. `copiedUnverified` counts as a success but never as verified.
 
 ## Choosing the source and backups
 
 Three shared rules decide what may be chosen and when Start is allowed, on every platform.
 
-- **`DestinationSelectionPolicy`** (`Shared/Core/Models/DestinationSelectionPolicy.swift`) runs the moment the user picks or drops a location. A backup must be a folder, not already chosen, not the source or inside or around it, and allowed by `BackupTargetPolicy`. The source must be a folder that does not overlap a chosen backup. The macOS system-folder check applies on the Mac only. `CoordinatorSetupLocations` runs it, then the platform's add, and shows any refusal (the Mac drop toast, an iOS alert).
-- **`BackupTargetPolicy`** (`Shared/Core/Services/File/BackupTargetPolicy.swift`) is the one rule for what may become a backup, keyed by who is adding it (`Origin`: `userChoice`, `restored`, `discovered`). It guards every add path: `SharedAppCoordinator.addDestination` and `replaceDestinations`, Mac drive discovery and the launch restore in `MacVolumeAccessModel`, queue replay, the readiness check, and the engine's own preflight (`SafetyValidator`).
+- **`DestinationSelectionPolicy`** (`Packages/BitMatchEngine/Sources/BitMatchEngine/DestinationSelectionPolicy.swift`) runs the moment the user picks or drops a location. A backup must be a folder, not already chosen, not the source or inside or around it, and allowed by `BackupTargetPolicy`. The source must be a folder that does not overlap a chosen backup. The macOS system-folder check applies on the Mac only. `CoordinatorSetupLocations` runs it, then the platform's add, and shows any refusal (the Mac drop toast, an iOS alert).
+- **`BackupTargetPolicy`** (`Packages/BitMatchEngine/Sources/BitMatchEngine/File/BackupTargetPolicy.swift`) is the one rule for what may become a backup, keyed by who is adding it (`Origin`: `userChoice`, `restored`, `discovered`). It guards every add path: `SharedAppCoordinator.addDestination` and `replaceDestinations`, Mac drive discovery and the launch restore in `MacVolumeAccessModel`, queue replay, the readiness check, and the engine's own preflight (`SafetyValidator`).
   - Always refused: the startup disk root, anything under `/System`, the root of an internal volume with a system name (Recovery, "Recovery 2", Preboot, any letter case), the source's own volume root, and any folder on a removable source volume. When volume facts cannot be read, a target that looks to be on the source's volume is refused (fail closed).
   - A folder the user picks on the startup disk is allowed.
   - Launch restore also refuses temp folders and internal volume roots, but restores a network share's root. Discovery adds only whole external or removable volumes, never a system-named one or a network share.
   - `BackupTargetPolicyTests` and `BackupTargetPolicyRealVolumeTests` cover it.
-- **`TransferReadiness`** (`Shared/Core/Models/TransferReadiness.swift`) says whether a copy may start and why not. It is pure: free space and writability are injected. `SharedAppCoordinator.transferReadiness` builds it from the selection, and `operationReadinessAssessment` is a view of it, used by `canStartOperation` (and so `startCurrentMode()`), `startProjectOperation()` and the Setup screen. A missing source or backup is a next step, not a blocker. Duplicate, protected, overlapping, unwritable or too-small backups block. A backup needs more than the source size plus `SafetyValidator.requiredHeadroomBytes` (1 GB) free, the margin the copy's own preflight uses.
+- **`TransferReadiness`** (`Packages/BitMatchEngine/Sources/BitMatchEngine/TransferReadiness.swift`) says whether a copy may start and why not. It is pure: free space and writability are injected. `SharedAppCoordinator.transferReadiness` builds it from the selection, and `operationReadinessAssessment` is a view of it, used by `canStartOperation` (and so `startCurrentMode()`), `startProjectOperation()` and the Setup screen. A missing source or backup is a next step, not a blocker. Duplicate, protected, overlapping, unwritable or too-small backups block. A backup needs more than the source size plus `SafetyValidator.requiredHeadroomBytes` (1 GB) free, the margin the copy's own preflight uses.
 
 With Project chosen on Setup (`SharedAppCoordinator.usesProjectWorkflow`), `startCurrentMode()` starts nothing until a project card is prepared.
 
-`SafetyValidator.isProtectedSystemPath` (`Shared/Core/Services/File/SafetyValidator.swift`) refuses `/System`, `/Library`, `/usr`, `/bin`, `/sbin`, `/private`, `/var` and `/etc`, except the temp folder and, on iOS, `/var/mobile` and `/private/var/mobile`, where every Files-picker location lives.
+`SafetyValidator.isProtectedSystemPath` (`Packages/BitMatchEngine/Sources/BitMatchEngine/File/SafetyValidator.swift`) refuses `/System`, `/Library`, `/usr`, `/bin`, `/sbin`, `/private`, `/var` and `/etc`, except the temp folder and, on iOS, `/var/mobile` and `/private/var/mobile`, where every Files-picker location lives.
 
 ## Live progress and results
 
@@ -120,11 +125,11 @@ The copy and verify path is the same on every platform:
 SharedAppCoordinator.startCurrentMode()  // Start and ⌘R on every platform; checks TransferReadiness
   → startOperation() / startProjectOperation()
   → CopyVerifyExecutor.execute(config:callbacks:)
-    → platformManager.fileOperations.performFileOperation(...)   // SharedFileOperationsService on both platforms
-      → FileTreeEnumerator.enumerateRegularFiles                   // source manifest
+    → platformManager.fileOperations.performFileOperation(...)   // TransferPipeline on both platforms
+      → CardSource.enumerateRegularFiles                   // source manifest
       → SafetyValidator                                            // preflight
-      → FileCopyService.copyAllSafely                              // per destination
-      → FileCopyService.verifyPinnedDestinationFile                // per file, pipelined or sequential
+      → DestinationWriter.copyAllSafely                              // per destination
+      → DestinationWriter.verifyPinnedDestinationFile                // per file, pipelined or sequential
     → ASCMHLGenerator.generateInitialHistory                       // optional, per destination
     → ReportExporter.export                                        // optional
 ```
@@ -170,30 +175,30 @@ The completion is marked successful only if all of these hold:
 
 Any failure is appended to the completion message.
 
-### 3. SharedFileOperationsService (`Shared/Core/Services/SharedFileOperationsService.swift`)
+### 3. TransferPipeline (`Packages/BitMatchEngine/Sources/BitMatchEngine/TransferPipeline.swift`)
 
-This is the only `FileOperationsService` implementation. Both platform managers create one around their `FileSystemService` and `SharedChecksumService.shared`. Only one operation can run at a time.
+This is the only `FileOperationsService` implementation. Both platform managers create one around their `FileSystemService` and `ChecksumEngine.shared`. Only one operation can run at a time.
 
 For each operation, in order:
 
 1. **Access.** Starts access scopes, then checks `validateFileAccess` on the source and each destination.
-2. **Manifest.** `FileTreeEnumerator.enumerateRegularFiles` (`Shared/Core/Services/File/FileTreeEnumerator.swift`) walks the source once:
+2. **Manifest.** `CardSource.enumerateRegularFiles` (`Packages/BitMatchEngine/Sources/BitMatchEngine/File/CardSource.swift`) walks the source once:
    - Hidden files are included; symlinks and non-regular files are skipped.
    - Volume metadata folders at the root are skipped: `.Spotlight-V100`, `.fseventsd`, `.Trashes`, `.TemporaryItems`, and `.DocumentRevisions-V100`.
    - Any traversal error fails the operation.
-3. **Preflight.** Runs `SafetyValidator` (`Shared/Core/Services/File/SafetyValidator.swift`):
+3. **Preflight.** Runs `SafetyValidator` (`Packages/BitMatchEngine/Sources/BitMatchEngine/File/SafetyValidator.swift`):
    - `validateResolvedDestinationRoots`: final output roots (destination plus the camera-label or recipe subfolders) must be unique, must not overlap the source, must not be nested in each other, and must not be a file or a symlink.
    - `performSafetyChecks`: the source exists and is a folder; the source tree has no unsafe relative paths and no names that collide under case-insensitive or Unicode-normalized comparison; each destination is unique, allowed by `BackupTargetPolicy`, not a protected system path, writable and free of symlinks; and each has more free space than the manifest size plus `requiredHeadroomBytes` (1 GB, the margin `TransferReadiness` uses).
    - A second free-space check, against the planned byte total, requires the size plus 100 MB.
 4. **Per destination, in order:**
    - **Pin the root.** `PinnedDestinationDirectory.open` pins the output root by file descriptor, walking each component with `O_NOFOLLOW`. A safety-policy error aborts the whole operation. Any other error (for example, a disconnected drive) records every planned file as failed for that destination, and the operation moves on to the next destination.
-   - **Copy.** `FileCopyService.copyAllSafely` copies using a worker count of `min(4, max(1, cores/2))`.
+   - **Copy.** `DestinationWriter.copyAllSafely` copies using a worker count of `min(4, max(1, cores/2))`.
    - **Verify.** Unless the mode is Quick, verification is pipelined by default: each copied file queues a verify task. The concurrency limit is `max(2, cores/2)`, and at most 200 tasks can be queued. Setting the `DisablePipelinedVerify` user default switches to one sequential pass per destination instead.
 5. **Results.** `ResultStore` keeps one current `FileOperationResult` per source/destination pair. The final `FileOperation` carries these results.
 
 `pauseOperation()` / `resumeOperation()` toggle a flag that is checked between file chunks and between files. `cancelOperation()` cancels the running task.
 
-### 4. FileCopyService (`Shared/Core/Services/File/FileCopyService.swift`)
+### 4. DestinationWriter (`Packages/BitMatchEngine/Sources/BitMatchEngine/File/DestinationWriter.swift`)
 
 - **Writes.** Every destination write happens relative to the pinned directory descriptor, never through a path that is resolved again. Each file:
   1. Is written to `.bitmatch.tmp.<UUID>`, created with `O_EXCL | O_NOFOLLOW`, in 4 MB chunks.
@@ -213,7 +218,7 @@ For each operation, in order:
 
 ### Checksums
 
-- **`SharedChecksumService`** (`Shared/Core/Services/SharedChecksumService.swift`) does chunked MD5 (CryptoKit `Insecure.MD5`), SHA-1, and SHA-256, plus byte comparison.
+- **`ChecksumEngine`** (`Packages/BitMatchEngine/Sources/BitMatchEngine/ChecksumEngine.swift`) does chunked MD5 (CryptoKit `Insecure.MD5`), SHA-1, and SHA-256, plus byte comparison.
 - **`SharedChecksumCache`** (`Shared/Core/Services/ChecksumCache.swift`) is an actor-backed cache stored at `Caches/com.bitmatch.app/checksum_cache.json`. Entries last 1 hour, the cache holds at most 50,000 entries, and each key includes path, algorithm, size, modification time, and inode. The copy/verify path and Compare both bypass it (`useCache: false`).
 
 ## Compare
@@ -222,7 +227,7 @@ For each operation, in order:
 - **Callers.**
   - On Mac, `BitMatch/Views/CompareFoldersView.swift` starts it through `SharedAppCoordinator.startCurrentMode()`.
   - On iPhone and iPad, the `CompareFoldersView` adapter in `BitMatch-iPad/Views/ModularContentView.swift` (used by both layouts) calls `compareFolders()` directly.
-- **Enumeration.** Both sides go through `FileSystemService.getFileList`, which is `FileTreeEnumerator.enumerateRegularFiles` on both platforms. It uses the same hidden-file, symlink, and volume-metadata rules as the copy manifest. Files are matched by relative path.
+- **Enumeration.** Both sides go through `FileSystemService.getFileList`, which is `CardSource.enumerateRegularFiles` on both platforms. It uses the same hidden-file, symlink, and volume-metadata rules as the copy manifest. Files are matched by relative path.
 - **Ignored files.**
   - `isFinderMetadata` ignores `.DS_Store`, `Icon\r`, and `._*` on both sides.
   - `isOffloadManifest` ignores a top-level `ascmhl/` folder and root-level `*.mhl` / `*.mhl.md5` files, but only when they appear on the destination side alone.
@@ -234,12 +239,12 @@ For each operation, in order:
      - Thorough: SHA-256 + MD5
      - Paranoid: byte-by-byte comparison plus SHA-256
   - The checks per mode are `CompareCheckPlan` (`Shared/Core/Models/ComparePresentation.swift`), which both `ComparisonCoordinator` and the screen's wording read. Files are processed one at a time, with `useCache: false`.
-- **Result.** `CompareStats` (defined in `SharedAppCoordinator.swift`) holds counts and sorted path lists: only in source, only in destination, and mismatched. `isClean` is true only when all three are empty. The result is thrown away if the folders or mode change while the compare is running.
+- **Result.** `CompareStats` (in the engine, `Models/CompareStats.swift`) holds counts and sorted path lists: only in source, only in destination, and mismatched. `isClean` is true only when all three are empty. The result is thrown away if the folders or mode change while the compare is running.
 - **Display.** Both apps show the result in `Shared/Views/CompareResultsView.swift`. It lists up to 200 paths per group and exports JSON or CSV through `CompareReportDocument`.
 
 ## ASC MHL
 
-`ASCMHLGenerator` (`Shared/Core/Services/ASCMHLGenerator.swift`) writes a first-generation ASC MHL v2.0 history into each destination's resolved output root.
+`ASCMHLGenerator` (`Packages/BitMatchEngine/Sources/BitMatchEngine/ASCMHLGenerator.swift`) writes a first-generation ASC MHL v2.0 history into each destination's resolved output root.
 
 - **When it runs.** Only from `CopyVerifyExecutor`, after results are authoritative and before the report. All of these must hold:
   - `generateASCMHL` is on. It is a `SharedAppCoordinator` property stored in the `BitMatchGenerateASCMHL` user default, on by default.
@@ -275,7 +280,7 @@ For each operation, in order:
 
 ## Transfer journal and queue
 
-`LocalTransferJournal` (`Shared/Core/Services/LocalTransferJournal.swift`) is the durable transfer record on every platform.
+`LocalTransferJournal` (`Packages/BitMatchEngine/Sources/BitMatchEngine/TransferJournal.swift`) is the durable transfer record on every platform.
 
 - **Storage.**
   - A JSON array of `LocalTransferRecord` at `Application Support/BitMatch/transfer-history.json`.
@@ -314,7 +319,7 @@ For each operation, in order:
 
 ## Platform managers
 
-`PlatformManager` (`Shared/Core/Services/ServiceProtocols.swift`) is the only platform seam the engine sees. It exposes:
+`PlatformManager` (`Packages/BitMatchEngine/Sources/BitMatchEngine/EngineProtocols.swift`) is the only platform seam the engine sees. It exposes:
 
 - `fileSystem: FileSystemService`
 - `checksum: ChecksumService`
@@ -326,13 +331,13 @@ For each operation, in order:
 | | `MacOSPlatformManager` (`Platforms/macOS/Services/`) | `IOSPlatformManager` (`Platforms/iOS/Services/`) |
 |---|---|---|
 | File system | `MacOSFileSystemService` (`BitMatch/Core/Services/Platform/`): `NSOpenPanel` pickers. `startAccessing` returns `true`, and `stopAccessing` does nothing. | `IOSFileSystemService`: `UIDocumentPickerViewController` folder picker (the delegate is retained). Uses security-scoped access at folder level, with per-file scopes for size and directory creation. |
-| Checksum | `SharedChecksumService.shared` | `SharedChecksumService.shared` |
-| File operations | `SharedFileOperationsService` | `SharedFileOperationsService` |
+| Checksum | `ChecksumEngine.shared` | `ChecksumEngine.shared` |
+| File operations | `TransferPipeline` | `TransferPipeline` |
 | Camera detection | `SharedCameraDetectionService` | `SharedCameraDetectionService` |
 | Alerts | `NSAlert` (skipped under XCTest) | `UIAlertController` |
 | Drag and drop | yes | no |
 
-Both file system services list files through `FileTreeEnumerator`.
+Both file system services list files through `CardSource`.
 
 ### Camera detection
 

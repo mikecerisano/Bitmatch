@@ -8,21 +8,21 @@ Read [docs/THESIS.md](docs/THESIS.md) for what BitMatch promises and the current
 - Schemes:
   - `BitMatch`: the macOS app (macOS 15.5 or newer).
   - `BitMatch-iPad`: the iPhone and iPad app (iOS/iPadOS 18.5 or newer). Despite the name it targets both device families.
-- Both apps compile everything under `Shared/`. There are no Swift package dependencies. Targets build in Swift 5 language mode; the two app targets use `SWIFT_STRICT_CONCURRENCY = targeted`.
+- Both apps compile everything under `Shared/` and depend on the local package `Packages/BitMatchEngine`. Everything builds in Swift 6 language mode; keep it warning-free. `bash test.sh engine-test` runs the engine's own tests in seconds.
 - For an iPhone or iPad device build, set your development team in Signing & Capabilities.
 
 ## Where changes go
 
-- **The engine and its rules** live in `Shared/Core/Services/` and `Shared/Core/Models/`: copy, verify, safety, readiness (`TransferReadiness`), what may be chosen (`DestinationSelectionPolicy`, `BackupTargetPolicy`), the verdict (`ResultOutcome`), and the one state owner, `SharedAppCoordinator`.
+- **The engine and its rules** live in `Packages/BitMatchEngine`: copy, verify, safety, readiness (`TransferReadiness`), what may be chosen (`DestinationSelectionPolicy`, `BackupTargetPolicy`), the verdict (`ResultOutcome`, `TransferCompletion`), evidence and the journal. The one state owner, `SharedAppCoordinator`, and the presentation models live in `Shared/Core/`.
 - **Screens** live in `Shared/Views/`. Each draws a pure presentation value (`*Presentation` in `Shared/Core/Models/`) and decides nothing itself. Put a new rule in the presentation or model, with a test, not in a view.
 - **Platform code** stays in `BitMatch/` (Mac) or `BitMatch-iPad/` and `Platforms/iOS/` (iPhone and iPad), and should be limited to what only that platform can do: pickers, drag and drop, panels and share sheets, Disk Arbitration and volume monitoring, SFTP (Mac only). Shared screens take these as slots or closures (`SetupLocationsPlatform`, `MasterReportPlatform`, the `CoordinatorSetupScreen` slots).
 - Files in `Shared/` must compile on both platforms. Wrap AppKit or UIKit use in `#if os(...)`.
 
 ### Transfer safety boundary
 
-Safety checks belong in the shared engine, not only in views. Readiness on Setup explains a problem early, but `SharedFileOperationsService` and `SafetyValidator` must still refuse an unsafe source or backup when called directly, and `BackupTargetPolicy` must guard every path that adds a backup.
+Safety checks belong in the shared engine, not only in views. Readiness on Setup explains a problem early, but `TransferPipeline` and `SafetyValidator` must still refuse an unsafe source or backup when called directly, and `BackupTargetPolicy` must guard every path that adds a backup.
 
-Required behavior (see `Shared/Core/Services/File/SafetyValidator.swift`, `FileCopyService.swift`, `BackupTargetPolicy.swift`, and `Shared/Core/Services/SharedFileOperationsService.swift`):
+Required behavior (see `Packages/BitMatchEngine/Sources/BitMatchEngine/File/SafetyValidator.swift`, `DestinationWriter.swift`, `BackupTargetPolicy.swift`, and `Packages/BitMatchEngine/Sources/BitMatchEngine/TransferPipeline.swift`):
 
 - never write to the source; never overwrite an existing destination file
 - copy to a temporary file and publish it only after sync, a size check and a source-stability check, without replacing anything (hard link, or an exclusive name claim on exFAT/FAT)
@@ -33,7 +33,7 @@ Required behavior (see `Shared/Core/Services/File/SafetyValidator.swift`, `FileC
 
 ### Execution path
 
-Platform views present the selection and readiness. Start (the button and ⌘R) calls `SharedAppCoordinator.startCurrentMode()`, which builds a `CopyVerifyConfig` for `CopyVerifyExecutor`. The executor owns timing, error tracking, result coalescing, the sleep assertion, ASC MHL and report handoff, and the verdict. It calls `SharedFileOperationsService`, which runs the real preflight and transfer. Do not add a platform-only transfer path, and do not rely on UI validation as the safety boundary.
+Platform views present the selection and readiness. Start (the button and ⌘R) calls `SharedAppCoordinator.startCurrentMode()`, which builds a `CopyVerifyConfig` for `CopyVerifyExecutor`. The executor owns timing, error tracking, result coalescing, the sleep assertion, ASC MHL and report handoff, and the verdict. It calls `TransferPipeline`, which runs the real preflight and transfer. Do not add a platform-only transfer path, and do not rely on UI validation as the safety boundary.
 
 Live progress and per-file rows reach views through `LiveProgressFeed` and `LiveResultsFeed`, not through the coordinator's `objectWillChange`. A view that draws live progress or rows observes the feed directly; do not republish per-tick values on `SharedAppCoordinator`.
 
