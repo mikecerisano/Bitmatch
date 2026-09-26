@@ -295,14 +295,23 @@ extension ProgressPresentationModel {
     /// - Nil when the planned copy work is unknown or already copied:
     ///   verification speed is not measured, so nothing is guessed for it.
     var formattedTimeRemaining: String? {
-        guard let total = plannedTotalBytes, total > 0 else { return nil }
-        let remainingBytes = total - totalBytesProcessed
-        guard remainingBytes > 0 else { return nil }
-        guard observedCopySeconds >= Self.minimumObservedCopySeconds,
-              let rate = rollingActiveBytesPerSecond, rate > 0 else {
+        guard let total = plannedTotalBytes, total > 0, total - totalBytesProcessed > 0 else { return nil }
+        guard let seconds = measuredSecondsRemaining else {
             return TransferProgressPresentation.estimatingTimeLeft
         }
-        return formatSeconds(Double(remainingBytes) / rate)
+        return formatSeconds(seconds)
+    }
+
+    /// Seconds of copying left at the measured speed, or nil until at least
+    /// `minimumObservedCopySeconds` of copying has been measured. The one
+    /// estimate every surface shows (screen and iPhone Live Activity).
+    var measuredSecondsRemaining: TimeInterval? {
+        guard let total = plannedTotalBytes, total > 0 else { return nil }
+        let remainingBytes = total - totalBytesProcessed
+        guard remainingBytes > 0,
+              observedCopySeconds >= Self.minimumObservedCopySeconds,
+              let rate = rollingActiveBytesPerSecond, rate > 0 else { return nil }
+        return Double(remainingBytes) / rate
     }
 
     /// Active copying (intervals in which bytes moved) in the rolling window.

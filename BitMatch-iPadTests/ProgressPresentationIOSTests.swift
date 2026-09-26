@@ -12,8 +12,7 @@ struct ProgressPresentationIOSTests {
             isRunning: true,
             progress: OperationProgress(
                 overallProgress: 0.5, currentFile: "A001.MOV", filesProcessed: 4, totalFiles: 8,
-                currentStage: .verifying, speed: nil, timeRemaining: nil
-            ),
+                currentStage: .verifying, speed: nil),
             sourceName: "A001",
             destinations: [URL(fileURLWithPath: "/private/var/mobile/Backup", isDirectory: true)],
             speed: nil,

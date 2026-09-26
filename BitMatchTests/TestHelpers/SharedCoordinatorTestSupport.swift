@@ -80,8 +80,7 @@ final class RecordingFileOperations: FileOperationsService, @unchecked Sendable 
         if let reportsStage {
             progressCallback(OperationProgress(
                 overallProgress: 0.5, currentFile: "A.ARW", filesProcessed: 0, totalFiles: 1,
-                currentStage: reportsStage, speed: nil, timeRemaining: nil
-            ))
+                currentStage: reportsStage, speed: nil))
         }
         await gate.record(RecordedStart(
             source: sourceURL,

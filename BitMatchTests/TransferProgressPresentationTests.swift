@@ -27,7 +27,6 @@ struct TransferProgressPresentationTests {
             totalFiles: total,
             currentStage: stage,
             speed: nil,
-            timeRemaining: nil,
             elapsedTime: nil,
             averageSpeed: nil,
             peakSpeed: nil,
@@ -248,7 +247,7 @@ struct TransferProgressPresentationTests {
     /// Plant: in `TransferProgressPresentation.timeLeft`, change
     /// `case .preparing: return estimatingTimeLeft` to return `measured`.
     @Test func preparingSaysEstimating() {
-        let preparing = make(state: .inProgress, progress: nil, timeRemaining: nil)
+        let preparing = make(state: .inProgress, progress: nil)
 
         #expect(preparing.phase == .preparing)
         #expect(preparing.timeRemaining == TransferProgressPresentation.estimatingTimeLeft)

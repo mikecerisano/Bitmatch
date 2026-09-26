@@ -349,6 +349,9 @@ class SharedAppCoordinator: ObservableObject {
     /// Feeds `progressPresentation`: engine progress at most every 120 ms,
     /// and the smoothing timer while an operation runs.
     private func setupProgressPresentation() {
+        IOSBackgroundTaskService.shared.secondsRemainingProvider = { [weak self] in
+            self?.progressPresentation.measuredSecondsRemaining
+        }
         liveProgress.$progress.compactMap { $0 }
             .throttle(for: .milliseconds(120), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] prog in self?.presentProgress(prog) }
@@ -1032,9 +1035,7 @@ class SharedAppCoordinator: ObservableObject {
             filesProcessed: 0,
             totalFiles: 0,
             currentStage: .preparing,
-            speed: nil,
-            timeRemaining: nil
-        )
+            speed: nil)
 
         do {
             let stats = try await comparisonCoordinator.compareFolders(

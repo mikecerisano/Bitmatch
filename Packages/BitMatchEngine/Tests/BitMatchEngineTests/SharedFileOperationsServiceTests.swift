@@ -34,9 +34,7 @@ struct SharedFileOperationsServiceTests {
                 filesProcessed: 0,
                 totalFiles: 0,
                 currentStage: .idle,
-                speed: nil,
-                timeRemaining: nil
-            ))
+                speed: nil))
 
             // Act: perform copy to a single destination
             let op = try await sut.performFileOperation(

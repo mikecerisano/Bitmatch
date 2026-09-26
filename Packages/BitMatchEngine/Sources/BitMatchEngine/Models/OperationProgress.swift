@@ -30,7 +30,6 @@ public struct OperationProgress: Codable, Sendable {
     public let totalFiles: Int
     public let currentStage: ProgressStage
     public let speed: Double? // bytes per second
-    public let timeRemaining: TimeInterval?
     public let reusedCopies: Int?
     
     // Enhanced timing information
@@ -45,14 +44,13 @@ public struct OperationProgress: Codable, Sendable {
     public let perDestinationCompleted: [Int]?
     
     // Convenience initializer for backward compatibility
-    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, reusedCopies: Int? = nil) {
+    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, reusedCopies: Int? = nil) {
         self.overallProgress = overallProgress
         self.currentFile = currentFile
         self.filesProcessed = filesProcessed
         self.totalFiles = totalFiles
         self.currentStage = currentStage
         self.speed = speed
-        self.timeRemaining = timeRemaining
         self.reusedCopies = reusedCopies
         self.elapsedTime = nil
         self.averageSpeed = nil
@@ -65,14 +63,13 @@ public struct OperationProgress: Codable, Sendable {
     }
     
     // Full initializer with timing information
-    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, timeRemaining: TimeInterval?, elapsedTime: TimeInterval?, averageSpeed: Double?, peakSpeed: Double?, bytesProcessed: Int64?, totalBytes: Int64?, stageProgress: Double? = nil, reusedCopies: Int? = nil, perDestinationTotals: [Int]? = nil, perDestinationCompleted: [Int]? = nil) {
+    public init(overallProgress: Double, currentFile: String?, filesProcessed: Int, totalFiles: Int, currentStage: ProgressStage, speed: Double?, elapsedTime: TimeInterval?, averageSpeed: Double?, peakSpeed: Double?, bytesProcessed: Int64?, totalBytes: Int64?, stageProgress: Double? = nil, reusedCopies: Int? = nil, perDestinationTotals: [Int]? = nil, perDestinationCompleted: [Int]? = nil) {
         self.overallProgress = overallProgress
         self.currentFile = currentFile
         self.filesProcessed = filesProcessed
         self.totalFiles = totalFiles
         self.currentStage = currentStage
         self.speed = speed
-        self.timeRemaining = timeRemaining
         self.reusedCopies = reusedCopies
         self.elapsedTime = elapsedTime
         self.averageSpeed = averageSpeed

@@ -339,9 +339,7 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             filesProcessed: 0,
             totalFiles: 0,
             currentStage: .preparing,
-            speed: nil,
-            timeRemaining: nil
-        ))
+            speed: nil))
 
         await verifyCounter.reset()
         let pauseGate = self.pauseGate
@@ -594,7 +592,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                                             }
                                             return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
                                         }()
-                                        let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - metrics.totalBytesProcessed) / speed! : nil
                                         let overall = Double(metrics.processedFiles + verifiedCount) / Double(max(1, totalFiles * totalStageUnits))
                                         let snap = await destProgress.snapshot()
                                         progressCallback(OperationProgress(
@@ -604,7 +601,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                                             totalFiles: totalFiles,
                                             currentStage: .verifying,
                                             speed: speed,
-                                            timeRemaining: timeRemaining,
                                             elapsedTime: elapsedTime,
                                             averageSpeed: speed,
                                             peakSpeed: nil,
@@ -658,7 +654,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                             }
                             return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
                         }()
-                        let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - copyUpdate.totalBytesProcessed) / speed! : nil
                         let overall = Double(copyUpdate.processedFiles) / Double(max(1, totalFiles * totalStageUnits))
                         let copySnap = await destProgress.snapshot()
                         progressCallback(OperationProgress(
@@ -668,7 +663,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                             totalFiles: totalFiles,
                             currentStage: .copying,
                             speed: speed,
-                            timeRemaining: timeRemaining,
                             elapsedTime: elapsedTime,
                             averageSpeed: speed,
                             peakSpeed: nil,
@@ -732,7 +726,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                                 }
                                 return safeMultiply(50 * 1024 * 1024, Int64(totalFiles))
                             }()
-                            let timeRemaining = speed != nil && speed! > 0 ? Double(estimatedTotalBytes - metrics.totalBytesProcessed) / speed! : nil
                             let verified = await verifyCounter.increment()
                             let shouldEmit = await progressState.shouldEmitVerify(
                                 now: Date(),
@@ -749,7 +742,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                                     totalFiles: totalFiles,
                                     currentStage: .verifying,
                                     speed: speed,
-                                    timeRemaining: timeRemaining,
                                     elapsedTime: elapsedTime,
                                     averageSpeed: speed,
                                     peakSpeed: nil,
@@ -830,7 +822,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             totalFiles: totalFiles,
             currentStage: .completed,
             speed: nil,
-            timeRemaining: 0,
             elapsedTime: Date().timeIntervalSince(startTime),
             averageSpeed: nil,
             peakSpeed: nil,

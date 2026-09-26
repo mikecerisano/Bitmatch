@@ -21,9 +21,7 @@ struct ProgressPresentationFeedTests {
             filesProcessed: files,
             totalFiles: total,
             currentStage: .copying,
-            speed: nil,
-            timeRemaining: nil
-        )
+            speed: nil)
     }
 
     /// Plant: in `SharedAppCoordinator.presentProgress`, delete

@@ -16,6 +16,10 @@ import BackgroundTasks
 final class IOSBackgroundTaskService: ObservableObject {
     static let shared = IOSBackgroundTaskService()
 
+    /// Time left for the Live Activity: the same measured estimate the
+    /// progress screen shows (set by `SharedAppCoordinator`).
+    var secondsRemainingProvider: (@MainActor () -> TimeInterval?)?
+
     // MARK: - Published State
     @Published private(set) var backgroundTimeRemainingSeconds: Double?
     @Published private(set) var isInBackground: Bool = false
@@ -264,7 +268,7 @@ final class IOSBackgroundTaskService: ObservableObject {
             currentFile: progress.currentFile,
             filesProcessed: progress.filesProcessed,
             totalFiles: progress.totalFiles,
-            etaSeconds: progress.timeRemaining
+            etaSeconds: secondsRemainingProvider?()
         )
         lastLiveActivityUpdateTime = now
         lastLiveActivityProgress = progress.overallProgress
@@ -295,6 +299,8 @@ final class IOSBackgroundTaskService: ObservableObject {
 
     @Published private(set) var backgroundTimeRemainingSeconds: Double?
     @Published private(set) var isInBackground: Bool = false
+
+    var secondsRemainingProvider: (@MainActor () -> TimeInterval?)?
 
     func beginOperation(estimatedFiles: Int) {}
     func endOperation() {}

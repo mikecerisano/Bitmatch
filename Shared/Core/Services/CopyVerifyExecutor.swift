@@ -296,8 +296,7 @@ final class CopyVerifyExecutor {
         callbacks.onProgress(OperationProgress(
             overallProgress: 1, currentFile: "Creating ASC MHL handoff records…",
             filesProcessed: operation.results.count, totalFiles: operation.results.count,
-            currentStage: .verifying, speed: nil, timeRemaining: nil
-        ))
+            currentStage: .verifying, speed: nil))
         let sourceURL = config.sourceURL
         let startTime = operation.startTime
         let toolVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"

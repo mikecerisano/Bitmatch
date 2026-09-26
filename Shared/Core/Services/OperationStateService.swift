@@ -372,7 +372,6 @@ class OperationStateService: ObservableObject {
             totalFiles: totalFiles,
             currentStage: .copying,
             speed: nil,
-            timeRemaining: nil,
             elapsedTime: nil,
             averageSpeed: nil,
             peakSpeed: nil,

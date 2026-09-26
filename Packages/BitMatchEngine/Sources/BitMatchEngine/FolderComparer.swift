@@ -58,9 +58,7 @@ public struct FolderComparer: Sendable {
             filesProcessed: 0,
             totalFiles: totalCommon,
             currentStage: .verifying,
-            speed: nil,
-            timeRemaining: nil
-        ))
+            speed: nil))
 
         for key in common {
             try Task.checkCancellation()
@@ -81,9 +79,7 @@ public struct FolderComparer: Sendable {
                 filesProcessed: processedCommon,
                 totalFiles: totalCommon,
                 currentStage: .verifying,
-                speed: nil,
-                timeRemaining: nil
-            ))
+                speed: nil))
         }
 
         let matched = common.subtracting(mismatched)
