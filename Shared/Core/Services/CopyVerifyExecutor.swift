@@ -273,7 +273,9 @@ final class CopyVerifyExecutor {
         errorService.completeErrorTracking()
         stateService.completeOperation(operationId: config.operationId, success: succeeded, message: completionMessage)
 
-        callbacks.onStateChange(.completed(OperationCompletionInfo(success: succeeded, message: completionMessage)))
+        callbacks.onStateChange(.completed(OperationCompletionInfo(
+            success: succeeded, message: completionMessage, copiedNotVerified: verdict.copiedNotVerified
+        )))
 
         // Clean up
         SharedLogger.info("CopyVerifyExecutor: operation completed", category: .transfer)

@@ -141,10 +141,16 @@ public enum TransferCompletion: Sendable {
     public struct Verdict: Equatable, Sendable {
         public let success: Bool
         public let message: String
+        /// Everything that success needs held except a checksum: Quick mode
+        /// copied every file and nothing else went wrong. Never a success;
+        /// it lets the app say "copied, not verified" instead of "needs
+        /// attention" without hiding a report, handoff or project failure.
+        public let copiedNotVerified: Bool
 
-        public init(success: Bool, message: String) {
+        public init(success: Bool, message: String, copiedNotVerified: Bool = false) {
             self.success = success
             self.message = message
+            self.copiedNotVerified = copiedNotVerified
         }
     }
 
@@ -170,7 +176,8 @@ public enum TransferCompletion: Sendable {
             fileResultsMessage = issueCount == 1 ? "1 file failed" : "\(issueCount) files failed"
         }
 
-        let succeeded = fileResultsSucceeded && project.permitsSuccess && handoffIssues.isEmpty && mode != .quick && reportIssue == nil
+        let everythingElseHeld = fileResultsSucceeded && project.permitsSuccess && handoffIssues.isEmpty && reportIssue == nil
+        let succeeded = everythingElseHeld && mode != .quick
         var completionMessage = fileResultsMessage
         if !project.didPersist {
             completionMessage += "; the project record was not saved"
@@ -188,6 +195,7 @@ public enum TransferCompletion: Sendable {
         if let reportIssue {
             completionMessage += "; the report could not be saved: \(reportIssue)"
         }
-        return Verdict(success: succeeded, message: completionMessage)
+        return Verdict(success: succeeded, message: completionMessage,
+                       copiedNotVerified: everythingElseHeld && mode == .quick)
     }
 }

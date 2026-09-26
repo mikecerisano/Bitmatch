@@ -32,7 +32,21 @@ struct TransferCompletionVerdictTests {
 
     /// Plant: in `TransferCompletion.verdict`, drop `mode != .quick`.
     @Test func quickIsNeverSuccess() {
-        #expect(verdict([copied], mode: .quick) == .init(success: false, message: "All files copied. Not verified: Quick mode only compares file sizes."))
+        #expect(verdict([copied], mode: .quick) == .init(success: false, message: "All files copied. Not verified: Quick mode only compares file sizes.", copiedNotVerified: true))
+    }
+
+    /// "Copied, not verified" only when Quick was the one gap: a failed
+    /// file, a lost report, a handoff failure or an unsaved project still
+    /// reads as needing attention. Plant: in `TransferCompletion.verdict`,
+    /// set `copiedNotVerified: mode == .quick`.
+    @Test func copiedNotVerifiedOnlyWhenQuickIsTheOnlyGap() {
+        #expect(verdict([copied], mode: .quick).copiedNotVerified)
+        #expect(!verdict([copied, failed], mode: .quick).copiedNotVerified)
+        #expect(!verdict([], mode: .quick).copiedNotVerified)
+        #expect(!verdict([copied], mode: .quick, report: "disk full").copiedNotVerified)
+        #expect(!verdict([copied], mode: .quick, handoff: ["SSD: disk full"]).copiedNotVerified)
+        #expect(!verdict([copied], mode: .quick, project: .init(didPersist: false, locallySafe: nil)).copiedNotVerified)
+        #expect(!verdict([verified]).copiedNotVerified)
     }
 
     @Test func anyIssueOrNoFilesIsNotSuccess() {

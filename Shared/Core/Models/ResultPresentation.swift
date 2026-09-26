@@ -86,6 +86,12 @@ enum CompletionVerdict: Equatable {
             return .issues
         }
 
+        // Quick mode that copied everything cleanly: the engine never calls
+        // it a success, but it is not an issue either.
+        if info.copiedNotVerified, !info.success, summary.isSuccessful, !hasErrors {
+            return .copiedNotVerified
+        }
+
         if !info.success || !summary.isSuccessful || hasErrors {
             return .issues
         }

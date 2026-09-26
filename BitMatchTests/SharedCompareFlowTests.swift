@@ -572,6 +572,36 @@ struct SharedCompareFlowTests {
         #expect(message == "Sizes match, not verified")
     }
 
+    /// Promise 2: a clean Quick compare is not a success, so nothing that
+    /// reads `success` (the Dock tile's green check) can call it verified.
+    /// Plant: in `SharedAppCoordinator.compareFolders`, pass
+    /// `success: stats.isClean`.
+    @Test
+    func testQuickCompareIsNotRecordedAsVerified() async throws {
+        let left = URL(fileURLWithPath: "/quick-success/left")
+        let right = URL(fileURLWithPath: "/quick-success/right")
+        let platform = ScopeTrackingPlatformManager(
+            fileSystem: CancellingCompareFileSystem(left: left, right: right)
+        )
+        let coordinator = await MainActor.run { SharedAppCoordinator(platformManager: platform) }
+        await MainActor.run {
+            coordinator.currentMode = .compareFolders
+            coordinator.verificationMode = .quick
+            coordinator.leftURL = left
+            coordinator.rightURL = right
+        }
+
+        await coordinator.compareFolders()
+
+        let state = await MainActor.run { coordinator.operationState }
+        guard case .completed(let info) = state else {
+            Issue.record("Expected a completed compare, got \(state)")
+            return
+        }
+        #expect(!info.success)
+        #expect(DockTileState.make(state: state, fraction: 1) != .verified)
+    }
+
     /// Decision C-2: no mode switch while an operation runs.
     /// Plant: in `SharedAppCoordinator.switchMode`, delete
     /// `guard !isModeSwitchLocked else { return }`.

@@ -1159,8 +1159,9 @@ class SharedAppCoordinator: ObservableObject {
             lastCompareEnd = .completed
             isOperationInProgress = false
             let message: String
+            let verifiesContents = CompareCheckPlan.make(for: comparedMode).verifiesContents
             if stats.isClean {
-                message = CompareCheckPlan.make(for: comparedMode).verifiesContents
+                message = verifiesContents
                     ? "Folders match"
                     : "Sizes match, not verified"
             } else {
@@ -1170,7 +1171,10 @@ class SharedAppCoordinator: ObservableObject {
                 if stats.onlyInRightCount > 0 { issues.append("\(stats.onlyInRightCount) only in destination") }
                 message = "Comparison found differences: \(issues.joined(separator: ", "))"
             }
-            operationState = .completed(OperationCompletionInfo(success: stats.isClean, message: message))
+            // Success means verified (Promise 2): a size-only match is not
+            // one, or the Dock tile and anything else reading `success`
+            // would show it green.
+            operationState = .completed(OperationCompletionInfo(success: stats.isClean && verifiesContents, message: message))
             return
         } catch is CancellationError {
             isOperationInProgress = false

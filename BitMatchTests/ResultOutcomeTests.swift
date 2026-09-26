@@ -80,4 +80,19 @@ struct ResultOutcomeTests {
         #expect(CompletionVerdict.resolve(state: succeeded, rows: mixed, hasErrors: false, hasCriticalErrors: false) == .issues)
         #expect(CompletionVerdict.resolve(state: succeeded, rows: [row(.verified), row(.verified)], hasErrors: false, hasCriticalErrors: false) == .success)
     }
+
+    /// A real Quick run: the engine reports no success but flags that
+    /// Quick was the only gap. That reads as `.copiedNotVerified`; the same
+    /// run without the flag (a report or handoff failed) or with errors
+    /// stays `.issues`. Plant: in `CompletionVerdict.resolve`, delete the
+    /// `info.copiedNotVerified` early return.
+    @Test func realQuickRunReadsAsCopiedNotVerified() {
+        let quick = OperationState.completed(OperationCompletionInfo(success: false, message: "All files copied", copiedNotVerified: true))
+        let quickWithOtherFailure = OperationState.completed(OperationCompletionInfo(success: false, message: "report failed"))
+        let rows = [row(.copiedUnverified), row(.copiedUnverified)]
+        #expect(CompletionVerdict.resolve(state: quick, rows: rows, hasErrors: false, hasCriticalErrors: false) == .copiedNotVerified)
+        #expect(CompletionVerdict.resolve(state: quick, rows: rows, hasErrors: true, hasCriticalErrors: false) == .issues)
+        #expect(CompletionVerdict.resolve(state: quick, rows: rows + [row(.failed)], hasErrors: false, hasCriticalErrors: false) == .issues)
+        #expect(CompletionVerdict.resolve(state: quickWithOtherFailure, rows: rows, hasErrors: false, hasCriticalErrors: false) == .issues)
+    }
 }

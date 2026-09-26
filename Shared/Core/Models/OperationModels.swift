@@ -81,6 +81,9 @@ struct PauseInfo: Codable, Equatable {
 struct OperationCompletionInfo: Equatable {
     let success: Bool
     let message: String
+    /// Quick mode copied every file and nothing else failed (see
+    /// `TransferCompletion.Verdict.copiedNotVerified`). Never with `success`.
+    var copiedNotVerified: Bool = false
 }
 
 // MARK: - Completion State
