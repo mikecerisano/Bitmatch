@@ -35,6 +35,7 @@ enum TransferLibraryPresentation {
                 return .safeToErase
             }
             return .needsAttention
+        case .failed: return .failed
         case .interrupted, .cancelled: return .interrupted
         }
     }
@@ -149,12 +150,10 @@ enum TransferLibraryPresentation {
 
     // MARK: - Banner
 
-    /// How many transfers the banner on every platform asks the user to
-    /// review. Only interrupted runs count here: nobody has seen their
-    /// outcome, and their copies are unchecked. Every finished run remains
-    /// available in History.
+    /// How many failed or interrupted transfers the banner on every platform
+    /// asks the user to review. Every finished run remains in History.
     static func needsAttentionCount(states: [LocalTransferState]) -> Int {
-        states.filter { $0 == .interrupted }.count
+        states.filter { $0 == .interrupted || $0 == .failed }.count
     }
 
     static func needsAttentionCount(_ records: [LocalTransferRecord]) -> Int {
@@ -165,8 +164,8 @@ enum TransferLibraryPresentation {
     static func bannerTitle(needsAttentionCount count: Int) -> String? {
         switch count {
         case ..<1: return nil
-        case 1: return "Interrupted transfer — review in Transfers"
-        default: return "\(count) interrupted transfers — review in Transfers"
+        case 1: return "Transfer needs attention — review in Transfers"
+        default: return "\(count) transfers need attention — review in Transfers"
         }
     }
 }

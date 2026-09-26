@@ -7,7 +7,7 @@ import BitMatchEngine
 /// step 4.4). Green is only for verified transfers (promise 2), and every
 /// state differs by word and symbol, not colour alone.
 struct TransferLibraryPresentationTests {
-    private let allStates: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .cancelled]
+    private let allStates: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .failed, .cancelled]
 
     // MARK: - State labels
 
@@ -118,16 +118,16 @@ struct TransferLibraryPresentationTests {
 
     // MARK: - Banner
 
-    /// The banner on all three platforms counts interrupted transfers.
+    /// The banner on all three platforms counts failed and interrupted transfers.
     /// Plant: in `needsAttentionCount(states:)`, change
     /// `states.filter { $0 == .interrupted }.count` to `0`.
-    @Test func bannerCountsInterruptedTransfers() {
+    @Test func bannerCountsFailedAndInterruptedTransfers() {
         let count = TransferLibraryPresentation.needsAttentionCount(
-            states: [.interrupted, .completed, .interrupted, .issues, .cancelled, .queued]
+            states: [.interrupted, .completed, .failed, .interrupted, .issues, .cancelled, .queued]
         )
-        #expect(count == 2)
-        #expect(TransferLibraryPresentation.bannerTitle(needsAttentionCount: count) == "2 interrupted transfers — review in Transfers")
-        #expect(TransferLibraryPresentation.bannerTitle(needsAttentionCount: 1) == "Interrupted transfer — review in Transfers")
+        #expect(count == 3)
+        #expect(TransferLibraryPresentation.bannerTitle(needsAttentionCount: count) == "3 transfers need attention — review in Transfers")
+        #expect(TransferLibraryPresentation.bannerTitle(needsAttentionCount: 1) == "Transfer needs attention — review in Transfers")
     }
 
     /// Plant: in `bannerTitle(needsAttentionCount:)`, change `case ..<1: return nil`
@@ -144,10 +144,10 @@ struct TransferLibraryPresentationTests {
     /// rows). Queue contains only waiting and running work; History contains
     /// every finished attempt.
     @Test func tabCountsSplitQueueFromHistory() {
-        let states: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .cancelled]
+        let states: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .failed, .cancelled]
         let records = states.map { PresentationTestSupport.record(state: $0) }
         let counts = TransferLibraryPresentation.tabCounts(records)
-        #expect(counts.history == 4)
+        #expect(counts.history == 5)
         #expect(counts.queue == 2)
         #expect(TransferLibraryPresentation.isVisible(state: .issues, showHistory: true))
         #expect(!TransferLibraryPresentation.isVisible(state: .issues, showHistory: false))

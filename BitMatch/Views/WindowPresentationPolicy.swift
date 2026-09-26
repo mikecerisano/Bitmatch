@@ -33,8 +33,8 @@ enum WindowPresentationPolicy {
 enum MacWindowHeightPolicy {
     enum Screen: Equatable {
         case setup(Setup)
-        case progress(backups: Int, queueCandidates: Int = 0)
-        case outcome(backups: Int, needsAttention: Bool)
+        case progress(backups: Int, queueCandidates: Int = 0, queueCards: Int = 0)
+        case outcome(backups: Int, needsAttention: Bool, queueCards: Int = 0)
         case compare(advancedExpanded: Bool)
         case masterReport
     }
@@ -48,6 +48,7 @@ enum MacWindowHeightPolicy {
         var optionsExpanded: Bool
         var connectedDrives: Int = 0
         var showsQueueStrip = false
+        var queueCards: Int = 0
         var showsProjectSetup: Bool
     }
 
@@ -73,11 +74,13 @@ enum MacWindowHeightPolicy {
         switch screen {
         case .setup(let setup):
             return setupHeight(setup, windowWidth: windowWidth)
-        case .progress(let backups, let queueCandidates):
+        case .progress(let backups, let queueCandidates, let queueCards):
             return progressHeight(backups: backups, windowWidth: windowWidth)
                 + (queueCandidates > 0 ? 20 + CGFloat(queueCandidates) * 28 - 8 : 0)
-        case .outcome(let backups, let needsAttention):
+                + queueHeight(cards: queueCards)
+        case .outcome(let backups, let needsAttention, let queueCards):
             return outcomeHeight(backups: backups, needsAttention: needsAttention, windowWidth: windowWidth)
+                + queueHeight(cards: queueCards)
         case .compare(let advancedExpanded):
             let compact = AdaptiveNavigationPolicy.presentation(for: windowWidth - 40) == .compact
             // Folder labels and roles (40), then each 120 pt picker, inside
@@ -94,6 +97,10 @@ enum MacWindowHeightPolicy {
             let locations: CGFloat = 28 + 16 + 120 + 44 + 16 + 3 * 12
             return chrome + title + locations + 58 + 2 * gap
         }
+    }
+
+    private static func queueHeight(cards: Int) -> CGFloat {
+        cards > 0 ? 56 + CGFloat(cards) * 50 : 0
     }
 
     // MARK: Setup
@@ -123,7 +130,8 @@ enum MacWindowHeightPolicy {
         // chosen (it wraps to two lines when stacked).
         let start: CGFloat = 58 + (setup.hasSource && setup.backups > 0 ? (sideBySide ? 24 : 40) : 0)
         let drives: CGFloat = 12 + 24 + 16 + 8 + (setup.connectedDrives == 0 ? 14 : CGFloat(setup.connectedDrives) * 40 + CGFloat(setup.connectedDrives - 1) * 8)
-        let queue: CGFloat = setup.showsQueueStrip ? 44 + 12 : 0
+        let queueCount = max(setup.queueCards, setup.showsQueueStrip ? 1 : 0)
+        let queue = queueHeight(cards: queueCount)
         return queue + setupChrome + title + locations + drives + workflow + banner + advanced + start + 4 * gap
     }
 

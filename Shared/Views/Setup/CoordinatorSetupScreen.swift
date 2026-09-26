@@ -33,6 +33,7 @@ extension SetupPresentation {
             projectBlocker: projectBlocker,
             projectUnit: jobs.selectedWorkflow.sourceUnitLabel,
             isOperationInProgress: coordinator.isOperationInProgress,
+            isQueuePaused: coordinator.hasUnresolvedQueueRecords,
             sourceFileCount: coordinator.sourceFolderInfo?.fileCount,
             sourceBytes: coordinator.sourceFolderInfo?.totalSize,
             destinationCount: coordinator.destinationURLs.count,

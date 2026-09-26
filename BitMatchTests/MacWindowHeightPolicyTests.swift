@@ -43,7 +43,7 @@ struct MacWindowHeightPolicyTests {
         #expect(three > one + 150)
     }
 
-    @Test func setupGrowsWhenQueueStripAppears() throws {
+    @Test func setupGrowsForTheInlineQueue() throws {
         let empty = Policy.Setup(hasSource: true, backups: 1, showsProblemBanner: false,
                                  optionsExpanded: false, showsProjectSetup: false)
         var queued = empty
@@ -51,14 +51,35 @@ struct MacWindowHeightPolicyTests {
         for width in [CGFloat(580), 680, 1100] {
             let before = try #require(Policy.contentHeight(for: .setup(empty), windowWidth: width))
             let after = try #require(Policy.contentHeight(for: .setup(queued), windowWidth: width))
-            #expect(after == before + 56)
+            #expect(after == before + 106)
         }
+
+        var threeCards = empty
+        threeCards.queueCards = 3
+        let one = try #require(Policy.contentHeight(for: .setup(queued), windowWidth: 680))
+        let three = try #require(Policy.contentHeight(for: .setup(threeCards), windowWidth: 680))
+        #expect(three == one + 100)
     }
 
     @Test func progressMakesRoomForQueueNextCards() throws {
         let before = try #require(Policy.contentHeight(for: .progress(backups: 1), windowWidth: 680))
         let after = try #require(Policy.contentHeight(for: .progress(backups: 1, queueCandidates: 2), windowWidth: 680))
         #expect(after == before + 68)
+    }
+
+    @Test func progressAndOutcomeMakeRoomForTheInlineQueue() throws {
+        let progress = try #require(Policy.contentHeight(for: .progress(backups: 1), windowWidth: 680))
+        let progressWithQueue = try #require(Policy.contentHeight(
+            for: .progress(backups: 1, queueCards: 2), windowWidth: 680
+        ))
+        let outcome = try #require(Policy.contentHeight(
+            for: .outcome(backups: 1, needsAttention: false), windowWidth: 680
+        ))
+        let outcomeWithQueue = try #require(Policy.contentHeight(
+            for: .outcome(backups: 1, needsAttention: false, queueCards: 2), windowWidth: 680
+        ))
+        #expect(progressWithQueue == progress + 156)
+        #expect(outcomeWithQueue == outcome + 156)
     }
 
     @Test func setupMakesRoomForConnectedDrives() {

@@ -30,7 +30,6 @@ struct ModularContentView: View {
             // Main content area
             mainContentArea
             VStack {
-                NotificationPermissionBanner(coordinator: coordinator)
                 if showCancelToast {
                     ToastView(
                         icon: "xmark.circle",
@@ -84,6 +83,8 @@ extension ModularContentView {
         VStack(spacing: 0) {
             // Header with gear icon (always visible)  
             HeaderSectionView(showingSettings: $showingSettings, showingTransfers: $showingTransfers)
+            NotificationPermissionBanner(coordinator: coordinator)
+                .padding(.top, 8)
             TransferAttentionBanner(
                 needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.transferJournal.records)
             ) { showingTransfers = true }

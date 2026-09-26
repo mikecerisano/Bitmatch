@@ -285,7 +285,7 @@ struct SetupScreen<Locations: View, Problems: View, ProjectSetup: View, LabelCon
                 .accessibilityLabel(start.title)
                 .accessibilityHint(start.accessibilityHint)
                 if let enqueue = actions.enqueue {
-                    Button("Add to queue", action: enqueue)
+                    Button("Add to Queue", action: enqueue)
                         .buttonStyle(.bordered)
                         .controlSize(.large)
                 }

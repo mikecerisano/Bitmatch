@@ -15,6 +15,7 @@ final class MacAppEnvironment: ObservableObject {
     let cameraAutoSource: MacCameraAutoSourceController
     /// Progress and the verdict on the Dock icon; the real app only.
     private(set) var dockTile: DockTileController?
+    private(set) var transferSignals: MacTransferSignalController?
 
     init(
         coordinator: SharedAppCoordinator,
@@ -43,6 +44,7 @@ final class MacAppEnvironment: ObservableObject {
         )
         let environment = MacAppEnvironment(coordinator: coordinator, remoteBackups: remoteBackups)
         environment.dockTile = DockTileController(coordinator: coordinator)
+        environment.transferSignals = MacTransferSignalController(coordinator: coordinator)
         return environment
     }
 

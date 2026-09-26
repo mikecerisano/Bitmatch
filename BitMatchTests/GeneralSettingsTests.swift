@@ -178,7 +178,7 @@ struct GeneralSettingsTests {
         #expect(decide(safe, 0, false, false, false, true, false) == .standaloneFinish)
         #expect(decide(quick, 0, false, false, false, true, false) == .standaloneFinish)
         #expect(decide(safe, 0, true, false, false, true, true) == .queuedCardSuccess)
-        #expect(decide(quick, 0, false, true, false, true, true) == .queuedCardSuccess)
+        #expect(decide(quick, 0, false, true, false, true, true) == nil)
         #expect(decide(safe, 0, true, false, false, true, false) == nil)
         #expect(decide(quick, 0, false, true, false, true, false) == nil)
         #expect(decide(.failed, 0, true, true, true, false, false) == .attention)

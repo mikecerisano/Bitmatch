@@ -27,6 +27,10 @@ struct MacTransferProgressView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             CoordinatorProgressScreen(coordinator: coordinator, confirmingCancel: $confirmingCancel)
+            if coordinator.currentTransferBelongsToQueueSession && coordinator.queueIsRunning {
+                Button("Stop After This Card") { coordinator.stopQueueAfterCurrentTransfer() }
+                    .buttonStyle(.bordered)
+            }
             MacQueueNextCards(coordinator: coordinator, monitor: volumeAccess.volumeMonitor)
             if let job = jobs.dashboardJob, !job.cardIngests.isEmpty {
                 PhotographerSessionDashboard(

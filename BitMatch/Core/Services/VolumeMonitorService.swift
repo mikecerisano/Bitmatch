@@ -390,7 +390,7 @@ nonisolated enum VolumeAnalysis {
               let values = try? url.resourceValues(forKeys: [
                 .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
                 .volumeIsRemovableKey, .volumeIsInternalKey, .volumeIsReadOnlyKey, .isHiddenKey,
-                .volumeIsRootFileSystemKey
+                .volumeIsRootFileSystemKey, .volumeUUIDStringKey
               ]),
               // The boot volume, whatever it is named.
               values.volumeIsRootFileSystem != true else { return nil }
@@ -406,6 +406,7 @@ nonisolated enum VolumeAnalysis {
             freeBytes: Int64(values.volumeAvailableCapacity ?? 0),
             isRemovable: facts?.isRemovable ?? values.volumeIsRemovable ?? false,
             isInternal: facts?.isInternal ?? values.volumeIsInternal ?? false,
+            volumeID: values.volumeUUIDString,
             isHidden: values.isHidden ?? false, isAppDiskImage: isAppImage
         )
         guard ConnectedDrivesPresentation.isVisible(volume) else { return nil }

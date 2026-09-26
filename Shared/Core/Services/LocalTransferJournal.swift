@@ -2,6 +2,13 @@ import Foundation
 import Combine
 import BitMatchEngine
 
+struct PersistedQueueSession: Codable, Equatable, Sendable {
+    var recordIDs: [UUID]
+    var skippedRecordIDs: Set<UUID>
+    var pausedRecordID: UUID?
+    var ended: Bool
+}
+
 /// The app's observable view of the transfer journal. Every call goes to the
 /// engine's `TransferJournal`, and `records` / `persistenceError` are
 /// republished after it, whether it succeeded or threw.
@@ -10,10 +17,38 @@ final class LocalTransferJournal: ObservableObject {
     @Published private(set) var records: [LocalTransferRecord] = []
     @Published private(set) var persistenceError: String?
     let store: TransferJournal
+    let fileURL: URL
+    let queueSessionFileURL: URL
+    private let beforeMarkRunning: ((UUID) throws -> Void)?
 
-    init(fileURL: URL? = nil) {
-        store = TransferJournal(fileURL: fileURL)
+    init(fileURL: URL? = nil, beforeMarkRunning: ((UUID) throws -> Void)? = nil) {
+        let selectedURL = fileURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BitMatch/transfer-history.json")
+        self.fileURL = selectedURL
+        self.queueSessionFileURL = selectedURL.deletingLastPathComponent()
+            .appendingPathComponent("transfer-queue-session.json")
+        self.beforeMarkRunning = beforeMarkRunning
+        store = TransferJournal(fileURL: selectedURL)
         refresh()
+    }
+
+    func loadQueueSession() -> PersistedQueueSession? {
+        guard let data = try? Data(contentsOf: queueSessionFileURL) else { return nil }
+        return try? JSONDecoder().decode(PersistedQueueSession.self, from: data)
+    }
+
+    func saveQueueSession(_ session: PersistedQueueSession) throws {
+        try FileManager.default.createDirectory(
+            at: queueSessionFileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(session).write(to: queueSessionFileURL, options: .atomic)
+    }
+
+    func clearQueueSession() throws {
+        guard FileManager.default.fileExists(atPath: queueSessionFileURL.path) else { return }
+        try FileManager.default.removeItem(at: queueSessionFileURL)
     }
 
     private func refresh() {
@@ -41,6 +76,11 @@ final class LocalTransferJournal: ObservableObject {
         try store.prepareToRun(id: id)
     }
 
+
+    func prepareSourceForEjection(id: UUID) throws -> LocalTransferAccess {
+        try store.prepareSourceForEjection(id: id)
+    }
+
     /// Indexes into `[source] + destinations` whose stored access no longer
     /// resolves to the original folder (stale bookmark, unplugged drive).
     func staleResourceIndexes(id: UUID) throws -> [Int] {
@@ -55,7 +95,23 @@ final class LocalTransferJournal: ObservableObject {
 
     func markRunning(id: UUID) throws {
         defer { refresh() }
+        try beforeMarkRunning?(id)
         try store.markRunning(id: id)
+    }
+
+    func fail(id: UUID, summary: String) throws {
+        defer { refresh() }
+        try store.fail(id: id, summary: summary)
+    }
+
+    func removeQueued(id: UUID) throws {
+        defer { refresh() }
+        try store.removeQueued(id: id)
+    }
+
+    func moveQueuedToTop(id: UUID) throws {
+        defer { refresh() }
+        try store.moveQueuedToTop(id: id)
     }
 
     func finish(id: UUID, results: [ResultRow], summary: String, hadIssues: Bool) throws {

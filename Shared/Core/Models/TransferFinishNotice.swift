@@ -33,6 +33,7 @@ struct TransferFinishNotice: Equatable, Sendable {
             let names = destinations.map(TransferOutcomePresentation.destinationDriveName)
             return .init(title: "\(card) is safe to erase", body: "Verified on \(naturalList(names)).", kind: kind)
         case .copiedNotVerified:
+            guard kind != .queuedCardSuccess else { return nil }
             return .init(title: "\(card) was copied without checksum verification", body: "Do not erase the card.", kind: kind)
         case .needsAttention:
             return .init(title: "\(card) needs attention", body: "Do not erase the card.", kind: .attention)
@@ -45,8 +46,8 @@ struct TransferFinishNotice: Equatable, Sendable {
         }
     }
 
-    static func queueFinished(tally: String) -> TransferFinishNotice {
-        .init(title: "Queue finished: \(tally)", body: "", kind: .queueFinished)
+    static func queueFinished(title: String, tally: String) -> TransferFinishNotice {
+        .init(title: "\(title): \(tally)", body: "", kind: .queueFinished)
     }
 
     private static func completionVerdict(state: OperationState, issueCount: Int) -> CompletionVerdict {

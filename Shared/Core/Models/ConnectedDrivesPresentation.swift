@@ -8,6 +8,7 @@ nonisolated enum ConnectedDrivesPresentation {
         let freeBytes: Int64
         var isRemovable: Bool
         var isInternal: Bool
+        var volumeID: String? = nil
         var cameraName: String? = nil
         var isHidden = false
         var isAppDiskImage = false
@@ -23,6 +24,7 @@ nonisolated enum ConnectedDrivesPresentation {
         let subtitle: String
         let role: Role
         let state: State
+        let volumeID: String?
     }
 
     static func isVisible(_ volume: Volume) -> Bool {
@@ -55,7 +57,8 @@ nonisolated enum ConnectedDrivesPresentation {
                 displayName: nameCounts[volume.name, default: 0] > 1 ? volume.url.lastPathComponent : volume.name,
                 subtitle: cameraName.map { "\($0) card · \(total)" } ?? "\(free) free of \(total)",
                 role: role,
-                state: state
+                state: state,
+                volumeID: volume.volumeID
             )
         }.sorted { lhs, rhs in
             if (lhs.role == .card) != (rhs.role == .card) { return lhs.role == .card }

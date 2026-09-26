@@ -13,30 +13,12 @@ struct MacSetupLocations: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     @EnvironmentObject var volumeAccess: MacVolumeAccessModel
     let context: SetupLocationsContext
-    @State private var showingTransfers = false
 
     var body: some View {
         let volumeAccess = self.volumeAccess
         VStack(spacing: 12) {
             CoordinatorSetupLocations(coordinator: coordinator, context: context, platform: platform)
             MacConnectedDrives(monitor: volumeAccess.volumeMonitor, coordinator: coordinator, platform: platform)
-            if coordinator.queuedCardCount > 0 {
-                HStack(spacing: 10) {
-                    Text("\(coordinator.queuedCardCount) \(coordinator.queuedCardCount == 1 ? "card" : "cards") queued")
-                    Spacer()
-                    Button("Run queue") { coordinator.startQueue() }
-                        .disabled(coordinator.queueIsRunning || coordinator.transferJournal.persistenceError != nil)
-                    Button("Show") { showingTransfers = true }
-                        .accessibilityLabel("Show queued transfers")
-                }
-                .font(.subheadline)
-                .controlSize(.small)
-                .padding(12)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-            }
-        }
-        .sheet(isPresented: $showingTransfers) {
-            TransferLibraryView(coordinator: coordinator, journal: coordinator.transferJournal)
         }
     }
 
