@@ -359,7 +359,7 @@ final class SafetyValidatorTests: XCTestCase {
         try Data("x".utf8).write(to: metadata.appendingPathComponent("a.mov"))
 
         XCTAssertNoThrow(try SafetyValidator.validateSourceTreeForCopy(source: source))
-        let manifest = try FileTreeEnumerator.enumerateRegularFiles(base: source)
+        let manifest = try CardSource.enumerateRegularFiles(base: source)
         XCTAssertEqual(manifest.map(\.relativePath), ["DCIM/clip.mov"])
     }
 
@@ -378,7 +378,7 @@ final class SafetyValidatorTests: XCTestCase {
         let stored = try fm.contentsOfDirectory(atPath: nested.path)
 
         // Nested metadata is real data on both paths, regardless of filesystem.
-        let manifest = try FileTreeEnumerator.enumerateRegularFiles(base: source)
+        let manifest = try CardSource.enumerateRegularFiles(base: source)
         XCTAssertEqual(Set(manifest.map(\.relativePath)), Set(stored.map { "Nested/.Spotlight-V100/\($0)" }))
 
         // A case-only collision needs a filesystem that keeps both names; the

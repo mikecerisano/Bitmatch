@@ -42,7 +42,7 @@ struct EngineGuardTests {
             defer { fixture.cleanup() }
             let checksum = GatedChecksumService()
             let secondBackup = fixture.destinations[1].standardizedFileURL
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: LocalFileAccess(),
                 checksum: checksum,
                 destinationSetupHook: { destination in
@@ -107,9 +107,9 @@ struct EngineGuardTests {
         try await FileOperationsTestLock.shared.run {
             let fixture = try DisposableTransferFixture(seed: 62, fileCount: 6, bytesPerFile: 8 * 1024)
             defer { fixture.cleanup() }
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared,
+                checksum: ChecksumEngine.shared,
                 pipelinedVerification: false
             )
             let operation = try await service.performFileOperation(
@@ -231,7 +231,7 @@ struct EngineGuardTests {
     // MARK: T9 / I9
 
     /// Pausing one run does not pause another. Until C07 one static
-    /// `SharedChecksumService.pauseCheck` served every run, so B's destination
+    /// `ChecksumEngine.pauseCheck` served every run, so B's destination
     /// reads waited on A's pause; each run now installs its own
     /// `PauseGate.current`.
     /// Plant: make `PauseGate.current` a `static var` that `executeOperation`
@@ -285,7 +285,7 @@ struct EngineGuardTests {
     // MARK: T11
 
     /// Verification always hashes the source's current bytes, never a cached digest.
-    /// Plant: in `FileCopyService.checksumVerification`, return a digest
+    /// Plant: in `DestinationWriter.checksumVerification`, return a digest
     /// remembered from an earlier call for the same path.
     @Test func sourceDigestIsNeverCached() async throws {
         try await FileOperationsTestLock.shared.run {
@@ -327,8 +327,8 @@ struct EngineGuardTests {
 
     // MARK: Helpers
 
-    private func makeService(checksum: any ChecksumService = SharedChecksumService.shared) -> SharedFileOperationsService {
-        SharedFileOperationsService(fileSystem: LocalFileAccess(), checksum: checksum)
+    private func makeService(checksum: any ChecksumService = ChecksumEngine.shared) -> TransferPipeline {
+        TransferPipeline(fileSystem: LocalFileAccess(), checksum: checksum)
     }
 }
 
@@ -363,15 +363,15 @@ private final class GateObservingChecksumService: ChecksumService, @unchecked Se
     func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String {
         let gated = PauseGate.current != nil
         lock.withLock { total += 1; if !gated { ungated += 1 } }
-        return try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
+        return try await ChecksumEngine.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
     }
 
     func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult {
-        try await SharedChecksumService.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
     }
 
     func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool {
-        try await SharedChecksumService.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
     }
 }
 
@@ -390,15 +390,15 @@ private final class PeakCountingChecksumService: ChecksumService, @unchecked Sen
         lock.withLock { inFlight += 1; peakValue = max(peakValue, inFlight) }
         defer { lock.withLock { inFlight -= 1 } }
         try await Task.sleep(for: delay)
-        return try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
+        return try await ChecksumEngine.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
     }
 
     func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult {
-        try await SharedChecksumService.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
     }
 
     func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool {
-        try await SharedChecksumService.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
     }
 }
 
@@ -422,14 +422,14 @@ private final class GatedChecksumService: ChecksumService, @unchecked Sendable {
             try? await Task.sleep(for: .milliseconds(10))
         }
         try Task.checkCancellation()
-        return try await SharedChecksumService.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
+        return try await ChecksumEngine.shared.generateChecksum(for: fileURL, type: type, progressCallback: progressCallback)
     }
 
     func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult {
-        try await SharedChecksumService.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.verifyFileIntegrity(sourceURL: sourceURL, destinationURL: destinationURL, type: type, progressCallback: progressCallback)
     }
 
     func performByteComparison(sourceURL: URL, destinationURL: URL, progressCallback: ProgressCallback?) async throws -> Bool {
-        try await SharedChecksumService.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
+        try await ChecksumEngine.shared.performByteComparison(sourceURL: sourceURL, destinationURL: destinationURL, progressCallback: progressCallback)
     }
 }

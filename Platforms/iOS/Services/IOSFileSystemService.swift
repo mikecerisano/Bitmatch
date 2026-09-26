@@ -66,7 +66,7 @@ final class IOSFileSystemService: NSObject, FileSystemService, @unchecked Sendab
         }
         defer { folderURL.stopAccessingSecurityScopedResource() }
 
-        let fileURLs = try FileTreeEnumerator.enumerateRegularFiles(base: folderURL).map(\.url)
+        let fileURLs = try CardSource.enumerateRegularFiles(base: folderURL).map(\.url)
 
         #if DEBUG
         let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
@@ -76,7 +76,7 @@ final class IOSFileSystemService: NSObject, FileSystemService, @unchecked Sendab
         return fileURLs
     }
     
-    // NOTE: copyFile removed - all copying uses FileCopyService.copyAllSafely() for atomic writes
+    // NOTE: copyFile removed - all copying uses DestinationWriter.copyAllSafely() for atomic writes
     // The previous implementation was dangerous: it deleted destination before copy, risking data loss
 
     nonisolated func getFileSize(for url: URL) throws -> Int64 {

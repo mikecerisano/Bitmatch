@@ -10,7 +10,7 @@ struct SharedChecksumEdgeCaseTests {
             .appendingPathComponent("bitmatch_missing_\(UUID().uuidString).bin")
 
         do {
-            _ = try await SharedChecksumService.shared.generateChecksum(
+            _ = try await ChecksumEngine.shared.generateChecksum(
                 for: missing,
                 type: .sha256,
                 progressCallback: nil
@@ -35,7 +35,7 @@ struct SharedChecksumEdgeCaseTests {
         let fileURL = tmp.appendingPathComponent("bitmatch_empty_\(UUID().uuidString).dat")
         try Data().write(to: fileURL, options: .atomic)
 
-        let checksum = try await SharedChecksumService.shared.generateChecksum(
+        let checksum = try await ChecksumEngine.shared.generateChecksum(
             for: fileURL,
             type: .sha256,
             progressCallback: nil
@@ -55,7 +55,7 @@ struct SharedChecksumEdgeCaseTests {
         try Data("12345".utf8).write(to: a, options: .atomic)
         try Data("123456".utf8).write(to: b, options: .atomic)
 
-        let matches = try await SharedChecksumService.shared.performByteComparison(
+        let matches = try await ChecksumEngine.shared.performByteComparison(
             sourceURL: a,
             destinationURL: b,
             progressCallback: nil

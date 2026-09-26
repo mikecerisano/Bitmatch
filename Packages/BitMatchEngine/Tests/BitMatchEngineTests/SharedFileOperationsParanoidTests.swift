@@ -20,9 +20,9 @@ struct SharedFileOperationsParanoidTests {
             try Data("alpha".utf8).write(to: source.appendingPathComponent("alpha.txt"))
             try Data("beta".utf8).write(to: source.appendingPathComponent("beta.txt"))
 
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let finalProgress = Locked<OperationProgress?>(nil)

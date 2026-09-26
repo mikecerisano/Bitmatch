@@ -12,13 +12,13 @@ class MacOSPlatformManager: PlatformManager {
     }
     
     var checksum: ChecksumService {
-        SharedChecksumService.shared
+        ChecksumEngine.shared
     }
     
     // Thread-safe lazy initialization via static let
-    private static let _sharedFileOperations = SharedFileOperationsService(
+    private static let _sharedFileOperations = TransferPipeline(
         fileSystem: MacOSFileSystemService.shared,
-        checksum: SharedChecksumService.shared,
+        checksum: ChecksumEngine.shared,
         pipelinedVerification: !UserDefaults.standard.bool(forKey: "DisablePipelinedVerify")
     )
     private static let _sharedCameraDetection = SharedCameraDetectionService()

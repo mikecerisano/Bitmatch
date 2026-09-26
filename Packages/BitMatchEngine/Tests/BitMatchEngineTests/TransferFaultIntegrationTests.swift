@@ -57,7 +57,7 @@ final class TransferFaultIntegrationTests: XCTestCase {
             }, "Results: \(describe(operation.results))")
             XCTAssertFalse(targetResult.success)
             XCTAssertFalse(resultRow(from: targetResult).isSuccessStatus)
-            let publishedHash = try await SharedChecksumService.shared.generateChecksum(
+            let publishedHash = try await ChecksumEngine.shared.generateChecksum(
                 for: targetResult.destinationURL,
                 type: .sha256,
                 progressCallback: nil
@@ -178,9 +178,9 @@ final class TransferFaultIntegrationTests: XCTestCase {
                 try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inaccessibleRoot.path)
             }
 
-            let operation = try await SharedFileOperationsService(
+            let operation = try await TransferPipeline(
                 fileSystem: faultFileSystem,
-                checksum: SharedChecksumService.shared,
+                checksum: ChecksumEngine.shared,
                 destinationSetupHook: { faultFileSystem.injectFault(for: $0) }
             ).performFileOperation(
                 sourceURL: source,
@@ -243,10 +243,10 @@ private func describe(_ results: [FileOperationResult]) -> String {
 
 private func makeService(
     fileSystem: any FileAccess = LocalFileAccess()
-) -> SharedFileOperationsService {
-    SharedFileOperationsService(
+) -> TransferPipeline {
+    TransferPipeline(
         fileSystem: fileSystem,
-        checksum: SharedChecksumService.shared
+        checksum: ChecksumEngine.shared
     )
 }
 
@@ -280,7 +280,7 @@ private func assertSuccessfulOutputHashes(
         }
         let relativePath = String(result.sourceURL.path.dropFirst(sourcePrefix.count))
         let expected = try XCTUnwrap(manifest[relativePath], file: file, line: line)
-        let actual = try await SharedChecksumService.shared.generateChecksum(
+        let actual = try await ChecksumEngine.shared.generateChecksum(
             for: result.destinationURL,
             type: .sha256,
             progressCallback: nil
@@ -306,7 +306,7 @@ private func assertOutputHash(
         line: line
     )
     let expected = try XCTUnwrap(manifest[relativePath], file: file, line: line)
-    let actual = try await SharedChecksumService.shared.generateChecksum(
+    let actual = try await ChecksumEngine.shared.generateChecksum(
         for: result.destinationURL,
         type: .sha256,
         progressCallback: nil

@@ -1,4 +1,5 @@
-// SharedFileOperationsService.swift - Platform-agnostic file operations
+// TransferPipeline.swift - One copy-and-verify run, from the card's
+// manifest to one verified result per file per backup.
 import Foundation
 import Synchronization
 
@@ -191,7 +192,7 @@ public final class ActiveOperationRegistry: Sendable {
     }
 }
 
-public final class SharedFileOperationsService: FileOperationsService, Sendable {
+public final class TransferPipeline: FileOperationsService, Sendable {
 
     private let fileSystem: any FileAccess
     private let checksumService: any ChecksumService
@@ -325,7 +326,7 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
 
         // Step 2: Build one fail-closed source manifest before safety validation.
         SharedLogger.debug("Prep: enumerating source manifest at \(operation.sourceURL.path)", category: .transfer)
-        let sourceManifest = try FileTreeEnumerator.enumerateRegularFiles(base: operation.sourceURL)
+        let sourceManifest = try CardSource.enumerateRegularFiles(base: operation.sourceURL)
         let manifestURLByRelativePath = Dictionary(
             sourceManifest.map { ($0.relativePath, $0.url) },
             uniquingKeysWith: { first, _ in first }
@@ -411,7 +412,7 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             do {
                 try Task.checkCancellation()
                 try await self.waitIfPaused()
-                let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
+                let verificationResult = try await DestinationWriter.verifyPinnedDestinationFile(
                     source: job.source,
                     pinnedRoot: job.pinnedRoot,
                     relativePath: job.relativePath,
@@ -545,7 +546,7 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
 
                 // Copy to this destination using atomic writes and resume-aware skip
                 SharedLogger.info("→ Begin copy to dest #\(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
-                try await FileCopyService.copyAllSafely(
+                try await DestinationWriter.copyAllSafely(
                     from: operation.sourceURL,
                     toPinnedRoot: pinnedDestination,
                     verificationMode: operation.verificationMode,
@@ -634,7 +635,7 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
                                         Double(event.snapshot.filesVerified) / Double(max(1, totalFiles))
                                     ))
                                 }
-                                let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
+                                let verificationResult = try await DestinationWriter.verifyPinnedDestinationFile(
                                     source: fileURL,
                                     pinnedRoot: pinnedDestination,
                                     relativePath: relativePath,

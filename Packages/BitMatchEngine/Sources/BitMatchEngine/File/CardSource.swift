@@ -1,3 +1,4 @@
+// CardSource.swift - The fail-closed list of files on a card.
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -43,14 +44,14 @@ public struct RelativePathResolver: Sendable {
             }
         }
         throw NSError(
-            domain: "FileTreeEnumerator",
+            domain: "CardSource",
             code: NSFileReadUnknownError,
             userInfo: [NSLocalizedDescriptionKey: "Could not determine the path of \(item.lastPathComponent) relative to \(base.lastPathComponent)"]
         )
     }
 }
 
-public enum FileTreeEnumerator: Sendable {
+public enum CardSource: Sendable {
     /// macOS volume metadata directories written to the root of removable media. They are
     /// not user data and are frequently unreadable without Full Disk Access, so descending
     /// into them would abort the whole transfer with a permission error. Only direct
@@ -114,7 +115,7 @@ public enum FileTreeEnumerator: Sendable {
             errorHandler: { url, error in
                 if traversalError == nil {
                     traversalError = NSError(
-                        domain: "FileTreeEnumerator",
+                        domain: "CardSource",
                         code: (error as NSError).code,
                         userInfo: [NSLocalizedDescriptionKey: "Could not read \(url.lastPathComponent): \(error.localizedDescription)"]
                     )

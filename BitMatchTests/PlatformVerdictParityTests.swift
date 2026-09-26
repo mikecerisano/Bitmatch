@@ -12,7 +12,7 @@ import Darwin
 /// `IOSPlatformManager` and `IOSFileSystemService` import UIKit and cannot
 /// load in this macOS test host. `IOSShapedPlatformManager` instead assembles
 /// the engine the way `IOSPlatformManager` does (its own
-/// `SharedFileOperationsService` over its own file system), and
+/// `TransferPipeline` over its own file system), and
 /// `IOSShapedFileSystem` mirrors `IOSFileSystemService`'s non-picker methods
 /// without the security-scope calls. Physical iOS parity still needs a run in
 /// the BitMatch-iPad test target.
@@ -172,7 +172,7 @@ private func parityCanonicalDirectoryURL(_ url: URL) -> URL {
 /// Composed the way `IOSPlatformManager` composes itself.
 private final class IOSShapedPlatformManager: PlatformManager {
     let fakeFileSystem: IOSShapedFileSystem
-    nonisolated let checksum: ChecksumService = SharedChecksumService.shared
+    nonisolated let checksum: ChecksumService = ChecksumEngine.shared
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = SharedCameraDetectionService()
     nonisolated let supportsDragAndDrop = false
@@ -182,9 +182,9 @@ private final class IOSShapedPlatformManager: PlatformManager {
     init() {
         let fileSystem = IOSShapedFileSystem()
         fakeFileSystem = fileSystem
-        fileOperations = SharedFileOperationsService(
+        fileOperations = TransferPipeline(
             fileSystem: fileSystem,
-            checksum: SharedChecksumService.shared
+            checksum: ChecksumEngine.shared
         )
     }
 
@@ -197,7 +197,7 @@ private final class IOSShapedPlatformManager: PlatformManager {
 /// space, minus security scopes (which the fake counts instead).
 private final class IOSShapedFileSystem: FakeFileSystemService {
     override func getFileList(from folderURL: URL) async throws -> [URL] {
-        try FileTreeEnumerator.enumerateRegularFiles(base: folderURL).map(\.url)
+        try CardSource.enumerateRegularFiles(base: folderURL).map(\.url)
     }
 
     override nonisolated func getFileSize(for url: URL) throws -> Int64 {

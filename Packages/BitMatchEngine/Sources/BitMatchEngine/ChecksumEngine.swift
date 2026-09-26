@@ -1,10 +1,10 @@
-// SharedChecksumService.swift - Platform-agnostic checksum verification
+// ChecksumEngine.swift - Checksums and byte comparison of whole files.
 import Foundation
 import CryptoKit
 
 /// Shared checksum service that works on both macOS and iOS
-public final class SharedChecksumService: ChecksumService, Sendable {
-    public static let shared = SharedChecksumService()
+public final class ChecksumEngine: ChecksumService, Sendable {
+    public static let shared = ChecksumEngine()
 
     private struct FileReadSnapshot: Equatable {
         let size: Int64
@@ -215,7 +215,7 @@ public final class SharedChecksumService: ChecksumService, Sendable {
     ) throws {
         guard bytesRead == initial.size, trailingData.isEmpty else {
             throw NSError(
-                domain: "SharedChecksumService",
+                domain: "ChecksumEngine",
                 code: -11,
                 userInfo: [NSLocalizedDescriptionKey: "File changed while reading \(url.lastPathComponent)"]
             )
@@ -229,7 +229,7 @@ public final class SharedChecksumService: ChecksumService, Sendable {
     ) throws {
         guard try captureSnapshot(for: url) == initial else {
             throw NSError(
-                domain: "SharedChecksumService",
+                domain: "ChecksumEngine",
                 code: -11,
                 userInfo: [NSLocalizedDescriptionKey: "File changed while reading \(url.lastPathComponent)"]
             )
@@ -374,7 +374,7 @@ public final class SharedChecksumService: ChecksumService, Sendable {
 
     private static func truncatedReadError(for url: URL, expected: Int64, actual: Int64) -> Error {
         NSError(
-            domain: "SharedChecksumService",
+            domain: "ChecksumEngine",
             code: -10,
             userInfo: [
                 NSLocalizedDescriptionKey:

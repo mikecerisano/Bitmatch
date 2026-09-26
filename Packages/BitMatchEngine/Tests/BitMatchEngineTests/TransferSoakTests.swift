@@ -30,9 +30,9 @@ final class TransferSoakTests: XCTestCase {
                 )
                 defer { fixture.cleanup() }
                 let source = soakCanonicalFileURL(fixture.source)
-                let operation = try await SharedFileOperationsService(
+                let operation = try await TransferPipeline(
                     fileSystem: LocalFileAccess(),
-                    checksum: SharedChecksumService.shared
+                    checksum: ChecksumEngine.shared
                 ).performFileOperation(
                     sourceURL: source,
                     destinationURLs: fixture.destinations,
@@ -59,7 +59,7 @@ final class TransferSoakTests: XCTestCase {
                 for result in operation.results {
                     let relativePath = try relativeManifestPath(for: result, source: source)
                     let expectedHash = try XCTUnwrap(fixture.manifest[relativePath])
-                    let actualHash = try await SharedChecksumService.shared.generateChecksum(
+                    let actualHash = try await ChecksumEngine.shared.generateChecksum(
                         for: result.destinationURL,
                         type: .sha256,
                         progressCallback: nil

@@ -1,5 +1,5 @@
-// FileCopyService.swift - Atomic file copy with streaming enumeration
-// Uses shared AsyncSemaphore from AsyncSemaphore.swift
+// DestinationWriter.swift - Writes into a pinned backup folder: atomic,
+// never-replace publish (exFAT included), reuse checks, and verified reads.
 import Foundation
 import Synchronization
 import CryptoKit
@@ -77,7 +77,7 @@ public final class PinnedDestinationDirectory: @unchecked Sendable {
         let status = name.withCString { fstatat(parentFD, $0, &info, AT_SYMLINK_NOFOLLOW) }
         if status == 0 {
             guard (info.st_mode & S_IFMT) == S_IFREG else {
-                throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+                throw DestinationWriter.existingDestinationConflictError("Existing destination item is not a regular file")
             }
             return true
         }
@@ -141,7 +141,7 @@ public final class PinnedDestinationDirectory: @unchecked Sendable {
         let lookup = name.withCString { fstatat(parentFD, $0, &current, AT_SYMLINK_NOFOLLOW) }
         guard lookup == 0, current.st_dev == claimed.st_dev, current.st_ino == claimed.st_ino,
               (current.st_mode & S_IFMT) == S_IFREG, current.st_size == 0 else {
-            throw FileCopyService.existingDestinationConflictError("Destination file changed during copy; refusing to overwrite it")
+            throw DestinationWriter.existingDestinationConflictError("Destination file changed during copy; refusing to overwrite it")
         }
 
         let renamed = temporaryName.withCString { temporaryNamePointer in
@@ -284,7 +284,7 @@ public final class PinnedDestinationFile: @unchecked Sendable {
             throw Self.posixError("Unable to inspect pinned destination file")
         }
         guard (info.st_mode & S_IFMT) == S_IFREG else {
-            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+            throw DestinationWriter.existingDestinationConflictError("Existing destination item is not a regular file")
         }
         return info
     }
@@ -300,7 +300,7 @@ public final class PinnedDestinationFile: @unchecked Sendable {
               actual.st_dev == expected.st_dev,
               actual.st_ino == expected.st_ino else {
             _ = Darwin.close(readerFD)
-            throw FileCopyService.existingDestinationConflictError("Pinned destination file changed before reading")
+            throw DestinationWriter.existingDestinationConflictError("Pinned destination file changed before reading")
         }
         return FileHandle(fileDescriptor: readerFD, closeOnDealloc: true)
     }
@@ -317,7 +317,7 @@ public final class PinnedDestinationFile: @unchecked Sendable {
         var info = stat()
         guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
             _ = Darwin.close(fd)
-            throw FileCopyService.existingDestinationConflictError("Existing destination item is not a regular file")
+            throw DestinationWriter.existingDestinationConflictError("Existing destination item is not a regular file")
         }
         return fd
     }
@@ -328,7 +328,7 @@ public final class PinnedDestinationFile: @unchecked Sendable {
 }
 #endif
 
-public final class FileCopyService {
+public final class DestinationWriter {
     // Perf 1: actor wrapping pre-enumerated file list for concurrent worker access
     /// Hands each copy worker the next manifest entry: one atomic index,
     /// so every file is taken exactly once.
@@ -382,7 +382,7 @@ public final class FileCopyService {
                         }
                         guard let components = safeRelativeComponents(relativePath) else {
                             await onError(relativePath, NSError(
-                                domain: "FileCopyService",
+                                domain: "DestinationWriter",
                                 code: NSFileWriteNoPermissionError,
                                 userInfo: [NSLocalizedDescriptionKey: "Path contains traversal component"]
                             ))
@@ -392,7 +392,7 @@ public final class FileCopyService {
                         let resolvedSource = fileURL.resolvingSymlinksInPath()
                         guard PathContainment.isWithin(resolvedSource.path, root: src.resolvingSymlinksInPath().path) else {
                             await onError(relativePath, NSError(
-                                domain: "FileCopyService",
+                                domain: "DestinationWriter",
                                 code: NSFileWriteNoPermissionError,
                                 userInfo: [NSLocalizedDescriptionKey: "Source file resolves outside source directory"]
                             ))
@@ -491,7 +491,7 @@ public final class FileCopyService {
         var temporaryInfo = stat()
         guard fstat(temporaryFD, &temporaryInfo) == 0,
               Int64(temporaryInfo.st_size) == sourceSize else {
-            throw NSError(domain: "FileCopyService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Size mismatch after copy"])
+            throw NSError(domain: "DestinationWriter", code: -2, userInfo: [NSLocalizedDescriptionKey: "Size mismatch after copy"])
         }
         let finalSourceAttributes = try fm.attributesOfItem(atPath: source.path)
         guard sourceRemainedStable(
@@ -500,7 +500,7 @@ public final class FileCopyService {
             initialIdentity: sourceIdentity,
             finalAttributes: finalSourceAttributes
         ) else {
-            throw NSError(domain: "FileCopyService", code: -4, userInfo: [NSLocalizedDescriptionKey: "Source file changed during copy; destination was not modified"])
+            throw NSError(domain: "DestinationWriter", code: -4, userInfo: [NSLocalizedDescriptionKey: "Source file changed during copy; destination was not modified"])
         }
 
         if let sourceModificationDate {
@@ -539,7 +539,7 @@ public final class FileCopyService {
             // manifest before loading attributes from possibly unreadable
             // volume metadata.
             if enumerator.level == 1,
-               FileTreeEnumerator.isRootVolumeMetadataDirectory(item) {
+               CardSource.isRootVolumeMetadataDirectory(item) {
                 enumerator.skipDescendants()
                 continue
             }
@@ -556,7 +556,7 @@ public final class FileCopyService {
             }
             guard let components = safeRelativeComponents(relative) else {
                 await onError(relative, NSError(
-                    domain: "FileCopyService",
+                    domain: "DestinationWriter",
                     code: NSFileWriteNoPermissionError,
                     userInfo: [NSLocalizedDescriptionKey: "Directory path contains traversal component"]
                 ))
@@ -796,7 +796,7 @@ public final class FileCopyService {
         let final = try destination.snapshot()
         guard bytesRead == Int64(initial.st_size), pinnedFileRemainedStable(initial, final) else {
             throw NSError(
-                domain: "FileCopyService",
+                domain: "DestinationWriter",
                 code: -11,
                 userInfo: [NSLocalizedDescriptionKey: "Pinned destination file changed while reading"]
             )
@@ -825,7 +825,7 @@ public final class FileCopyService {
             let sourceData = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
             let destinationData = try destinationHandle.read(upToCount: 64 * 1024) ?? Data()
             guard !sourceData.isEmpty, !destinationData.isEmpty else {
-                throw NSError(domain: "FileCopyService", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
+                throw NSError(domain: "DestinationWriter", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
             }
             if sourceData != destinationData { return false }
             bytesRead += Int64(sourceData.count)
@@ -843,7 +843,7 @@ public final class FileCopyService {
                 finalAttributes: try FileManager.default.attributesOfItem(atPath: source.path)
               ),
               pinnedFileRemainedStable(destinationInitial, destinationFinal) else {
-            throw NSError(domain: "FileCopyService", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
+            throw NSError(domain: "DestinationWriter", code: -11, userInfo: [NSLocalizedDescriptionKey: "File changed while comparing bytes"])
         }
         return true
     }
@@ -864,7 +864,7 @@ public final class FileCopyService {
 
     fileprivate static func existingDestinationConflictError(_ reason: String) -> NSError {
         NSError(
-            domain: "FileCopyService",
+            domain: "DestinationWriter",
             code: NSFileWriteFileExistsError,
             userInfo: [NSLocalizedDescriptionKey: reason]
         )
@@ -901,7 +901,7 @@ public final class FileCopyService {
 }
 
 #if canImport(Darwin)
-public extension FileCopyService {
+public extension DestinationWriter {
     private static func logMemoryUsage(context: String) {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout.size(ofValue: info) / MemoryLayout<Int32>.size)
@@ -917,7 +917,7 @@ public extension FileCopyService {
     }
 }
 #else
-public extension FileCopyService {
+public extension DestinationWriter {
     private static func logMemoryUsage(context: String) {}
 }
 #endif

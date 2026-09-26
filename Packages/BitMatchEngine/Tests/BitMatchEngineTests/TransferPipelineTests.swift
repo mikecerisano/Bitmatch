@@ -1,9 +1,9 @@
-// SharedFileOperationsServiceTests.swift
+// TransferPipelineTests.swift
 import Foundation
 import Testing
 @testable import BitMatchEngine
 
-struct SharedFileOperationsServiceTests {
+struct TransferPipelineTests {
 
     @Test
     func testCopyAndVerifySmallTree() async throws {
@@ -23,9 +23,9 @@ struct SharedFileOperationsServiceTests {
             try Data((0..<2048).map { _ in UInt8.random(in: 0...255) }).write(to: fileB)
 
             // Service under test
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let lastProgress = Locked(OperationProgress(
@@ -90,9 +90,9 @@ struct SharedFileOperationsServiceTests {
             try fm.createDirectory(at: destRoot, withIntermediateDirectories: true)
             try Data("pause reset".utf8).write(to: sourceRoot.appendingPathComponent("clip.txt"))
 
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
             await sut.pauseOperation()
 

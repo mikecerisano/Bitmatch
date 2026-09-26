@@ -11,7 +11,7 @@ class IOSPlatformManager: PlatformManager {
     }
     
     var checksum: ChecksumService {
-        SharedChecksumService.shared
+        ChecksumEngine.shared
     }
     
     var fileOperations: FileOperationsService {
@@ -30,9 +30,9 @@ class IOSPlatformManager: PlatformManager {
     private let _cameraDetection: any CameraDetectionService
     
     private init() {
-        self._fileOperations = SharedFileOperationsService(
+        self._fileOperations = TransferPipeline(
             fileSystem: IOSFileSystemService.shared,
-            checksum: SharedChecksumService.shared,
+            checksum: ChecksumEngine.shared,
             pipelinedVerification: !UserDefaults.standard.bool(forKey: "DisablePipelinedVerify")
         )
         self._cameraDetection = SharedCameraDetectionService()

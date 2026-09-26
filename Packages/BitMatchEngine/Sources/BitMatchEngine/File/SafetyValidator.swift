@@ -425,7 +425,7 @@ public final class SafetyValidator {
             // Foundation for metadata attributes. Root volume metadata can be
             // unreadable without Full Disk Access and is intentionally skipped.
             if enumerator.level == 1,
-               FileTreeEnumerator.isRootVolumeMetadataDirectory(item) {
+               CardSource.isRootVolumeMetadataDirectory(item) {
                 enumerator.skipDescendants()
                 continue
             }

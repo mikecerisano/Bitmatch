@@ -106,9 +106,9 @@ final class ExFATDestinationTests: XCTestCase {
         let destination = mountPoint.appendingPathComponent("Backup", isDirectory: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
-        let operation = try await SharedFileOperationsService(
+        let operation = try await TransferPipeline(
             fileSystem: LocalFileAccess(),
-            checksum: SharedChecksumService.shared
+            checksum: ChecksumEngine.shared
         ).performFileOperation(
             sourceURL: fixture.source,
             destinationURLs: [destination],

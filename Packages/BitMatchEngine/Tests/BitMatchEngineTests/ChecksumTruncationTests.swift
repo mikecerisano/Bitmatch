@@ -62,7 +62,7 @@ final class ChecksumTruncationTests: XCTestCase {
         let truncated = ThreadSafeFlag()
 
         do {
-            _ = try await SharedChecksumService.shared.generateChecksum(
+            _ = try await ChecksumEngine.shared.generateChecksum(
                 for: file,
                 type: .sha256
             ) { _, _ in
@@ -82,7 +82,7 @@ final class ChecksumTruncationTests: XCTestCase {
         let truncated = ThreadSafeFlag()
 
         let task = Task {
-            try await SharedChecksumService.shared.performByteComparison(
+            try await ChecksumEngine.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
             ) { _, _ in
@@ -119,7 +119,7 @@ final class ChecksumTruncationTests: XCTestCase {
         let appended = ThreadSafeFlag()
 
         do {
-            _ = try await SharedChecksumService.shared.generateChecksum(
+            _ = try await ChecksumEngine.shared.generateChecksum(
                 for: file,
                 type: .sha256
             ) { progress, _ in
@@ -139,7 +139,7 @@ final class ChecksumTruncationTests: XCTestCase {
         let appended = ThreadSafeFlag()
 
         do {
-            _ = try await SharedChecksumService.shared.performByteComparison(
+            _ = try await ChecksumEngine.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
             ) { progress, _ in
@@ -159,7 +159,7 @@ final class ChecksumTruncationTests: XCTestCase {
         let mutated = ThreadSafeFlag()
 
         do {
-            _ = try await SharedChecksumService.shared.performByteComparison(
+            _ = try await ChecksumEngine.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
             ) { progress, _ in
@@ -175,7 +175,7 @@ final class ChecksumTruncationTests: XCTestCase {
 
     func testChecksumOfStableFileStillSucceeds() async throws {
         let file = try makeFile("stable.bin", size: 256 * 1024)
-        let checksum = try await SharedChecksumService.shared.generateChecksum(
+        let checksum = try await ChecksumEngine.shared.generateChecksum(
             for: file,
             type: .sha256,
             progressCallback: nil

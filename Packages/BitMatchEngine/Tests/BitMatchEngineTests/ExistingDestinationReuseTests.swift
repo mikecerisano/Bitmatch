@@ -105,13 +105,13 @@ private struct ReuseFixture {
     ) async throws -> (reused: Bool, errors: [String]) {
         let pinnedRoot = try PinnedDestinationDirectory.open(destination: destination, rootComponents: ["Card-001"])
         let events = ReuseEventCollector()
-        try await FileCopyService.copyAllSafely(
+        try await DestinationWriter.copyAllSafely(
             from: source,
             toPinnedRoot: pinnedRoot,
             verificationMode: verificationMode,
             workers: 1,
             checksumService: checksumService,
-            preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
+            preEnumeratedFiles: try CardSource.enumerateRegularFiles(base: source).map(\.url),
             onProgress: { _, _ in await events.recordProgress() },
             onError: { _, error in await events.recordError(error.localizedDescription) }
         )

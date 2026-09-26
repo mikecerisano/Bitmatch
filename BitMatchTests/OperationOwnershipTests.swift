@@ -8,7 +8,7 @@ final class OperationOwnershipTests: XCTestCase {
             let fixture = try OwnershipTransferFixture(destinationCount: 2)
             defer { fixture.cleanup() }
             let checksum = BlockingChecksumService()
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: MacOSFileSystemService.shared,
                 checksum: checksum
             )
@@ -78,7 +78,7 @@ final class OperationOwnershipTests: XCTestCase {
             let fixture = try OwnershipTransferFixture(destinationCount: 1)
             defer { fixture.cleanup() }
             let checksum = BlockingChecksumService()
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: MacOSFileSystemService.shared,
                 checksum: checksum
             )
@@ -142,7 +142,7 @@ final class OperationOwnershipTests: XCTestCase {
             )
             let fileSystem = BlockingFailureFileSystem(failingDirectory: failingRoot)
             let failingDestination = fixture.destinations[1].standardizedFileURL
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: fileSystem,
                 checksum: checksum,
                 destinationSetupHook: { destination in
@@ -204,9 +204,9 @@ final class OperationOwnershipTests: XCTestCase {
         try await FileOperationsTestLock.shared.run {
             let fixture = try OwnershipTransferFixture(destinationCount: 2)
             defer { fixture.cleanup() }
-            let service = SharedFileOperationsService(
+            let service = TransferPipeline(
                 fileSystem: FakeFileSystemService(),
-                checksum: SharedChecksumService.shared,
+                checksum: ChecksumEngine.shared,
                 destinationSetupHook: { _ in throw CancellationError() }
             )
             let callbackCount = AsyncCounter()
@@ -349,7 +349,7 @@ private final class BlockingChecksumService: ChecksumService, @unchecked Sendabl
         // Production now compares this source digest against the real
         // destination digest read through the pinned handle, so this must
         // be the file's actual checksum rather than a fixed placeholder.
-        return try await SharedChecksumService.shared.generateChecksum(
+        return try await ChecksumEngine.shared.generateChecksum(
             for: fileURL,
             type: type,
             progressCallback: nil

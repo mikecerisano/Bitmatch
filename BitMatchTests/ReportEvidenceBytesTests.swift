@@ -56,7 +56,7 @@ final class ReportEvidenceBytesTests: XCTestCase {
 
             // The fixture's real files, not the per-file size requested: it
             // also writes a small manifest-style file.
-            let sourceBytes = try FileTreeEnumerator.enumerateRegularFiles(base: fixture.source)
+            let sourceBytes = try CardSource.enumerateRegularFiles(base: fixture.source)
                 .reduce(Int64(0)) { $0 + $1.size }
             let expected = sourceBytes / Int64(fixture.manifest.count)
             XCTAssertGreaterThan(expected, 0)

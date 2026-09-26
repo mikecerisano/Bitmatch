@@ -56,9 +56,9 @@ struct SharedFileOperationsEdgeCaseTests {
             try fm.createSymbolicLink(at: symlink, withDestinationURL: realFile)
 
             let settings = CameraLabelSettings()
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let op = try await sut.performFileOperation(
@@ -109,9 +109,9 @@ struct SharedFileOperationsEdgeCaseTests {
             try fm.setAttributes([.modificationDate: expectedDate], ofItemAtPath: sourceFile.path)
 
             let settings = CameraLabelSettings()
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let op = try await sut.performFileOperation(
@@ -164,9 +164,9 @@ struct SharedFileOperationsEdgeCaseTests {
             let existingDestination = outputRoot.appendingPathComponent("clip.txt")
             try Data("do-not-overwrite".utf8).write(to: existingDestination, options: .atomic)
 
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let op = try await sut.performFileOperation(
@@ -206,9 +206,9 @@ struct SharedFileOperationsEdgeCaseTests {
             try fm.createDirectory(at: source.appendingPathComponent("EMPTY_DIR"), withIntermediateDirectories: true)
 
             let settings = CameraLabelSettings()
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             _ = try await sut.performFileOperation(
@@ -264,13 +264,13 @@ struct SharedFileOperationsEdgeCaseTests {
             try fm.moveItem(at: originalJob, to: heldJob)
             try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
 
-            try await FileCopyService.copyAllSafely(
+            try await DestinationWriter.copyAllSafely(
                 from: source,
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .quick,
                 workers: 1,
-                checksumService: SharedChecksumService.shared,
-                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
+                checksumService: ChecksumEngine.shared,
+                preEnumeratedFiles: try CardSource.enumerateRegularFiles(base: source).map(\.url),
                 onProgress: { _, _ in },
                 onError: { _, error in
                     Issue.record("Pinned copy unexpectedly failed: \(error.localizedDescription)")
@@ -317,13 +317,13 @@ struct SharedFileOperationsEdgeCaseTests {
             try fm.createSymbolicLink(at: originalJob, withDestinationURL: escape)
 
             let errors = AsyncErrorCollector()
-            try await FileCopyService.copyAllSafely(
+            try await DestinationWriter.copyAllSafely(
                 from: source,
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .standard,
                 workers: 1,
-                checksumService: SharedChecksumService.shared,
-                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
+                checksumService: ChecksumEngine.shared,
+                preEnumeratedFiles: try CardSource.enumerateRegularFiles(base: source).map(\.url),
                 onProgress: { _, _ in
                     Issue.record("Escape-tree checksum match must not be reused as verified evidence")
                 },
@@ -363,12 +363,12 @@ struct SharedFileOperationsEdgeCaseTests {
                 destination: destination,
                 rootComponents: ["Card-001"]
             )
-            let result = try await FileCopyService.verifyPinnedDestinationFile(
+            let result = try await DestinationWriter.verifyPinnedDestinationFile(
                 source: source.appendingPathComponent(relativePath),
                 pinnedRoot: pinnedRoot,
                 relativePath: relativePath,
                 verificationMode: .thorough,
-                checksumService: SharedChecksumService.shared
+                checksumService: ChecksumEngine.shared
             )
 
             #expect(result.matches)
@@ -397,13 +397,13 @@ struct SharedFileOperationsEdgeCaseTests {
             let errors = AsyncErrorCollector()
 
             let pinnedRoot = try PinnedDestinationDirectory.open(destination: dest, rootComponents: [])
-            try await FileCopyService.copyAllSafely(
+            try await DestinationWriter.copyAllSafely(
                 from: source,
                 toPinnedRoot: pinnedRoot,
                 verificationMode: .quick,
                 workers: 1,
-                checksumService: SharedChecksumService.shared,
-                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
+                checksumService: ChecksumEngine.shared,
+                preEnumeratedFiles: try CardSource.enumerateRegularFiles(base: source).map(\.url),
                 pauseCheck: {
                     try await mutator.tick()
                 },

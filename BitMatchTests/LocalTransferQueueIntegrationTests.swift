@@ -18,7 +18,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
                                           cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: false)
         let secondID = try journal.enqueue(sourceURL: secondSource, destinationURLs: [f.destination], verificationMode: .standard,
                                            cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: false)
-        let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
+        let operations = TransferPipeline(fileSystem: MacOSFileSystemService.shared, checksum: ChecksumEngine.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
         let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in
@@ -59,7 +59,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         reports.makeReport = false
         let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
                                      cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: true)
-        let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
+        let operations = TransferPipeline(fileSystem: MacOSFileSystemService.shared, checksum: ChecksumEngine.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
         let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in
@@ -89,7 +89,7 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         reports.makeReport = true
         let id = try journal.enqueue(sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
                                      cameraSettings: CameraLabelSettings(), reportSettings: reports, generateASCMHL: false)
-        let operations = SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: SharedChecksumService.shared)
+        let operations = TransferPipeline(fileSystem: MacOSFileSystemService.shared, checksum: ChecksumEngine.shared)
         let coordinator = SharedAppCoordinator(platformManager: QueuePlatformManager(fileOperations: operations), transferJournal: journal)
         coordinator.startQueue()
         let finished = await waitUntil(timeout: .seconds(15)) { @MainActor in

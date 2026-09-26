@@ -1,11 +1,11 @@
 import XCTest
 @testable import BitMatchEngine
 
-final class FileTreeEnumeratorTests: XCTestCase {
+final class CardSourceTests: XCTestCase {
     func testMissingRootThrowsInsteadOfReturningEmptyManifest() {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent("missing-manifest-\(UUID().uuidString)")
-        XCTAssertThrowsError(try FileTreeEnumerator.enumerateRegularFiles(base: missing))
+        XCTAssertThrowsError(try CardSource.enumerateRegularFiles(base: missing))
     }
 
     func testValidEmptyRootReturnsEmptyManifest() throws {
@@ -14,7 +14,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        XCTAssertTrue(try FileTreeEnumerator.enumerateRegularFiles(base: root).isEmpty)
+        XCTAssertTrue(try CardSource.enumerateRegularFiles(base: root).isEmpty)
     }
 
     func testPreCancelledTaskThrowsForValidEmptyRoot() async throws {
@@ -25,7 +25,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
 
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try FileTreeEnumerator.enumerateRegularFiles(base: root)
+            return try CardSource.enumerateRegularFiles(base: root)
         }
 
         do {
@@ -57,7 +57,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
             try? fm.removeItem(at: root)
         }
 
-        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
+        let entries = try CardSource.enumerateRegularFiles(base: root)
         // The temp root is /var/..., which the enumerator reports as /private/var/...;
         // nested structure must survive that alias instead of collapsing to "A001.MOV".
         XCTAssertEqual(entries.map(\.relativePath), ["DCIM/A001.MOV"])
@@ -74,7 +74,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
         try Data("clip".utf8).write(to: nested.appendingPathComponent("A002.MOV"))
         defer { try? fm.removeItem(at: root) }
 
-        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
+        let entries = try CardSource.enumerateRegularFiles(base: root)
         XCTAssertEqual(entries.map(\.relativePath), ["DCIM/.Trashes/A002.MOV"])
     }
 
@@ -86,7 +86,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
         try Data("user data".utf8).write(to: root.appendingPathComponent(".Trashes"))
         defer { try? fm.removeItem(at: root) }
 
-        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: root)
+        let entries = try CardSource.enumerateRegularFiles(base: root)
         XCTAssertEqual(entries.map(\.relativePath), [".Trashes"])
         XCTAssertNoThrow(try SafetyValidator.validateSourceTreeForCopy(source: root))
     }
@@ -104,7 +104,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
             try? fm.removeItem(at: root)
         }
 
-        XCTAssertThrowsError(try FileTreeEnumerator.enumerateRegularFiles(base: root))
+        XCTAssertThrowsError(try CardSource.enumerateRegularFiles(base: root))
     }
 
     // MARK: - RelativePathResolver
@@ -121,7 +121,7 @@ final class FileTreeEnumeratorTests: XCTestCase {
         defer { try? fm.removeItem(at: link); try? fm.removeItem(at: real) }
 
         // The selected folder is real, but it is reached through a symlinked parent.
-        let entries = try FileTreeEnumerator.enumerateRegularFiles(base: link.appendingPathComponent("card"))
+        let entries = try CardSource.enumerateRegularFiles(base: link.appendingPathComponent("card"))
         XCTAssertEqual(entries.map(\.relativePath), ["DCIM/100MEDIA/A.MOV"])
     }
 

@@ -20,9 +20,9 @@ struct SharedFileOperationsQuickModeTests {
             try Data("q1".utf8).write(to: source.appendingPathComponent("q1.txt"))
             try Data("q2".utf8).write(to: source.appendingPathComponent("q2.txt"))
 
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let final = Locked<OperationProgress?>(nil)
@@ -77,9 +77,9 @@ struct SharedFileOperationsQuickModeTests {
             try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: sourceFile.path)
             try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: existingDestination.path)
 
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: LocalFileAccess(),
-                checksum: SharedChecksumService.shared
+                checksum: ChecksumEngine.shared
             )
 
             let op = try await sut.performFileOperation(

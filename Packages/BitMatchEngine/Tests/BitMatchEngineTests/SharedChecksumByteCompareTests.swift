@@ -17,7 +17,7 @@ struct SharedChecksumByteCompareTests {
         try payload.write(to: a, options: .atomic)
         try payload.write(to: b, options: .atomic)
 
-        let matches = try await SharedChecksumService.shared.performByteComparison(
+        let matches = try await ChecksumEngine.shared.performByteComparison(
             sourceURL: a,
             destinationURL: b,
             progressCallback: nil
@@ -41,7 +41,7 @@ struct SharedChecksumByteCompareTests {
         if !payload.isEmpty { payload[0] = payload[0] ^ 0xFF }
         try payload.write(to: b, options: .atomic)
 
-        let matches = try await SharedChecksumService.shared.performByteComparison(
+        let matches = try await ChecksumEngine.shared.performByteComparison(
             sourceURL: a,
             destinationURL: b,
             progressCallback: nil

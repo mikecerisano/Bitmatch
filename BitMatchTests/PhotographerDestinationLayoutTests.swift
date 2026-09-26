@@ -277,9 +277,9 @@ struct PhotographerDestinationLayoutTests {
                 component: jobComponent,
                 escapeTarget: escape
             )
-            let sut = SharedFileOperationsService(
+            let sut = TransferPipeline(
                 fileSystem: fileSystem,
-                checksum: SharedChecksumService.shared,
+                checksum: ChecksumEngine.shared,
                 destinationSetupHook: { _ in fileSystem.substituteOnce() }
             )
 

@@ -1,10 +1,10 @@
-// SharedChecksumServiceTests.swift
+// ChecksumEngineTests.swift
 import Foundation
 import CryptoKit
 import Testing
 @testable import BitMatchEngine
 
-struct SharedChecksumServiceTests {
+struct ChecksumEngineTests {
 
     @Test
     func testSHA256MatchesCryptoKit() async throws {
@@ -14,8 +14,8 @@ struct SharedChecksumServiceTests {
         let data = Data("BitMatch Test Payload".utf8)
         try data.write(to: fileURL, options: .atomic)
 
-        // Act: compute via SharedChecksumService and CryptoKit
-        let serviceChecksum = try await SharedChecksumService.shared.generateChecksum(
+        // Act: compute via ChecksumEngine and CryptoKit
+        let serviceChecksum = try await ChecksumEngine.shared.generateChecksum(
             for: fileURL,
             type: .sha256,
             progressCallback: nil
@@ -38,7 +38,7 @@ struct SharedChecksumServiceTests {
         try data.write(to: fileURL, options: .atomic)
 
         // Act
-        let serviceChecksum = try await SharedChecksumService.shared.generateChecksum(
+        let serviceChecksum = try await ChecksumEngine.shared.generateChecksum(
             for: fileURL,
             type: .md5,
             progressCallback: nil

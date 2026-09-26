@@ -157,7 +157,7 @@ private final class PauseRecordingFileOperations: FileOperationsService, @unchec
 
 private final class PauseRecordingPlatform: PlatformManager {
     nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
-    nonisolated let checksum: ChecksumService = SharedChecksumService.shared
+    nonisolated let checksum: ChecksumService = ChecksumEngine.shared
     nonisolated let fileOperations: FileOperationsService
     nonisolated let cameraDetection: CameraDetectionService = SharedCameraDetectionService()
     nonisolated let supportsDragAndDrop = false
