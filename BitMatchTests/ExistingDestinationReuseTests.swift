@@ -111,6 +111,7 @@ private struct ReuseFixture {
             verificationMode: verificationMode,
             workers: 1,
             checksumService: checksumService,
+            preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
             onProgress: { _, _ in await events.recordProgress() },
             onError: { _, error in await events.recordError(error.localizedDescription) }
         )

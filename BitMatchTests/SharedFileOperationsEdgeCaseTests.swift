@@ -270,6 +270,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 verificationMode: .quick,
                 workers: 1,
                 checksumService: SharedChecksumService.shared,
+                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
                 onProgress: { _, _ in },
                 onError: { _, error in
                     Issue.record("Pinned copy unexpectedly failed: \(error.localizedDescription)")
@@ -322,6 +323,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 verificationMode: .standard,
                 workers: 1,
                 checksumService: SharedChecksumService.shared,
+                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
                 onProgress: { _, _ in
                     Issue.record("Escape-tree checksum match must not be reused as verified evidence")
                 },
@@ -401,6 +403,7 @@ struct SharedFileOperationsEdgeCaseTests {
                 verificationMode: .quick,
                 workers: 1,
                 checksumService: SharedChecksumService.shared,
+                preEnumeratedFiles: try FileTreeEnumerator.enumerateRegularFiles(base: source).map(\.url),
                 pauseCheck: {
                     try await mutator.tick()
                 },

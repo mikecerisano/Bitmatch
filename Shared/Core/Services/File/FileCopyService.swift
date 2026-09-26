@@ -328,35 +328,6 @@ final class PinnedDestinationFile: @unchecked Sendable {
 #endif
 
 final class FileCopyService {
-    private actor _EnumeratorSource {
-        private let fm = FileManager.default
-        private let enumerator: FileManager.DirectoryEnumerator?
-        init(base: URL) {
-            self.enumerator = fm.enumerator(
-                at: base,
-                includingPropertiesForKeys: [
-                    .isRegularFileKey,
-                    .isSymbolicLinkKey,
-                    .fileSizeKey,
-                    .contentModificationDateKey,
-                ],
-                options: []
-            )
-        }
-        func nextRegularFile() -> URL? {
-            while let item = enumerator?.nextObject() as? URL {
-                if let values = try? item.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
-                    if values.isSymbolicLink == true {
-                        continue
-                    }
-                    if values.isRegularFile == true {
-                    return item
-                    }
-                }
-            }
-            return nil
-        }
-    }
     // Perf 1: actor wrapping pre-enumerated file list for concurrent worker access
     private actor _ArraySource {
         private let urls: [URL]
@@ -379,7 +350,7 @@ final class FileCopyService {
         verificationMode: VerificationMode,
         workers: Int,
         checksumService: any ChecksumService,
-        preEnumeratedFiles: [URL]? = nil,
+        preEnumeratedFiles: [URL],
         pauseCheck: (@Sendable () async throws -> Void)? = nil,
         onProgress: @escaping (String, Int64) async -> Void,
         onError: @escaping (String, Error) async -> Void
@@ -388,14 +359,10 @@ final class FileCopyService {
         let sourceResolver = RelativePathResolver(base: src)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
-            let nextFile: @Sendable () async -> URL?
-            if let preEnumeratedFiles {
-                let arraySource = _ArraySource(preEnumeratedFiles)
-                nextFile = { await arraySource.next() }
-            } else {
-                let enumerator = _EnumeratorSource(base: src)
-                nextFile = { await enumerator.nextRegularFile() }
-            }
+            // Workers copy exactly the fail-closed source manifest, never a
+            // second walk of the card.
+            let arraySource = _ArraySource(preEnumeratedFiles)
+            let nextFile: @Sendable () async -> URL? = { await arraySource.next() }
 
             for _ in 0..<max(1, workers) {
                 group.addTask {
