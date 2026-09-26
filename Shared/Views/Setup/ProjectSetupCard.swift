@@ -133,12 +133,15 @@ struct ProjectSetupCard<RemoteBackup: View>: View {
                     }
                 }
                 Spacer()
-                Text(presentation.presetTitle)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                // The workflow picker shows it when expanded.
+                if !isExpanded {
+                    Text(presentation.presetTitle)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+                }
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -167,26 +170,27 @@ struct ProjectSetupCard<RemoteBackup: View>: View {
     }
 
     private var setupFields: some View {
+        let examples = viewModel.selectedWorkflow.fieldExamples
         let stack = AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
         return ViewThatFits(in: .horizontal) {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
                 GridRow {
-                    setupField("Client", text: $clientName, prompt: "Smith")
-                    setupField("Job name", text: $jobName, prompt: "Smith Wedding")
+                    setupField("Client", text: $clientName, prompt: examples.client)
+                    setupField("Job name", text: $jobName, prompt: examples.job)
                     dateField
                 }
                 GridRow {
-                    setupField(viewModel.selectedWorkflow.contributorLabel, text: $contributorName, prompt: "Mike")
-                    setupField("Camera", text: $cameraName, prompt: "Sony A7 IV")
+                    setupField(viewModel.selectedWorkflow.contributorLabel, text: $contributorName, prompt: examples.contributor)
+                    setupField("Camera", text: $cameraName, prompt: examples.camera)
                     cardNumberField
                 }
             }
             stack {
-                setupField("Client", text: $clientName, prompt: "Smith")
-                setupField("Job name", text: $jobName, prompt: "Smith Wedding")
+                setupField("Client", text: $clientName, prompt: examples.client)
+                setupField("Job name", text: $jobName, prompt: examples.job)
                 dateField
-                setupField(viewModel.selectedWorkflow.contributorLabel, text: $contributorName, prompt: "Mike")
-                setupField("Camera", text: $cameraName, prompt: "Sony A7 IV")
+                setupField(viewModel.selectedWorkflow.contributorLabel, text: $contributorName, prompt: examples.contributor)
+                setupField("Camera", text: $cameraName, prompt: examples.camera)
                 cardNumberField
             }
         }
@@ -344,8 +348,8 @@ struct ProjectSetupCard<RemoteBackup: View>: View {
             Label(setupError, systemImage: "exclamationmark.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.red)
-        } else if !presentation.blockers.isEmpty {
-            Text(presentation.blockers.joined(separator: ". ") + ".")
+        } else if let blockerSentence = presentation.blockerSentence {
+            Text(blockerSentence)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }

@@ -11,6 +11,18 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
 
     var canSetUpCard: Bool { blockers.isEmpty }
 
+    /// One plain line under the fields: "Still needed: client, job name and
+    /// camera." Nil when nothing is missing.
+    var blockerSentence: String? {
+        guard let first = blockers.first else { return nil }
+        if blockers.count == 1, first.hasSuffix("preparing") { return first + "…" }
+        let items = blockers.filter { !$0.hasSuffix("preparing") }
+        guard !items.isEmpty else { return first + "…" }
+        let list = items.count == 1 ? items[0]
+            : items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1]
+        return "Still needed: \(list)."
+    }
+
     static func make(
         clientName: String,
         jobName: String,
@@ -29,11 +41,11 @@ struct PhotographerJobSetupPresentation: Equatable, Sendable {
         let cleanPhotographer = photographerName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanCamera = cameraName.trimmingCharacters(in: .whitespacesAndNewlines)
         var blockers: [String] = []
-        if cleanClient.isEmpty { blockers.append("Enter a client") }
-        if cleanJob.isEmpty { blockers.append("Enter a job name") }
-        if cleanPhotographer.isEmpty { blockers.append("Enter a \(workflow.contributorLabel.lowercased())") }
-        if cleanCamera.isEmpty { blockers.append("Enter a camera") }
-        if !hasSource { blockers.append("Choose a source \(workflow.sourceUnitLabel.lowercased())") }
+        if cleanClient.isEmpty { blockers.append("client") }
+        if cleanJob.isEmpty { blockers.append("job name") }
+        if cleanPhotographer.isEmpty { blockers.append(workflow.contributorLabel.lowercased()) }
+        if cleanCamera.isEmpty { blockers.append("camera") }
+        if !hasSource { blockers.append("source \(workflow.sourceUnitLabel.lowercased())") }
         if isPreparing { blockers.append("\(workflow.sourceUnitLabel) setup is still preparing") }
 
         let rendered = try? FolderRecipeRenderer.render(
