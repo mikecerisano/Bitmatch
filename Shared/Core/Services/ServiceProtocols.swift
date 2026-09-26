@@ -5,7 +5,7 @@ import Foundation
 
 /// What the engine needs from the file system: access scopes, listing,
 /// sizes, directory creation and free space. No pickers.
-protocol FileAccess {
+protocol FileAccess: Sendable {
     func validateFileAccess(url: URL) async -> Bool
     func startAccessing(url: URL) -> Bool
     func stopAccessing(url: URL)
@@ -28,8 +28,8 @@ protocol FileSystemService: FileAccess {
 }
 
 // MARK: - Checksum Service Protocol
-protocol ChecksumService {
-    typealias ProgressCallback = (Double, String?) -> Void
+protocol ChecksumService: Sendable {
+    typealias ProgressCallback = @Sendable (Double, String?) -> Void
     
     func generateChecksum(for fileURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> String
     func verifyFileIntegrity(sourceURL: URL, destinationURL: URL, type: ChecksumAlgorithm, progressCallback: ProgressCallback?) async throws -> VerificationResult
@@ -37,9 +37,9 @@ protocol ChecksumService {
 }
 
 // MARK: - File Operations Service Protocol
-protocol FileOperationsService {
-    typealias ProgressCallback = (OperationProgress) -> Void
-    typealias FileResultCallback = (FileOperationResult) async -> Void
+protocol FileOperationsService: Sendable {
+    typealias ProgressCallback = @Sendable (OperationProgress) -> Void
+    typealias FileResultCallback = @Sendable (FileOperationResult) async -> Void
     
     func performFileOperation(
         sourceURL: URL,

@@ -54,11 +54,11 @@ struct CopyVerifyConfig {
 }
 
 /// Callbacks for operation progress and results
-struct CopyVerifyCallbacks {
-    let onProgress: @MainActor (OperationProgress) -> Void
-    let onResult: @MainActor (ResultRow) -> Void
-    let onStateChange: @MainActor (OperationState) -> Void
-    let onAuthoritativeResults: @MainActor ([ResultRow]) throws -> Void
+struct CopyVerifyCallbacks: Sendable {
+    let onProgress: @MainActor @Sendable (OperationProgress) -> Void
+    let onResult: @MainActor @Sendable (ResultRow) -> Void
+    let onStateChange: @MainActor @Sendable (OperationState) -> Void
+    let onAuthoritativeResults: @MainActor @Sendable ([ResultRow]) throws -> Void
 }
 
 /// Service that executes copy/verify operations

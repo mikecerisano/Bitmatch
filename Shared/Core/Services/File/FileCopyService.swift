@@ -352,8 +352,8 @@ final class FileCopyService {
         checksumService: any ChecksumService,
         preEnumeratedFiles: [URL],
         pauseCheck: (@Sendable () async throws -> Void)? = nil,
-        onProgress: @escaping (String, Int64) async -> Void,
-        onError: @escaping (String, Error) async -> Void
+        onProgress: @escaping @Sendable (String, Int64) async -> Void,
+        onError: @escaping @Sendable (String, Error) async -> Void
     ) async throws {
         try await createDirectoryTreeSafely(from: src, in: pinnedRoot, onError: onError)
         let sourceResolver = RelativePathResolver(base: src)
@@ -518,7 +518,7 @@ final class FileCopyService {
     private static func createDirectoryTreeSafely(
         from sourceRoot: URL,
         in pinnedRoot: PinnedDestinationDirectory,
-        onError: @escaping (String, Error) async -> Void
+        onError: @escaping @Sendable (String, Error) async -> Void
     ) async throws {
         let fm = FileManager.default
         let resolver = RelativePathResolver(base: sourceRoot)

@@ -3,7 +3,7 @@ import Foundation
 import CryptoKit
 
 /// Shared checksum service that works on both macOS and iOS
-class SharedChecksumService: ChecksumService {
+final class SharedChecksumService: ChecksumService, Sendable {
     static let shared = SharedChecksumService()
 
     private struct FileReadSnapshot: Equatable {

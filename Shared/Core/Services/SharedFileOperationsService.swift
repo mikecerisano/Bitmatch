@@ -207,8 +207,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
     }
 }
 
-class SharedFileOperationsService: FileOperationsService {
-    typealias ProgressCallback = (OperationProgress) -> Void
+final class SharedFileOperationsService: FileOperationsService, Sendable {
 
     private let fileSystem: any FileAccess
     private let checksumService: any ChecksumService
@@ -394,7 +393,6 @@ class SharedFileOperationsService: FileOperationsService {
         )
 
         let perSourceFileCount = sourceManifest.count
-        let totalSizeBytes = operation.estimatedTotalBytes ?? manifestBytes
         let totalFiles = perSourceFileCount * operation.destinationURLs.count
         SharedLogger.debug("Prep: source files=\(perSourceFileCount), destinations=\(operation.destinationURLs.count), planned total rows=\(totalFiles)", category: .transfer)
         let destinationCount = operation.destinationURLs.count

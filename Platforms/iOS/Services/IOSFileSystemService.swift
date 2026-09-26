@@ -3,7 +3,9 @@ import Foundation
 import UIKit
 import UniformTypeIdentifiers
 
-class IOSFileSystemService: NSObject, FileSystemService {
+/// `@unchecked Sendable`: its only mutable state is `currentDelegate`, which
+/// only the `@MainActor` picker methods touch.
+final class IOSFileSystemService: NSObject, FileSystemService, @unchecked Sendable {
     static let shared = IOSFileSystemService()
     
     // Keep reference to delegate to prevent deallocation

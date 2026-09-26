@@ -4,7 +4,7 @@ import Foundation
 import AppKit
 import UserNotifications
 
-final class MacOSFileSystemService: FileSystemService {
+final class MacOSFileSystemService: FileSystemService, Sendable {
     static let shared = MacOSFileSystemService()
     private init() {}
     
