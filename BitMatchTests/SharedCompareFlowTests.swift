@@ -341,7 +341,7 @@ struct SharedCompareFlowTests {
 
     /// THESIS decision: Paranoid Compare runs a byte-by-byte comparison and
     /// SHA-256, on every platform, whatever `checksumTypes` lists.
-    /// Plant: in `ComparisonCoordinator.contentsMatch`, change
+    /// Plant: in `FolderComparer.contentsMatch`, change
     /// `if !identical { return false }` to `return identical`.
     @Test
     func testParanoidCompareRunsByteComparisonAndSHA256() async throws {
@@ -385,7 +385,7 @@ struct SharedCompareFlowTests {
     }
 
     /// A byte difference is a mismatch, and SHA-256 is not needed to find it.
-    /// Plant: in `ComparisonCoordinator.contentsMatch`, delete
+    /// Plant: in `FolderComparer.contentsMatch`, delete
     /// `if !identical { return false }`.
     @Test
     func testParanoidCompareReportsByteMismatch() async throws {

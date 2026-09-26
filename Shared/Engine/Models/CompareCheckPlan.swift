@@ -2,7 +2,7 @@
 import Foundation
 
 /// The checks Compare runs on each file present in both folders. This is the
-/// single source for both `ComparisonCoordinator` and the words on screen, so
+/// single source for both `FolderComparer` and the words on screen, so
 /// the summary can never promise a check the engine skipped.
 ///
 /// It is deliberately independent of `VerificationMode.checksumTypes`, which

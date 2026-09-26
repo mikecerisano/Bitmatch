@@ -1,0 +1,159 @@
+// FolderComparer.swift - Compares two folders, file by file.
+import Foundation
+
+/// Compares two folder trees with the checks a verification mode asks for
+/// (`CompareCheckPlan`). Runs off the main actor and stops at task
+/// cancellation. `ComparisonCoordinator` is the app's wrapper around it.
+struct FolderComparer: Sendable {
+    let fileAccess: any FileAccess
+    let checksum: any ChecksumService
+
+    /// Reports progress through `progress`, which is awaited so updates
+    /// arrive in order and before the result.
+    func compare(
+        left: URL,
+        right: URL,
+        verificationMode: VerificationMode,
+        progress: @Sendable (OperationProgress) async -> Void
+    ) async throws -> CompareStats {
+        let didStartLeftScope = fileAccess.startAccessing(url: left)
+        let didStartRightScope = fileAccess.startAccessing(url: right)
+        defer {
+            if didStartLeftScope {
+                fileAccess.stopAccessing(url: left)
+            }
+            if didStartRightScope {
+                fileAccess.stopAccessing(url: right)
+            }
+        }
+
+        let sourceFiles = try await fileAccess.getFileList(from: left)
+        let destFiles = try await fileAccess.getFileList(from: right)
+
+        let sourceMap = try buildFileMap(files: sourceFiles, base: left)
+        let destMap = try buildFileMap(files: destFiles, base: right)
+        try Task.checkCancellation()
+
+        let sourceSet = Set(sourceMap.keys)
+        let destSet = Set(destMap.keys)
+
+        let onlyInSource = sourceSet.subtracting(destSet)
+        let onlyInDest = destSet.subtracting(sourceSet).filter { !Self.isOffloadManifest($0) }
+        let common = sourceSet.intersection(destSet)
+
+        var mismatched: Set<String> = []
+        // One plan for engine and screen: Paranoid is byte-by-byte plus SHA-256.
+        let plan = CompareCheckPlan.make(for: verificationMode)
+        let totalCommon = common.count
+        var processedCommon = 0
+
+        await progress(OperationProgress(
+            overallProgress: totalCommon == 0 ? 1.0 : 0.0,
+            currentFile: nil,
+            filesProcessed: 0,
+            totalFiles: totalCommon,
+            currentStage: .verifying,
+            speed: nil,
+            timeRemaining: nil
+        ))
+
+        for key in common {
+            try Task.checkCancellation()
+            guard let src = sourceMap[key], let dst = destMap[key] else { continue }
+
+            if src.size != dst.size {
+                mismatched.insert(key)
+            } else if !(try await contentsMatch(src.url, dst.url, plan: plan)) {
+                mismatched.insert(key)
+            }
+            try Task.checkCancellation()
+
+            processedCommon += 1
+            let overall = totalCommon == 0 ? 1.0 : Double(processedCommon) / Double(totalCommon)
+            await progress(OperationProgress(
+                overallProgress: overall,
+                currentFile: key,
+                filesProcessed: processedCommon,
+                totalFiles: totalCommon,
+                currentStage: .verifying,
+                speed: nil,
+                timeRemaining: nil
+            ))
+        }
+
+        let matched = common.subtracting(mismatched)
+        try Task.checkCancellation()
+
+        SharedLogger.info("Comparison complete", category: .transfer)
+        SharedLogger.debug("Only in source: \(onlyInSource.count), Only in dest: \(onlyInDest.count), Common: \(matched.count), Mismatched: \(mismatched.count)", category: .transfer)
+
+        return CompareStats(
+            onlyInLeftCount: onlyInSource.count,
+            onlyInRightCount: onlyInDest.count,
+            commonCount: matched.count,
+            mismatchedCount: mismatched.count,
+            onlyInLeftPaths: onlyInSource.sorted(),
+            onlyInRightPaths: onlyInDest.sorted(),
+            mismatchedPaths: mismatched.sorted()
+        )
+    }
+
+    // MARK: - Private Helpers
+
+    /// Runs every check in `plan` and stops at the first one that fails.
+    /// An empty plan (Quick) reads no contents and reports a match; the
+    /// screen labels that "Sizes match, not verified".
+    private func contentsMatch(_ source: URL, _ destination: URL, plan: CompareCheckPlan) async throws -> Bool {
+        if plan.byteByByte {
+            let identical = try await checksum.performByteComparison(
+                sourceURL: source,
+                destinationURL: destination,
+                progressCallback: nil
+            )
+            if !identical { return false }
+            try Task.checkCancellation()
+        }
+        for type in plan.checksums {
+            let result = try await checksum.verifyFileIntegrity(
+                sourceURL: source,
+                destinationURL: destination,
+                type: type,
+                progressCallback: nil
+            )
+            if !result.matches { return false }
+        }
+        return true
+    }
+
+    /// Finder writes these into any folder it displays, so a card and its offload
+    /// differ as soon as someone browses one of them (GitHub issue #8). They are
+    /// view state, not footage, and are ignored on both sides.
+    static func isFinderMetadata(_ relativePath: String) -> Bool {
+        let name = (relativePath as NSString).lastPathComponent
+        return name == ".DS_Store" || name == "Icon\r" || name.hasPrefix("._")
+    }
+
+    /// Hash manifests an offload writes at the destination root: the ASC MHL
+    /// `ascmhl/` history and legacy `.mhl` / `.mhl.md5` files (BitMatch 0.1.4
+    /// paranoid transfers). Only ignored when the destination alone has them;
+    /// one on the source that was not copied is still reported.
+    static func isOffloadManifest(_ relativePath: String) -> Bool {
+        let parts = relativePath.split(separator: "/")
+        if parts.count > 1 { return parts[0].lowercased() == "ascmhl" }
+        let name = relativePath.lowercased()
+        return name.hasSuffix(".mhl") || name.hasSuffix(".mhl.md5")
+    }
+
+    private func buildFileMap(files: [URL], base: URL) throws -> [String: (url: URL, size: Int64)] {
+        var map: [String: (url: URL, size: Int64)] = [:]
+        map.reserveCapacity(files.count)
+        let resolver = RelativePathResolver(base: base)
+        for fileURL in files {
+            let key = try resolver.resolve(fileURL)
+            if Self.isFinderMetadata(key) { continue }
+            let size = try fileAccess.getFileSize(for: fileURL)
+            map[key] = (fileURL, size)
+        }
+        return map
+    }
+}
