@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Cancelling a compare-folder picker returns nil from the platform
 /// service. That must preserve an existing selection, not clear it.

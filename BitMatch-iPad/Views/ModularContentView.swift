@@ -1,6 +1,7 @@
 // ModularContentView.swift - Refactored modular iPad interface using components
 import SwiftUI
 import UIKit
+import BitMatchEngine
 
 struct ModularContentView: View {
     @ObservedObject var coordinator: SharedAppCoordinator

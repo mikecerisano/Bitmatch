@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct PhotographerReportTests {
     private let cardID = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!

@@ -1,5 +1,6 @@
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 /// Regression tests for the master report "verified" flag.
 /// TransferCard.verified previously returned true for any `.completed`

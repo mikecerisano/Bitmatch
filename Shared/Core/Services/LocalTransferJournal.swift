@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// The app's observable view of the transfer journal. Every call goes to the
 /// engine's `TransferJournal`, and `records` / `persistenceError` are

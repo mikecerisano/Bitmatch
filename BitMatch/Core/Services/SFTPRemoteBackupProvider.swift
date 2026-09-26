@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 struct OpenSSHHostTrustRequest: Equatable, Sendable {
     let host: String

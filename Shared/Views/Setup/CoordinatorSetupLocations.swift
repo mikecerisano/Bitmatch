@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 /// What differs per platform in the source and backup boxes: how a folder
 /// is picked, how a backup is added and removed, and how a refusal is shown.

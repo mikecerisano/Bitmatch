@@ -1,6 +1,7 @@
 // LiveProgressFeed.swift - the engine's latest progress, observed on its own
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// Holds the engine's latest `OperationProgress`, which arrives about every
 /// half second during a run. It lives outside `SharedAppCoordinator`'s

@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 struct CompletionVerdictPresentation: Equatable, Sendable {
     let title: String

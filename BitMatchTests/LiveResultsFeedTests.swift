@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Per-file results live in `LiveResultsFeed`, which only the results views
 /// observe, so a transfer does not redraw the whole window once per file per

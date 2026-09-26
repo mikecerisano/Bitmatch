@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 /// Step 4.9, iOS side: iPad and iPhone build progress through the same
 /// `TransferProgressPresentation.make` as the Mac, and state the real iOS

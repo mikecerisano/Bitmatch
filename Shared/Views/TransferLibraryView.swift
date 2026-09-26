@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import BitMatchEngine
 
 /// One shared queue/history surface; choosing another card never mutates the active transfer.
 struct TransferLibraryView: View {

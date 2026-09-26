@@ -1,5 +1,6 @@
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 final class ResultPresentationTests: XCTestCase {
     func testDestinationSummariesKeepSameNamedBackupsSeparate() {

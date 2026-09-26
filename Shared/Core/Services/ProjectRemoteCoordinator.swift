@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// The platform-neutral project boundary for configuring an optional remote
 /// destination. macOS can perform uploads; other devices can safely retain

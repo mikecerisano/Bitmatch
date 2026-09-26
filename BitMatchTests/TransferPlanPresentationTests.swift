@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct TransferPlanPresentationTests {
     private let sourceURL = URL(fileURLWithPath: "/Source/A001")

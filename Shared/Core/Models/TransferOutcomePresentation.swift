@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// How the outcome screen colours its verdict. It comes from the operation
 /// state and the verdict, never from a symbol name, so a cancelled transfer

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Report and camera-label settings are saved by `SharedAppCoordinator` on
 /// every platform (thesis decision, step 3), and a queued transfer's replay

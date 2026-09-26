@@ -1,6 +1,7 @@
 // OperationStateService.swift - Manages pause/resume state and persistence
 import Foundation
 import Combine
+import BitMatchEngine
 #if os(macOS)
 import AppKit
 #else

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct PhotographerCardAnalyzerTests {
     @Test func preliminaryFingerprintIgnoresEnumerationOrder() throws {

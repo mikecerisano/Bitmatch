@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// What may be chosen as the source or a backup, checked at the moment of
 /// choosing, on every platform (UI plan step 4.5). Each test names the

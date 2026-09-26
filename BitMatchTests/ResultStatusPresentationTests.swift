@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 /// Guards the shared status presentation used by the Mac results table,
 /// the Mac report view, and the photographer card rows on Mac and iOS.

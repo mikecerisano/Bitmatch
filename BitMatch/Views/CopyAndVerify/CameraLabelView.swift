@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 // MARK: - Camera Label Configuration View
 struct CameraLabelView: View {

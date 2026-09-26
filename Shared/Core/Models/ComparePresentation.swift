@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 // Compare readiness and outcome, shared by Mac, iPad and iPhone (UI plan
 // step 4.1). Every rule that decides whether Compare can start, and what the

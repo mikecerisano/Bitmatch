@@ -1,5 +1,6 @@
 // ReportPrefsStore.swift - Report settings saved across launches
 import Foundation
+import BitMatchEngine
 
 /// Loads and saves `ReportPrefs` with the keys the Mac has always used, so
 /// Mac users keep their settings and iPad and iPhone now remember theirs

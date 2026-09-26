@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 /// What the Setup screen can ask its adapter to do. Choosing the source and
 /// backups belongs to the locations slot, because picking, drag and drop and

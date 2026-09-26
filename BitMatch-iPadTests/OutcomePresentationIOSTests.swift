@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 /// Step 4.7, iOS side: iPad and iPhone build the outcome through the same
 /// `TransferOutcomePresentation.make` as the Mac, so a cancelled transfer

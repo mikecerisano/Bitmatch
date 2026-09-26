@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import BitMatchEngine
 #if canImport(Darwin)
 import Darwin
 #endif

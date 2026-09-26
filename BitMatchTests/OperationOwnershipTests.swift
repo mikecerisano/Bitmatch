@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 final class OperationOwnershipTests: XCTestCase {
     func testSecondOperationIsRejectedWhileFirstIsActive() async throws {

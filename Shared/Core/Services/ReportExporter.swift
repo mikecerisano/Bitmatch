@@ -1,5 +1,6 @@
 // Core/Services/ReportExporter.swift - The app's side of a transfer report.
 import Foundation
+import BitMatchEngine
 
 /// The JSON report as the app writes it, with the photographer project section.
 typealias ProjectJSONReport = EnhancedJSONReport<PhotographerReportPayload>

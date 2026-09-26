@@ -1,5 +1,6 @@
 // MacOSPlatformManager.swift - macOS platform coordination
 import Foundation
+import BitMatchEngine
 #if os(macOS)
 import AppKit
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 struct ResultsTableView: View {
     @ObservedObject var coordinator: SharedAppCoordinator

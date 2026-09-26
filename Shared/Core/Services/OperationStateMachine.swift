@@ -1,5 +1,6 @@
 // OperationStateMachine.swift - Transition rules for OperationStateService
 import Foundation
+import BitMatchEngine
 
 /// Validates operation state transitions for `OperationStateService`, which drives
 /// pause/resume. It is not the only record of operation state:

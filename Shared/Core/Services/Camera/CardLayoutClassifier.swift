@@ -1,5 +1,6 @@
 // Core/Services/Camera/CardLayoutClassifier.swift
 import Foundation
+import BitMatchEngine
 
 /// A bounded, uppercased listing of a card's folder tree. Paths are
 /// relative to the card root and "/"-separated, e.g. "DCIM/100CANON".

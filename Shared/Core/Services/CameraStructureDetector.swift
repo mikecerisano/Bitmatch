@@ -1,5 +1,6 @@
 // Core/Services/CameraStructureDetector.swift - Camera file structure detection
 import Foundation
+import BitMatchEngine
 
 // MARK: - Camera Structure Detector
 

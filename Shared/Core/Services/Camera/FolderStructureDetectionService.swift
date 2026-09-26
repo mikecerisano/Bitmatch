@@ -1,5 +1,6 @@
 // Core/Services/Camera/FolderStructureDetectionService.swift
 import Foundation
+import BitMatchEngine
 
 /// Service for detecting cameras based on folder structure patterns.
 ///

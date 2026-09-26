@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import BitMatchEngine
 
 /// Shared comparison outcome on every platform: names each differing path so a
 /// reported difference can be investigated, and exports the complete record.

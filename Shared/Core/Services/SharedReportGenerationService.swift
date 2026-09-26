@@ -1,5 +1,6 @@
 // SharedReportGenerationService.swift - Unified report generation for iOS and macOS
 import Foundation
+import BitMatchEngine
 
 #if os(macOS)
 import AppKit

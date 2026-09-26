@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Cancelling must leave partial results in place so the outcome UI can
 /// show what completed before cancellation. Resetting for a new operation

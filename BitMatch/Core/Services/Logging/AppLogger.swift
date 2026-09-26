@@ -1,5 +1,6 @@
 // Core/Services/Logging/AppLogger.swift
 import Foundation
+import BitMatchEngine
 // Forward AppLogger calls to shared logger to consolidate logging
 
 

@@ -1,6 +1,7 @@
 // Core/ViewModels/CameraLabelModel.swift
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// The camera label for the next transfer, on every platform (thesis
 /// decision, step 3). It suggests a label from the card, remembers the

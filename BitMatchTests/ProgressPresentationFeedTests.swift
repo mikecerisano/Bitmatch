@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// `SharedAppCoordinator` feeds the smoothed progress model the Mac shows
 /// (moved from the Mac-only progress view model).

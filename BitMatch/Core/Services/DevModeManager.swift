@@ -5,6 +5,7 @@ import Combine
 import SwiftUI
 import AppKit
 import Synchronization
+import BitMatchEngine
 
 #if DEBUG
 @MainActor

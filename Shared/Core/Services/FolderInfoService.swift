@@ -1,6 +1,7 @@
 // FolderInfoService.swift - Centralized folder info scanning and caching
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// Service that handles folder info scanning with caching and loading state tracking
 @MainActor

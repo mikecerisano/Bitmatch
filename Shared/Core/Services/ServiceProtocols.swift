@@ -1,5 +1,6 @@
 // ServiceProtocols.swift - Platform-agnostic service interfaces
 import Foundation
+import BitMatchEngine
 
 // MARK: - File System Service Protocol (app)
 

@@ -5,6 +5,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct ResultOutcomeTests {
 

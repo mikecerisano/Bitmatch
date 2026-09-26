@@ -3,6 +3,7 @@
 import Foundation
 import AppKit
 import UserNotifications
+import BitMatchEngine
 
 final class MacOSFileSystemService: FileSystemService, Sendable {
     static let shared = MacOSFileSystemService()

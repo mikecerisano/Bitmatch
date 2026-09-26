@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import CryptoKit
 @testable import BitMatch
+import BitMatchEngine
 
 @MainActor
 final class LocalTransferQueueIntegrationTests: XCTestCase {

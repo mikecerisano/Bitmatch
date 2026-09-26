@@ -1,5 +1,6 @@
 // Core/Services/Camera/SonyDetectionService.swift
 import Foundation
+import BitMatchEngine
 
 /// Reads the Sony model from MEDIAPRO.XML. The brand itself comes from CardLayoutClassifier.
 final class SonyDetectionService: Sendable {

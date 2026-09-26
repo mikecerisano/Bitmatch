@@ -1,6 +1,7 @@
 // Core/Services/ErrorHandling/GlobalErrorHandler.swift
 import Foundation
 import SwiftUI
+import BitMatchEngine
 
 /// Global error handler for graceful error recovery
 @MainActor

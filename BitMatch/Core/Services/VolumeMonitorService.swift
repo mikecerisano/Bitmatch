@@ -1,6 +1,7 @@
 // Core/Services/VolumeMonitorService.swift
 import Foundation
 import Combine
+import BitMatchEngine
 
 #if os(macOS)
 import DiskArbitration

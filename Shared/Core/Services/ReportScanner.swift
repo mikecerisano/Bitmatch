@@ -1,5 +1,6 @@
 // ReportScanner.swift - Turns found reports into Master Report cards.
 import Foundation
+import BitMatchEngine
 
 /// The app's side of reading reports: `EvidenceReader` finds and decodes
 /// them (the same rules on every platform), and this maps each one to a

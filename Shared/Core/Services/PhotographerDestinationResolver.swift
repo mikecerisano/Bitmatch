@@ -1,3 +1,5 @@
+import BitMatchEngine
+
 enum PhotographerDestinationResolver {
     static func operationSettings(
         base: CameraLabelSettings,

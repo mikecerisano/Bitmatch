@@ -2,6 +2,7 @@
 import Foundation
 import ImageIO
 import AVFoundation
+import BitMatchEngine
 
 // MARK: - Camera Memory Service
 /// `@unchecked Sendable`: its only mutable state, `memory`, is read and

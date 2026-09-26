@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// One readiness rule on every platform (thesis decision): the Mac's
 /// stricter check, with the runtime's free-space margin, so "Ready" can no

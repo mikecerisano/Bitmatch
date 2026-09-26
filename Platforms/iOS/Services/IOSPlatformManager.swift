@@ -1,6 +1,7 @@
 // IOSPlatformManager.swift - iOS platform coordination
 import Foundation
 import UIKit
+import BitMatchEngine
 
 final class IOSPlatformManager: PlatformManager, Sendable {
     static let shared = IOSPlatformManager()

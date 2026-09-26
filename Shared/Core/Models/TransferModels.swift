@@ -1,5 +1,6 @@
 // TransferModels.swift - Transfer and reporting models
 import Foundation
+import BitMatchEngine
 
 // MARK: - Transfer Metadata
 struct TransferMetadata: Codable {

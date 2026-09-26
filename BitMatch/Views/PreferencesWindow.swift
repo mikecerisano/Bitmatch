@@ -1,6 +1,7 @@
 // Views/PreferencesWindow.swift - Dedicated preferences window
 import SwiftUI
 import AppKit
+import BitMatchEngine
 
 struct PreferencesWindow: View {
     @ObservedObject var coordinator: SharedAppCoordinator

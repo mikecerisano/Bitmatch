@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Master Report details built from the saved report settings (UI plan step 4.4).
 @MainActor

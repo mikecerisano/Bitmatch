@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// The Transfers library and its banner on Mac, iPad and iPhone (UI plan
 /// step 4.4). Green is only for verified transfers (promise 2), and every

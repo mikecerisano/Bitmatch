@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// UI plan step 4.9: one progress screen on Mac, iPad and iPhone. Each test
 /// names the one-line production change ("Plant:") that must turn it red.

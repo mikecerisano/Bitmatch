@@ -1,5 +1,6 @@
 // ComparisonCoordinator.swift - The app's handle on a folder comparison.
 import Foundation
+import BitMatchEngine
 
 /// Runs one `FolderComparer` at a time for `SharedAppCoordinator` and lets it
 /// be cancelled from the main actor.

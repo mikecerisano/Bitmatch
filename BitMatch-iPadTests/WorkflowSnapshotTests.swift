@@ -2,6 +2,7 @@ import XCTest
 import SwiftUI
 import UIKit
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 /// Opt-in seeded presentation captures for phone and iPad layouts.
 ///

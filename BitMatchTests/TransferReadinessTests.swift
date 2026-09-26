@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// The one readiness rule (UI plan step 4.5), with free space and
 /// writability injected. Each test names the one-line bug that should make

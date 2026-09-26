@@ -1,6 +1,7 @@
 // SafetyValidatorTests.swift
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 final class SafetyValidatorTests: XCTestCase {
 

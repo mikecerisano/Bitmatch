@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 /// How a per-file result or a card's local state should look on screen.
 /// Green is reserved for `.verified`: a row that passed

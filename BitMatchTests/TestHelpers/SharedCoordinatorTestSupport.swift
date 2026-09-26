@@ -1,5 +1,6 @@
 import Foundation
 @testable import BitMatch
+import BitMatchEngine
 
 /// A source card with one file and two empty backups in a throwaway folder.
 struct CoordinatorFolders {

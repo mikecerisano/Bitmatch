@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreGraphics
+import BitMatchEngine
 
 #if os(macOS)
 import AppKit

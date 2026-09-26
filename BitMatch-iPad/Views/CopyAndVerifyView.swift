@@ -1,5 +1,6 @@
 // CopyAndVerifyView.swift - the iPad and iPhone setup
 import SwiftUI
+import BitMatchEngine
 
 /// The iPad and iPhone slots for the shared Setup screen (UI plan step
 /// 4.8): the Files picker for the shared source and backup boxes, the

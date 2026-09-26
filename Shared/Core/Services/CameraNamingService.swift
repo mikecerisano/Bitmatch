@@ -1,5 +1,6 @@
 // Core/Services/CameraNamingService.swift
 import Foundation
+import BitMatchEngine
 
 struct CameraNamingService {
     

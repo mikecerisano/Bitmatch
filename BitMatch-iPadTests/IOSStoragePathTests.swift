@@ -7,6 +7,7 @@
 import Foundation
 import Testing
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 struct IOSStoragePathTests {
     /// Fails if `SafetyValidator.isProtectedSystemPath` stops exempting the

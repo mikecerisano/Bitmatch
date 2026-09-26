@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Step 4.6 (P4): the shared Advanced options section.
 struct TransferOptionsPresentationTests {

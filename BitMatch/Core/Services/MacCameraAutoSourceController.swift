@@ -6,6 +6,7 @@
 // source; nothing is copied here.
 import Foundation
 import Combine
+import BitMatchEngine
 
 @MainActor
 final class MacCameraAutoSourceController: ObservableObject {

@@ -1,5 +1,6 @@
 import SwiftUI
 import Accessibility
+import BitMatchEngine
 
 /// What the Compare screen can ask its platform adapter to do. The drop
 /// actions are nil where drag and drop is not offered.

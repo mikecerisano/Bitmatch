@@ -1,5 +1,6 @@
 // OperationTimingService.swift - Comprehensive operation duration tracking
 import Foundation
+import BitMatchEngine
 
 // Uses SharedLogger (shared file) for logging across platforms
 

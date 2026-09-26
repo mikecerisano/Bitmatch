@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Rediscovery must not undo an explicit destination removal. A removed
 /// drive stays out while it remains visible to discovery; disappearing

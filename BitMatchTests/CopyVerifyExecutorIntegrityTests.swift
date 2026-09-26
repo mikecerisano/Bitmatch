@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import XCTest
 @testable import BitMatch
+import BitMatchEngine
 
 @MainActor
 final class CopyVerifyExecutorIntegrityTests: XCTestCase {

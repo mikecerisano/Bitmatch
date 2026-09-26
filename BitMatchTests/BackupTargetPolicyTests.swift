@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// The one rule for what may become a backup (release blocker, 2026-09-25:
 /// the Mac backups list grew by itself to Recovery 2, Macintosh HD and a

@@ -2,6 +2,7 @@ import Foundation
 import PDFKit
 import Testing
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 /// Promise 3: the report must read like a document. CoreGraphics puts the
 /// origin at the bottom-left, so a report that is not an exact number of

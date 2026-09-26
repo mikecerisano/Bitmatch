@@ -1,5 +1,6 @@
 // Core/Services/Camera/PanasonicDetectionService.swift
 import Foundation
+import BitMatchEngine
 
 /// Specialized service for detecting Panasonic cameras via metadata and folder structure
 final class PanasonicDetectionService: Sendable {

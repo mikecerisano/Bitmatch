@@ -1,6 +1,7 @@
 import SwiftUI
 import Accessibility
 import UniformTypeIdentifiers
+import BitMatchEngine
 
 /// What the outcome screen can ask its adapter to do. `retry` and `export`
 /// are nil when the finished transfer has no journal record that allows them.

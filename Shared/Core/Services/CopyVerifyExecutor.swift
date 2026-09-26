@@ -1,5 +1,6 @@
 // CopyVerifyExecutor.swift - Handles copy and verify operation execution
 import Foundation
+import BitMatchEngine
 
 struct PhotographerFinalizationResult {
     /// The post-persistence context used to retain photographer provenance in

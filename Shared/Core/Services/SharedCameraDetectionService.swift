@@ -1,6 +1,7 @@
 // SharedCameraDetectionService.swift - Platform-agnostic camera detection
 import Foundation
 import AVFoundation
+import BitMatchEngine
 
 final class SharedCameraDetectionService: CameraDetectionService, Sendable {
     

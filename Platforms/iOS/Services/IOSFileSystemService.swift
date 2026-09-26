@@ -2,6 +2,7 @@
 import Foundation
 import UIKit
 import UniformTypeIdentifiers
+import BitMatchEngine
 
 /// `@unchecked Sendable`: its only mutable state is `currentDelegate`, which
 /// only the `@MainActor` picker methods touch.

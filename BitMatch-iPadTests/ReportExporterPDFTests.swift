@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch_iPad
+import BitMatchEngine
 
 /// Promise 3 ("evidence matches reality") and Promise 5 ("one app
 /// everywhere"), plus the THESIS decision of 2026-09-25: "iPad and iPhone

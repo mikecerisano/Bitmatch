@@ -1,6 +1,7 @@
 // TransferHistoryDocument.swift - One transfer's history, exported as JSON or CSV
 import SwiftUI
 import UniformTypeIdentifiers
+import BitMatchEngine
 
 /// The file `TransferLibraryView` exports for one journal record. It holds
 /// the paths, results and verdict only: no security-scoped bookmarks or

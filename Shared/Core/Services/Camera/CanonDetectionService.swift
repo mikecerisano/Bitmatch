@@ -1,5 +1,6 @@
 // Core/Services/Camera/CanonDetectionService.swift
 import Foundation
+import BitMatchEngine
 
 /// Specialized service for detecting Canon cameras via metadata and folder structure
 final class CanonDetectionService: Sendable {

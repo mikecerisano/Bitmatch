@@ -1,5 +1,6 @@
 // ErrorReportingService.swift - Comprehensive error reporting and diagnostics
 import Foundation
+import BitMatchEngine
 
 @MainActor
 class ErrorReportingService: ObservableObject {

@@ -1,5 +1,6 @@
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct AutoSourceSelectionPolicyTests {
     @Test func automaticSourceSelectionStartsDisabled() {

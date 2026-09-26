@@ -2,6 +2,7 @@ import XCTest
 import SwiftUI
 import AppKit
 @testable import BitMatch
+import BitMatchEngine
 
 /// Opt-in seeded presentation captures for the Mac workflow.
 ///

@@ -6,6 +6,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct ResultDestinationLabelTests {
     private let root = URL(fileURLWithPath: "/Users/someone/Desktop/Card Backups")

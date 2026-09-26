@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import BitMatchEngine
 
 /// Stores the opaque reference in Core Data while keeping bookmark bytes out
 /// of every Codable remote-backup payload.

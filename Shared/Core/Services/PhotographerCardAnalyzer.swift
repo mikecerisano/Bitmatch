@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import BitMatchEngine
 
 struct PhotoCompanionGroup: Codable, Equatable, Sendable {
     let stem: String

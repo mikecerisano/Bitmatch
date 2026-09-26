@@ -6,6 +6,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 #if os(macOS)
 @MainActor

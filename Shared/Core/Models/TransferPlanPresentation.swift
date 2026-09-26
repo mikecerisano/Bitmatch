@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 enum TransferPlanStatusTone: Equatable {
     case success

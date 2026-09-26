@@ -1,6 +1,7 @@
 // Core/Services/CameraCardDetectionService.swift - Automatic camera card detection
 import Foundation
 import Combine
+import BitMatchEngine
 
 #if os(macOS)
 import AppKit

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 struct PhotographerDestinationLayoutTests {
     private let source = URL(fileURLWithPath: "/Volumes/CARD")

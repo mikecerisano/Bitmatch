@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 enum FolderRecipeRenderer {
     static func render(_ recipe: FolderRecipe, context: FolderRecipeContext) throws -> RenderedFolderRecipe {

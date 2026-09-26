@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import BitMatchEngine
 
 struct DuplicateCardWarning: Equatable, Sendable {
     let jobID: UUID

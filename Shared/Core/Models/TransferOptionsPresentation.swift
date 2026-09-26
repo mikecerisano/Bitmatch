@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// What the Advanced options section says, on every platform.
 ///

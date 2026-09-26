@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// How a finished Master Report left the app.
 enum MasterReportDelivery: Equatable {

@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// How the progress screen colours its header and bar. Progress is never
 /// green: green means verified (THESIS promise 2, accessibility audit H5).

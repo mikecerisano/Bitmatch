@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// UI plan step 4.7: the shared outcome screen's model. Mac, iPad and iPhone
 /// all build it through `TransferOutcomePresentation.make`, so these pin the

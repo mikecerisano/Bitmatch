@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// The Master Report scanner shared by Mac and iPad/iPhone (UI plan step 4.4).
 /// Reports are built by `ReportExporter.makeEnhancedJSONReport`, encoded with

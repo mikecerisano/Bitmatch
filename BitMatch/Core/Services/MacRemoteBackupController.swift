@@ -7,6 +7,7 @@
 // only through the photographer job view model.
 import Foundation
 import Combine
+import BitMatchEngine
 
 @MainActor
 final class MacRemoteBackupController: ObservableObject {

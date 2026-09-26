@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 struct ResultIntegritySummary {
     let successfulRows: [ResultRow]

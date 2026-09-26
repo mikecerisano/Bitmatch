@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import BitMatchEngine
 
 #if os(macOS)
 import AppKit

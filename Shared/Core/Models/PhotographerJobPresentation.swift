@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 struct PhotographerJobSetupPresentation: Equatable, Sendable {
     let presetTitle: String

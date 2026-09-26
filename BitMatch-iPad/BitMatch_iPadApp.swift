@@ -1,6 +1,7 @@
 // BitMatch_iPadApp.swift - iPad app entry point
 import SwiftUI
 import UserNotifications
+import BitMatchEngine
 #if canImport(BackgroundTasks)
 import BackgroundTasks
 #endif

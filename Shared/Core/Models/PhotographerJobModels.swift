@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// A presentation-level workflow choice. The existing photographer data
 /// model remains the persistence substrate while projects gain a broader

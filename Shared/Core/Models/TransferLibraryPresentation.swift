@@ -1,4 +1,5 @@
 import Foundation
+import BitMatchEngine
 
 /// What the Transfers library shows for each journal record, and which
 /// records raise the "review in Transfers" banner on Mac, iPad and iPhone.

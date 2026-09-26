@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// Guards the Mac's existing per-transfer PDF report (Promise 3) as the PDF
 /// renderer becomes shared with iPad and iPhone (THESIS decision, 2026-09-25:

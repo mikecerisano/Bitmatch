@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import BitMatch
+import BitMatchEngine
 
 /// The shared Setup screen's rules (UI plan step 4.8). Each plant names the
 /// one-line production change that should make the test fail.

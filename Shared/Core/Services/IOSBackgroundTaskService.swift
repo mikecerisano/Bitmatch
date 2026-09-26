@@ -1,5 +1,6 @@
 // IOSBackgroundTaskService.swift - iOS background task and Live Activity management
 import Foundation
+import BitMatchEngine
 
 #if os(iOS)
 import UIKit

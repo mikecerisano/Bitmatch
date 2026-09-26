@@ -1,5 +1,6 @@
 // SharedAppCoordinator.swift - Platform-agnostic app coordination
 import Foundation
+import BitMatchEngine
 
 // Uses SharedLogger (shared file) for logging across platforms
 import SwiftUI

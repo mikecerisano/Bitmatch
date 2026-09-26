@@ -1,6 +1,7 @@
 // LiveResultsFeed.swift - the run's per-file results, observed on their own
 import Foundation
 import Combine
+import BitMatchEngine
 
 /// Holds the per-file result rows of the current run. During a transfer a
 /// row arrives for every file on every backup (and again when it verifies),

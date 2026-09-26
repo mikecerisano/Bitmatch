@@ -1,5 +1,6 @@
 import SwiftUI
 import Accessibility
+import BitMatchEngine
 
 /// What only the platform can do for the Master Report: choose a folder,
 /// and save or share the finished report.

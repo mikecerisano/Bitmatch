@@ -1,4 +1,5 @@
 import SwiftUI
+import BitMatchEngine
 
 /// The collapsed "Advanced" options on Setup (and, with only the verification
 /// picker, on Compare), shared by Mac, iPad and iPhone.
