@@ -8,44 +8,44 @@ struct PreferencesWindow: View {
     let cameraAutoSource: MacCameraAutoSourceController
     let remoteBackups: MacRemoteBackupController
     @Environment(\.dismiss) private var dismiss
-    
+
     // Tab selection
-    @State private var selectedTab: PreferencesTab = .general
-    
+    @State private var selectedTab: PreferencesTab = .verification
+
     enum PreferencesTab: String, CaseIterable {
-        case general = "General"
-        case destinations = "Destinations"
+        case verification = "Verification"
+        case backups = "Backups"
         case reports = "Reports"
-        case cameraDetection = "Camera Detection"
-        
+        case cameras = "Cameras"
+
         var icon: String {
             switch self {
-            case .general: return "gear"
-            case .destinations: return "externaldrive.badge.plus"
+            case .verification: return "checkmark.shield"
+            case .backups: return "externaldrive.badge.plus"
             case .reports: return "doc.text"
-            case .cameraDetection: return "externaldrive"
+            case .cameras: return "camera"
             }
         }
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar
             tabBar
-            
+
             Divider()
-            
+
             ScrollView {
                 Group {
                     switch selectedTab {
-                    case .general:
-                        generalPreferences
-                    case .destinations:
-                        destinationPreferences
+                    case .verification:
+                        verificationPreferences
+                    case .backups:
+                        backupsPreferences
                     case .reports:
                         reportPreferences
-                    case .cameraDetection:
-                        cameraDetectionPreferences
+                    case .cameras:
+                        camerasPreferences
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -61,24 +61,32 @@ struct PreferencesWindow: View {
         )
         .background(Color(NSColor.windowBackgroundColor))
     }
-    
+
     // MARK: - Tab Bar
-    
+
     @ViewBuilder
     private var tabBar: some View {
-        HStack {
+        HStack(spacing: 0) {
             ForEach(PreferencesTab.allCases, id: \.self) { tab in
                 Button {
                     selectedTab = tab
                 } label: {
                     VStack(spacing: 4) {
+                        // Fixed-size icon well so glyphs of different visual
+                        // heights (gear, drive, doc, camera) share one
+                        // baseline instead of drifting per-icon.
                         Image(systemName: tab.icon)
                             .font(.system(size: 16))
+                            .frame(width: PreferencesPresentationPolicy.tabIconWellSize, height: PreferencesPresentationPolicy.tabIconWellSize)
                         Text(tab.rawValue)
                             .font(.system(size: 11))
                     }
                     .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
-                    .frame(width: 100, height: 50)
+                    .frame(width: PreferencesPresentationPolicy.tabWidth, height: PreferencesPresentationPolicy.tabHeight)
+                    // The bug this fixes: without an explicit shape, only the
+                    // glyph and text pixels were tappable, not the tab's
+                    // empty margin. contentShape makes the whole frame hit-testable.
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .background(
@@ -90,66 +98,72 @@ struct PreferencesWindow: View {
                 // Audit M1: selection was shown by tint color alone.
                 .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
             }
-            
+
             Spacer()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
-    
-    // MARK: - General Preferences
-    
-    @ViewBuilder
-    private var generalPreferences: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("General")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            VStack(alignment: .leading, spacing: 16) {
-                // Verification preferences
-                GroupBox("Verification") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(coordinator.verificationMode == .standard ? "Verified copy · SHA-256" : coordinator.verificationMode.rawValue)
-                            .font(.headline)
-                        DisclosureGroup("Advanced verification") {
-                            Picker("Verification", selection: $coordinator.verificationMode) {
-                                ForEach(VerificationMode.allCases) { mode in
-                                    Text(mode.rawValue).tag(mode)
-                                }
-                            }
-                            .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
-                            Text(coordinator.verificationMode.description)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                            if coordinator.verificationMode == .quick {
-                                Label("File contents are not verified in Quick mode.", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                            }
-                            ASCMHLPreferenceToggle(shared: coordinator)
-                        }
 
+    // MARK: - Verification
+
+    @ViewBuilder
+    private var verificationPreferences: some View {
+        Form {
+            Section {
+                Text("Every backup is checked against your card before BitMatch calls it verified. This sets how thoroughly that check runs.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Verification").font(.title2).fontWeight(.semibold).foregroundColor(.primary)
+            }
+
+            Section("Current mode") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(coordinator.verificationMode == .standard ? "Verified copy · SHA-256" : coordinator.verificationMode.rawValue)
+                        .font(.headline)
+                    Text(coordinator.verificationMode.description)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    if coordinator.verificationMode == .quick {
+                        Label("File contents are not checked in Quick mode.", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
                     }
-                    .padding(8)
+                }
+                .padding(.vertical, 4)
+
+                DisclosureGroup("Change verification mode") {
+                    Picker("Mode", selection: $coordinator.verificationMode) {
+                        ForEach(VerificationMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .onChange(of: coordinator.verificationMode) { _, _ in coordinator.saveVerificationMode() }
+                    .padding(.top, 4)
                 }
             }
-            
-            Spacer()
+
+            Section("Handoff record") {
+                ASCMHLPreferenceToggle(shared: coordinator)
+            }
         }
+        .formStyle(.grouped)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Report Preferences
+    // MARK: - Backups
 
     @ViewBuilder
-    private var destinationPreferences: some View {
+    private var backupsPreferences: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Destinations")
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text("Saved places BitMatch can use for off-site backup. Authentication stays in your macOS SSH agent.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Backups")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Save an off-site destination here once, then choose it for any project. BitMatch signs in with your Mac's SSH agent and only uploads from a Mac.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
             RemoteBackupDestinationManager(
                 viewModel: coordinator.photographerJobViewModel,
                 remoteBackups: remoteBackups,
@@ -159,157 +173,128 @@ struct PreferencesWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    // MARK: - Reports
+
     @ViewBuilder
     private var reportPreferences: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Reports")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.reportSettings.makeReport)
-                .toggleStyle(.checkbox)
-
-            if coordinator.reportSettings.makeReport {
-                GroupBox("Project Metadata") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        TextField("Client Name", text: $coordinator.reportSettings.clientName)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Project Name", text: $coordinator.reportSettings.projectName)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Production Title", text: $coordinator.reportSettings.production)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Production Company", text: $coordinator.reportSettings.company)
-                            .textFieldStyle(.roundedBorder)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Notes")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            TextEditor(text: $coordinator.reportSettings.notes)
-                                .font(.system(size: 12))
-                                .frame(minHeight: 80)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                                )
-                        }
-                    }
-                    .padding(8)
-                }
-
-                GroupBox("Output") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Include Thumbnails", isOn: $coordinator.reportSettings.includeThumbnails)
-                            .toggleStyle(.checkbox)
-                    }
-                    .padding(8)
-                }
-
-                Button("Clear Report Metadata") {
-                    clearReportMetadata()
-                }
+        Form {
+            Section {
+                Text("A report is a record of what happened during a transfer, saved next to your backups so you can hand it to anyone.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Reports").font(.title2).fontWeight(.semibold).foregroundColor(.primary)
             }
 
-            Spacer()
+            Section {
+                Toggle(TransferOptionsPresentation.reportToggleTitle(), isOn: $coordinator.reportSettings.makeReport)
+                    .toggleStyle(.checkbox)
+            }
+
+            if coordinator.reportSettings.makeReport {
+                Section {
+                    TextField("Client name", text: $coordinator.reportSettings.clientName)
+                    TextField("Project name", text: $coordinator.reportSettings.projectName)
+                    TextField("Production title", text: $coordinator.reportSettings.production)
+                    TextField("Production company", text: $coordinator.reportSettings.company)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Notes")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $coordinator.reportSettings.notes)
+                            .font(.system(size: 12))
+                            .frame(minHeight: 80)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            )
+                    }
+                } header: {
+                    Text("Project details")
+                } footer: {
+                    Text("These appear on every report until you clear them.")
+                }
+
+                Section {
+                    Toggle("Include thumbnails", isOn: $coordinator.reportSettings.includeThumbnails)
+                        .toggleStyle(.checkbox)
+                } footer: {
+                    Text("Adds a small preview image for each file to the report.")
+                }
+
+                Section {
+                    Button("Clear project details") {
+                        clearReportMetadata()
+                    }
+                }
+            }
         }
+        .formStyle(.grouped)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut, value: coordinator.reportSettings.makeReport)
     }
-    
-    // MARK: - Camera Detection Preferences
-    
+
+    // MARK: - Cameras
+
     @ViewBuilder
-    private var cameraDetectionPreferences: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Camera Detection")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Automatically detect and configure camera cards when they're connected to your Mac.")
+    private var camerasPreferences: some View {
+        Form {
+            Section {
+                Text("BitMatch can notice when a camera card is connected and set it up for you automatically.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                
-                // Main detection toggle
-                Toggle("Enable automatic camera card detection", isOn: $coordinator.reportSettings.enableAutoCameraDetection)
+            } header: {
+                Text("Cameras").font(.title2).fontWeight(.semibold).foregroundColor(.primary)
+            }
+
+            Section {
+                Toggle("Detect camera cards automatically", isOn: $coordinator.reportSettings.enableAutoCameraDetection)
                     .toggleStyle(.checkbox)
                     .onChange(of: coordinator.reportSettings.enableAutoCameraDetection) { oldValue, newValue in
                         cameraAutoSource.toggleCameraDetection(newValue)
                     }
-                
-                if coordinator.reportSettings.enableAutoCameraDetection {
-                    VStack(alignment: .leading, spacing: 12) {
-                        
-                        Divider()
-                        
-                        Text("Detection Behavior")
-                            .font(.headline)
-                            .padding(.top, 8)
-                        
-                        Toggle("Automatically set detected cameras as source", isOn: $coordinator.reportSettings.autoPopulateSource)
-                            .toggleStyle(.checkbox)
-                            .help("When enabled, detected camera cards will automatically be set as the source folder")
-                        
-                        Toggle("Show notifications when cameras are detected", isOn: $coordinator.reportSettings.showCameraDetectionNotifications)
-                            .toggleStyle(.checkbox)
-                            .help("Display system notifications when camera cards are detected")
-                        
-                        Divider()
-                        
-                        // Manual controls
-                        HStack {
-                            Button {
-                                cameraAutoSource.rescanForCameras()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.clockwise")
-                                    Text("Rescan for Cameras")
-                                }
-                            }
-                            .help("Manually scan for connected camera cards")
-                            
-                            Spacer()
-                            
-                            // Status indicator
+            }
+
+            if coordinator.reportSettings.enableAutoCameraDetection {
+                Section("When a card is detected") {
+                    Toggle("Set it as the source automatically", isOn: $coordinator.reportSettings.autoPopulateSource)
+                        .toggleStyle(.checkbox)
+                        .help("When enabled, a detected camera card is set as the source folder for you")
+
+                    Toggle("Show a notification", isOn: $coordinator.reportSettings.showCameraDetectionNotifications)
+                        .toggleStyle(.checkbox)
+                        .help("Display a system notification when a camera card is detected")
+                }
+
+                Section {
+                    HStack {
+                        Button {
+                            cameraAutoSource.rescanForCameras()
+                        } label: {
                             HStack(spacing: 6) {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 8, height: 8)
-                                Text("Active")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                Image(systemName: "arrow.clockwise")
+                                Text("Rescan Now")
                             }
                         }
-                        
-                        // Supported cameras info
-                        GroupBox("Supported Cameras") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("BitMatch can automatically detect the following camera types:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                
-                                LazyVGrid(columns: [
-                                    GridItem(.flexible()), 
-                                    GridItem(.flexible()),
-                                    GridItem(.flexible())
-                                ], spacing: 4) {
-                                    ForEach(["RED", "ARRI", "Blackmagic", "Sony", "Canon", "Panasonic", "GoPro", "DJI", "Fujifilm"], id: \.self) { camera in
-                                        Text("• \(camera)")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                }
-                            }
-                            .padding(8)
+                        .help("Manually scan for connected camera cards")
+
+                        Spacer()
+
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 8, height: 8)
+                            Text("Active")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
-                    .padding(.leading, 20)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } footer: {
+                    Text("Recognized cameras: RED, ARRI, Blackmagic, Sony, Canon, Panasonic, GoPro, DJI, and Fujifilm.")
                 }
             }
-            
-            Spacer()
         }
+        .formStyle(.grouped)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut, value: coordinator.reportSettings.enableAutoCameraDetection)
     }
@@ -342,7 +327,7 @@ class PreferencesWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        
+
         window.title = "BitMatch Preferences"
         if PreferencesPresentationPolicy.allowsManualResizing {
             window.styleMask.insert(.resizable)
@@ -358,7 +343,7 @@ class PreferencesWindowController: NSWindowController {
             cameraAutoSource: environment.cameraAutoSource,
             remoteBackups: environment.remoteBackups
         ))
-        
+
         self.init(window: window)
     }
 }
