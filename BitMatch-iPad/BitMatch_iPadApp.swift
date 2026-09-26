@@ -19,20 +19,6 @@ struct BitMatch_iPadApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .onAppear {
-                    setupiOS()
-                }
-        }
-    }
-    
-    private func setupiOS() {
-        guard NotificationPermissionPolicy.requestsAtLaunch else { return }
-        UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .sound, .badge]
-        ) { granted, error in
-            if let error = error {
-                SharedLogger.error("Notification permission error: \(error)")
-            }
         }
     }
 
@@ -61,6 +47,6 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        completionHandler([])
     }
 }

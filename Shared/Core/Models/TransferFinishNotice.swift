@@ -1,6 +1,5 @@
 // TransferFinishNotice.swift - What the "transfer finished" notification says.
 import Foundation
-import BitMatchEngine
 
 /// The notification sent when a transfer ends while BitMatch is in the
 /// background. Only a real success says the card is safe to erase
@@ -8,37 +7,67 @@ import BitMatchEngine
 struct TransferFinishNotice: Equatable, Sendable {
     let title: String
     let body: String
+    let kind: TransferNotificationKind
 
-    /// `nil` for a cancelled or never-started transfer: nothing to report.
+    init(title: String, body: String, kind: TransferNotificationKind) {
+        self.title = title
+        self.body = body
+        self.kind = kind
+    }
+
+    /// `nil` for an active or never-started transfer: nothing to report.
     static func make(
         state: OperationState,
         sourceName: String,
-        backupCount: Int,
-        issueCount: Int
+        backupNames: [String],
+        issueCount: Int,
+        kind: TransferNotificationKind
     ) -> TransferFinishNotice? {
         let card = sourceName.isEmpty ? "The card" : sourceName
-        let backups = backupCount == 1 ? "1 backup" : "\(backupCount) backups"
+        let backups = joinedBackupNames(backupNames)
         switch state {
         case .completed(let info) where info.success:
             return .init(title: "\(card) is safe to erase",
-                         body: "Copied to \(backups) and verified.")
+                         body: backups.isEmpty ? "Every backup was verified."
+                             : "Verified on \(backups).",
+                         kind: kind)
         case .completed where issueCount > 0:
-            let files = issueCount == 1 ? "1 file" : "\(issueCount) files"
             return .init(title: "\(card) needs attention",
-                         body: "\(files) had problems. Open BitMatch to review.")
+                         body: "Do not erase the card.",
+                         kind: .attention)
         // Only when Quick was the one gap: a Quick run whose report or
         // project failed still needs attention.
         case .completed(let info) where info.copiedNotVerified:
-            return .init(title: "\(card) copied, not verified",
-                         body: "Quick mode only compared file sizes. Keep the card until it is verified.")
+            return .init(title: "\(card) was copied without checksum verification",
+                         body: "Do not erase the card.",
+                         kind: kind)
         case .completed:
             return .init(title: "\(card) needs attention",
-                         body: "The copy finished but was not fully confirmed. Open BitMatch to review.")
+                         body: "Do not erase the card.",
+                         kind: .attention)
         case .failed:
-            return .init(title: "\(card) transfer failed",
-                         body: "Open BitMatch to see what went wrong.")
+            return .init(title: "\(card) failed",
+                         body: "Do not erase the card.",
+                         kind: .attention)
+        case .cancelled:
+            return .init(title: "\(card) was interrupted",
+                         body: "Do not erase the card.",
+                         kind: .attention)
         default:
             return nil
+        }
+    }
+
+    static func queueFinished(tally: String) -> TransferFinishNotice {
+        .init(title: "Queue finished: \(tally)", body: "", kind: .queueFinished)
+    }
+
+    private static func joinedBackupNames(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return "\(names.dropLast().joined(separator: ", ")), and \(names[names.count - 1])"
         }
     }
 }

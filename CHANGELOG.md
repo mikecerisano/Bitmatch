@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Settings now use the native Mac Settings window and add notification, queue, safe-eject and sound preferences; notification permission is offered after the first transfer starts, and File gains New Transfer and safety-gated Eject shortcuts.
+
 ## [0.2.0] - 2026-09-26
 
 A redesign release. BitMatch now tells you, in plain words, when a card is safe to erase, and shows it on the Dock while you work. The Mac main screen lists your connected cards and drives and lets you queue card after card. Settings, the Transfers list, Compare, Master Report and the iPad layout were rebuilt to match, reports paginate cleanly, and the copy and verify engine is now one Swift 6 package shared by every platform.

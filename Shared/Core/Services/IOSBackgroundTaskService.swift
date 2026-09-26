@@ -168,18 +168,7 @@ final class IOSBackgroundTaskService: ObservableObject {
                 continuation.resume(returning: settings.authorizationStatus)
             }
         }
-        switch status {
-        case .authorized, .provisional:
-            return true
-        case .notDetermined:
-            return await withCheckedContinuation { continuation in
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    continuation.resume(returning: granted)
-                }
-            }
-        default:
-            return false
-        }
+        return NotificationPermissionPolicy.canPostWithoutRequest(status: status)
     }
 
     private func scheduleNextBGProcessing() {

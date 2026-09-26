@@ -40,13 +40,14 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        completionHandler([])
     }
 }
 
 @main
 struct BitMatchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var environment: MacAppEnvironment
     #if DEBUG
     @ObservedObject private var devModeManager = DevModeManager.shared
     #endif
@@ -64,6 +65,7 @@ struct BitMatchApp: App {
     }()
 
     init() {
+        _environment = StateObject(wrappedValue: MacAppEnvironment.make())
         UNUserNotificationCenter.current().delegate = notifDelegate
     }
 
@@ -72,25 +74,15 @@ struct BitMatchApp: App {
             Group {
 #if DEBUG
                 if launchesInterfaceLab { InterfaceLabView() }
-                else { ContentView().preferredColorScheme(.dark) }
+                else { ContentView(environment: environment).preferredColorScheme(.dark) }
 #else
-                ContentView().preferredColorScheme(.dark)
+                ContentView(environment: environment).preferredColorScheme(.dark)
 #endif
             }
             .onAppear { setupWindow() }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .newItem) { }
-            
-            // Saved destinations and transfer defaults live in Settings.
-            CommandGroup(after: .appInfo) {
-                Button("Settings…") {
-                    NotificationCenter.default.post(name: .showPreferences, object: nil)
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
-            
             OperationCommands()
             
             // Into the system View menu: a CommandMenu("View") adds a second one.
@@ -158,6 +150,15 @@ struct BitMatchApp: App {
             }
             #endif
         }
+
+        Settings {
+            PreferencesWindow(
+                coordinator: environment.coordinator,
+                cameraAutoSource: environment.cameraAutoSource,
+                remoteBackups: environment.remoteBackups
+            )
+            .macCompanions(environment)
+        }
     }
     
     private func setupWindow() {
@@ -200,12 +201,22 @@ struct BitMatchApp: App {
     }
 }
 
-/// File menu: ⌘R starts, ⌘. cancels. Cancel is disabled while nothing runs;
-/// for a transfer it opens the progress screen's one confirmation.
+/// File menu transfer commands. New Transfer and Eject publish through the
+/// focused main window; Eject exists only for a safe, removable card.
 struct OperationCommands: Commands {
     @FocusedValue(\.canCancelOperation) private var canCancelOperation
+    @FocusedValue(\.canStartNewTransfer) private var canStartNewTransfer
+    @FocusedValue(\.ejectCardTitle) private var ejectCardTitle
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button(TransferMenuPresentation.newTransferTitle) {
+                NotificationCenter.default.post(name: .newTransfer, object: nil)
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(canStartNewTransfer != true)
+        }
+
         // Into the system File menu, so it keeps its place; a
         // CommandMenu("File") adds a second File menu after View.
         CommandGroup(after: .newItem) {
@@ -213,6 +224,14 @@ struct OperationCommands: Commands {
                 NotificationCenter.default.post(name: .startVerification, object: nil)
             }
             .keyboardShortcut("r", modifiers: .command)
+
+            Divider()
+
+            Button(ejectCardTitle ?? TransferMenuPresentation.unavailableEjectTitle) {
+                NotificationCenter.default.post(name: .ejectCard, object: nil)
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(ejectCardTitle == nil)
 
             Divider()
 
@@ -230,10 +249,28 @@ struct CanCancelOperationKey: FocusedValueKey {
     typealias Value = Bool
 }
 
+struct CanStartNewTransferKey: FocusedValueKey {
+    typealias Value = Bool
+}
+
+struct EjectCardTitleKey: FocusedValueKey {
+    typealias Value = String
+}
+
 extension FocusedValues {
     var canCancelOperation: Bool? {
         get { self[CanCancelOperationKey.self] }
         set { self[CanCancelOperationKey.self] = newValue }
+    }
+
+    var canStartNewTransfer: Bool? {
+        get { self[CanStartNewTransferKey.self] }
+        set { self[CanStartNewTransferKey.self] = newValue }
+    }
+
+    var ejectCardTitle: String? {
+        get { self[EjectCardTitleKey.self] }
+        set { self[EjectCardTitleKey.self] = newValue }
     }
 }
 

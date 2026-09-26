@@ -29,18 +29,19 @@ struct ModularContentView: View {
             
             // Main content area
             mainContentArea
-            if showCancelToast {
-                VStack {
+            VStack {
+                NotificationPermissionBanner(coordinator: coordinator)
+                if showCancelToast {
                     ToastView(
                         icon: "xmark.circle",
                         message: coordinator.currentMode == .compareFolders ? "Compare cancelled" : "Transfer cancelled",
                         tint: .red
                     )
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    Spacer()
                 }
-                .padding(.top, 16)
+                Spacer()
             }
+            .padding(.top, 16)
         }
         .preferredColorScheme(.dark)
         .onChange(of: coordinator.operationState) { oldValue, newValue in
@@ -305,11 +306,35 @@ struct CompareFoldersView: View {
 
 struct SettingsSheetView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    @ObservedObject private var generalSettings: GeneralSettings
+    @ObservedObject private var notifier: TransferNotifier
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    init(coordinator: SharedAppCoordinator) {
+        self.coordinator = coordinator
+        _generalSettings = ObservedObject(wrappedValue: coordinator.generalSettings)
+        _notifier = ObservedObject(wrappedValue: coordinator.transferNotifier)
+    }
 
     var body: some View {
         NavigationView {
             Form {
+                Section(GeneralSettingsPresentation.notificationsSection) {
+                    Toggle(GeneralSettingsPresentation.notifyAttention, isOn: $generalSettings.notifyWhenCardNeedsAttention)
+                    Toggle(GeneralSettingsPresentation.notifyFinish, isOn: $generalSettings.notifyWhenTransferOrQueueFinishes)
+                    Toggle(GeneralSettingsPresentation.notifyEachQueuedCard, isOn: $generalSettings.notifyForEachCardInQueue)
+                    Text("\(GeneralSettingsPresentation.systemPermission): \(notifier.authorization.title)")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    if notifier.authorization.showsSettingsButton,
+                       let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        Button(GeneralSettingsPresentation.openNotificationSettings) {
+                            openURL(settingsURL)
+                        }
+                    }
+                }
+
                 Section {
                     Text("Every backup is checked against your card before BitMatch calls it verified. This sets how thoroughly that check runs.")
                         .font(.footnote)
@@ -386,6 +411,7 @@ struct SettingsSheetView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task { await notifier.refreshAuthorizationStatus() }
     }
     
     private func clearReportInfo() {
