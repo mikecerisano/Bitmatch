@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Mac: the Dock icon shows transfer progress (a ring and the percent), then the verdict: a green check when every file on every backup verified, amber when something needs a look, red when it failed. It stays until the next transfer.
 - Setup: project fields show clear examples ("e.g. Day 3") instead of names that looked filled in, missing fields are listed in one line ("Still needed: client, job name and camera."), and the mode is called Copy & Verify on Mac, iPad and iPhone.
 - Mac: Project transfers show the project dashboard (with off-site backup actions) on the completion screen again; the shared Outcome screen had silently dropped it.
 - Engine: copy, verify, compare, evidence and the safety rules are one Swift package (`Packages/BitMatchEngine`), built with Swift 6 strict concurrency, as are both apps. Pausing a transfer pauses only that transfer (it used to hold a Compare or another run's checksum reads too), verification can no longer outlive a finished or cancelled run, and the iPhone Live Activity shows the same time left as the progress screen.
