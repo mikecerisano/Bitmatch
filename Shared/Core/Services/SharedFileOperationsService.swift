@@ -210,7 +210,7 @@ final class ActiveOperationRegistry: @unchecked Sendable {
 class SharedFileOperationsService: FileOperationsService {
     typealias ProgressCallback = (OperationProgress) -> Void
 
-    private let fileSystem: FileSystemService
+    private let fileSystem: any FileAccess
     private let checksumService: any ChecksumService
     /// Test seam invoked with the raw destination URL immediately before that
     /// destination is pinned. It performs no filesystem work in production
@@ -225,7 +225,7 @@ class SharedFileOperationsService: FileOperationsService {
     private let verifyCounter = VerifyCounter()
 
     init(
-        fileSystem: FileSystemService,
+        fileSystem: any FileAccess,
         checksum: any ChecksumService,
         pipelinedVerification: Bool = true,
         destinationSetupHook: (@Sendable (URL) throws -> Void)? = nil

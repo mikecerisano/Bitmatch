@@ -1,12 +1,11 @@
 // ServiceProtocols.swift - Platform-agnostic service interfaces
 import Foundation
 
-// MARK: - File System Service Protocol
-protocol FileSystemService {
-    func selectSourceFolder() async -> URL?
-    func selectDestinationFolders() async -> [URL]
-    func selectLeftFolder() async -> URL?
-    func selectRightFolder() async -> URL?
+// MARK: - File Access (engine)
+
+/// What the engine needs from the file system: access scopes, listing,
+/// sizes, directory creation and free space. No pickers.
+protocol FileAccess {
     func validateFileAccess(url: URL) async -> Bool
     func startAccessing(url: URL) -> Bool
     func stopAccessing(url: URL)
@@ -16,6 +15,16 @@ protocol FileSystemService {
     nonisolated func getFileSize(for url: URL) throws -> Int64
     nonisolated func createDirectory(at url: URL) throws
     nonisolated func freeSpace(at url: URL) -> Int64
+}
+
+// MARK: - File System Service Protocol (app)
+
+/// File access plus the platform's folder pickers.
+protocol FileSystemService: FileAccess {
+    func selectSourceFolder() async -> URL?
+    func selectDestinationFolders() async -> [URL]
+    func selectLeftFolder() async -> URL?
+    func selectRightFolder() async -> URL?
 }
 
 // MARK: - Checksum Service Protocol
