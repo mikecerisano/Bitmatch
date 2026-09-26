@@ -13,6 +13,8 @@ final class MacAppEnvironment: ObservableObject {
     let remoteBackups: MacRemoteBackupController
     let volumeAccess: MacVolumeAccessModel
     let cameraAutoSource: MacCameraAutoSourceController
+    /// Progress and the verdict on the Dock icon; the real app only.
+    private(set) var dockTile: DockTileController?
 
     init(
         coordinator: SharedAppCoordinator,
@@ -39,7 +41,9 @@ final class MacAppEnvironment: ObservableObject {
             remoteBackupCoordinator: remoteBackupCoordinator,
             results: { [weak coordinator] in coordinator?.results ?? [] }
         )
-        return MacAppEnvironment(coordinator: coordinator, remoteBackups: remoteBackups)
+        let environment = MacAppEnvironment(coordinator: coordinator, remoteBackups: remoteBackups)
+        environment.dockTile = DockTileController(coordinator: coordinator)
+        return environment
     }
 
     /// Tests and previews: the given coordinator, no volume or camera

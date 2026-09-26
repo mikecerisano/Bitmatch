@@ -30,13 +30,9 @@ enum AppMode: String, CaseIterable, Identifiable {
         }
     }
     
-    var shortTitle: String {
-        switch self {
-        case .copyAndVerify: return "Copy to Backups"
-        case .compareFolders: return "Compare Folders"
-        case .masterReport: return "Master Report"
-        }
-    }
+    /// The mode's name on every platform's mode switcher (the Mac menu and
+    /// iPad/iPhone tabs say the same thing).
+    var shortTitle: String { rawValue }
     
     #if os(iOS)
     static var supportedModes: [AppMode] {

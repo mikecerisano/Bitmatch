@@ -26,7 +26,8 @@ struct PhotographerJobPresentationTests {
     @Test func missingPhotographerAndCameraAreSetupBlockers() {
         let presentation = setup(photographerName: "  ", cameraName: "")
 
-        #expect(presentation.blockers == ["Enter a photographer", "Enter a camera"])
+        #expect(presentation.blockers == ["photographer", "camera"])
+        #expect(presentation.blockerSentence == "Still needed: photographer and camera.")
         #expect(!presentation.canSetUpCard)
     }
 
@@ -42,7 +43,19 @@ struct PhotographerJobPresentationTests {
             duplicateWarningText: nil
         )
 
-        #expect(presentation.blockers == ["Enter a client", "Enter a job name"])
+        #expect(presentation.blockers == ["client", "job name"])
+        #expect(presentation.blockerSentence == "Still needed: client and job name.")
+    }
+
+    /// Fails on "Enter a operator" (the old per-field sentences) or a list
+    /// without "and".
+    @Test func videoMissingEverythingReadsAsOneSentence() {
+        let presentation = PhotographerJobSetupPresentation.make(
+            clientName: "", jobName: "", eventDate: eventDate, photographerName: "", cameraName: "",
+            cardNumber: 1, recipe: ProjectWorkflow.videoDIT.defaultRecipe, workflow: .videoDIT,
+            duplicateWarningText: nil, hasSource: false
+        )
+        #expect(presentation.blockerSentence == "Still needed: client, job name, operator, camera and source media.")
     }
 
     @Test func duplicateWarningUsesPlainCopyAndEarlierIngestLinkLabel() {

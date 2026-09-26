@@ -26,6 +26,15 @@ enum ProjectWorkflow: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Placeholders that read as examples, never as filled-in values.
+    var fieldExamples: (client: String, job: String, contributor: String, camera: String) {
+        switch self {
+        case .videoDIT: ("e.g. Northlight Films", "e.g. Day 3", "e.g. A-cam DIT", "e.g. Sony FX6")
+        case .photography: ("e.g. Smith", "e.g. Smith Wedding", "e.g. Alex", "e.g. Sony A7 IV")
+        case .general: ("e.g. Acme", "e.g. Spring Campaign", "e.g. Alex", "e.g. GoPro")
+        }
+    }
+
     var sourceUnitLabel: String {
         switch self {
         case .photography: "Card"
