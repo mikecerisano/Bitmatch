@@ -62,8 +62,15 @@ final class DockTileController {
         if state == .appIcon {
             tile.contentView = nil
         } else {
-            let view = NSHostingView(rootView: DockTileView(state: state))
-            view.frame = NSRect(origin: .zero, size: tile.size)
+            // A Dock tile draws a plain NSImageView, not a SwiftUI hosting
+            // view, so the tile is rendered to an image first.
+            let renderer = ImageRenderer(content: DockTileView(state: state)
+                .frame(width: tile.size.width, height: tile.size.height))
+            renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+            guard let image = renderer.nsImage else { return }
+            let view = NSImageView(frame: NSRect(origin: .zero, size: tile.size))
+            view.image = image
+            view.imageScaling = .scaleProportionallyUpOrDown
             tile.contentView = view
         }
         tile.display()
