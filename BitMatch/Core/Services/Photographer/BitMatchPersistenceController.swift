@@ -42,7 +42,7 @@ final class BitMatchPersistenceController {
         } else if !deferStoreLoad {
             loadPersistentStore()
         }
-        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        container.viewContext.mergePolicy = NSMergePolicy.mergeByPropertyObjectTrump
         container.viewContext.automaticallyMergesChangesFromParent = true
     }
 

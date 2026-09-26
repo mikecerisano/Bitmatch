@@ -5,7 +5,7 @@ import Foundation
 import UIKit
 import UserNotifications
 #if canImport(ActivityKit)
-import ActivityKit
+@preconcurrency import ActivityKit  // Activity is not yet annotated Sendable
 #endif
 #if canImport(BackgroundTasks)
 import BackgroundTasks
@@ -162,12 +162,12 @@ final class IOSBackgroundTaskService: ObservableObject {
 
     private func ensureNotificationPermission() async -> Bool {
         let center = UNUserNotificationCenter.current()
-        let settings = await withCheckedContinuation { continuation in
+        let status = await withCheckedContinuation { continuation in
             center.getNotificationSettings { settings in
-                continuation.resume(returning: settings)
+                continuation.resume(returning: settings.authorizationStatus)
             }
         }
-        switch settings.authorizationStatus {
+        switch status {
         case .authorized, .provisional:
             return true
         case .notDetermined:

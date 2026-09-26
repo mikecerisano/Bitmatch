@@ -26,7 +26,8 @@ final class ProgressPresentationModel: ObservableObject {
     @Published var currentFileName: String? = nil  // FIXED: Now properly tracked
     
     // MARK: - Private Properties
-    private var progressTimer: Timer?
+    /// Refreshes the smoothed progress every 0.25 s while tracking.
+    private var progressTask: Task<Void, Never>?
     private var lastProgressUpdate = Date()
     private var lastUpdateTime = Date()
     private var lastFileCount = 0
@@ -62,22 +63,25 @@ final class ProgressPresentationModel: ObservableObject {
     // MARK: - Progress Management
     func startProgressTracking() {
         reset()
-        progressTimer?.invalidate()
+        progressTask?.cancel()
         pausedAt = nil
-        // Perf 2: reduce timer frequency from 0.1s to 0.25s for less UI overhead
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            Task { @MainActor in
+        // Perf 2: refresh every 0.25 s (not 0.1 s) for less UI overhead.
+        // Weak: a model freed while tracking stops refreshing.
+        progressTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, let self else { return }
                 self.updateInterpolatedProgress()
             }
         }
     }
     
     /// True between `startProgressTracking()` and `stopProgressTracking()`.
-    var isTracking: Bool { progressTimer != nil }
+    var isTracking: Bool { progressTask != nil }
 
     func stopProgressTracking() {
-        progressTimer?.invalidate()
-        progressTimer = nil
+        progressTask?.cancel()
+        progressTask = nil
         interpolatedProgress = 0
     }
     
@@ -255,7 +259,7 @@ final class ProgressPresentationModel: ObservableObject {
     }
     
     deinit {
-        progressTimer?.invalidate()
+        progressTask?.cancel()
     }
 }
 

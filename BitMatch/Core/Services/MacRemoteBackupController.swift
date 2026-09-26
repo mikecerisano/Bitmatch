@@ -81,7 +81,8 @@ final class MacRemoteBackupController: ObservableObject {
     }
 
     func testRemoteProfile(_ profile: RemoteDestinationProfile) {
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let provider = try await SFTPRemoteBackupProviderFactory.make(
                     profile: profile, credential: .sshAgent,

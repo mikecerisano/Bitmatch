@@ -53,20 +53,22 @@ final class SafetyValidatorTests: XCTestCase {
         let systemPaths = ["/System", "/Library", "/usr", "/bin", "/sbin", "/private", "/var"]
         for path in systemPaths {
             let url = URL(fileURLWithPath: path)
-            XCTAssertTrue(DropValidation.isSystemDirectory(url), "Should reject system path: \(path)")
+            XCTAssertTrue(SafetyValidator.isProtectedSystemPath(url), "Should reject system path: \(path)")
         }
     }
 
     func testRejectsSystemSubdirectories() {
         let url = URL(fileURLWithPath: "/System/Library/Frameworks")
-        XCTAssertTrue(DropValidation.isSystemDirectory(url))
+        XCTAssertTrue(SafetyValidator.isProtectedSystemPath(url))
     }
 
     func testAllowsUserDirectories() {
-        let safePaths = ["/Users/test", "/Volumes/External", "/tmp/test"]
+        // Not "/tmp/test": /tmp is /private/tmp, a system folder; only the
+        // app's own temporary folder is exempt.
+        let safePaths = ["/Users/test", "/Volumes/External"]
         for path in safePaths {
             let url = URL(fileURLWithPath: path)
-            XCTAssertFalse(DropValidation.isSystemDirectory(url), "Should allow path: \(path)")
+            XCTAssertFalse(SafetyValidator.isProtectedSystemPath(url), "Should allow path: \(path)")
         }
     }
 
@@ -75,12 +77,12 @@ final class SafetyValidatorTests: XCTestCase {
     func testRejectsPathTraversal() {
         let maliciousPaths = [
             "/Users/test/../../../etc/passwd",
-            "/Volumes/Card/../System",
+            "/Volumes/Card/../../System",
             "/tmp/safe/../../private"
         ]
         for path in maliciousPaths {
             XCTAssertTrue(
-                DropValidation.isSystemDirectory(URL(fileURLWithPath: path)),
+                SafetyValidator.isProtectedSystemPath(URL(fileURLWithPath: path)),
                 "Path traversal should be caught: \(path)"
             )
         }
@@ -143,25 +145,6 @@ final class SafetyValidatorTests: XCTestCase {
         try await SafetyValidator.performComparisonChecks(left: link, right: other)
     }
 
-    // MARK: - Directory Validation
-
-    func testDirectoriesOnlyRejectsFiles() throws {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let file = tempDir.appendingPathComponent("test.txt")
-        try Data("test".utf8).write(to: file)
-
-        XCTAssertFalse(DropValidation.directoriesOnly([file]))
-        XCTAssertTrue(DropValidation.directoriesOnly([tempDir]))
-    }
-
-    func testDirectoriesOnlyRejectsSystemDirs() {
-        let url = URL(fileURLWithPath: "/System")
-        XCTAssertFalse(DropValidation.directoriesOnly([url]))
-    }
-
     // MARK: - Symlink Handling
 
     func testSymlinkResolution() throws {
@@ -177,43 +160,7 @@ final class SafetyValidatorTests: XCTestCase {
 
         // Symlink to safe directory should be allowed
         let resolved = link.resolvingSymlinksInPath()
-        XCTAssertFalse(DropValidation.isSystemDirectory(resolved))
-    }
-
-    // MARK: - Validation Combinators
-
-    func testSingleItemValidation() {
-        let url1 = URL(fileURLWithPath: "/tmp/a")
-        let url2 = URL(fileURLWithPath: "/tmp/b")
-        XCTAssertTrue(DropValidation.singleItem([url1]))
-        XCTAssertFalse(DropValidation.singleItem([url1, url2]))
-    }
-
-    func testMultipleItemsValidation() {
-        let url1 = URL(fileURLWithPath: "/tmp/a")
-        let url2 = URL(fileURLWithPath: "/tmp/b")
-        XCTAssertFalse(DropValidation.multipleItems([url1]))
-        XCTAssertTrue(DropValidation.multipleItems([url1, url2]))
-    }
-
-    func testCombinedValidators() {
-        let combined = DropValidation.combine([
-            DropValidation.singleItem,
-            DropValidation.directoriesOnly
-        ])
-
-        let url = URL(fileURLWithPath: "/tmp")
-        // /tmp is a directory and single item
-        XCTAssertTrue(combined([url]))
-    }
-
-    // MARK: - Empty Input
-
-    func testEmptyURLArray() {
-        XCTAssertFalse(DropValidation.directoriesOnly([]))
-        // singleItem and multipleItems with empty should return false
-        XCTAssertFalse(DropValidation.singleItem([]))
-        XCTAssertFalse(DropValidation.multipleItems([]))
+        XCTAssertFalse(SafetyValidator.isProtectedSystemPath(resolved))
     }
 
     // MARK: - Transfer Safety

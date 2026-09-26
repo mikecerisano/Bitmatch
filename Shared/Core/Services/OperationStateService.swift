@@ -431,22 +431,6 @@ struct SavedOperationState: Codable, Identifiable {
     var timeSincePaused: TimeInterval {
         Date().timeIntervalSince(pausedAt)
     }
-    
-    var canAutoResume: Bool {
-        // Auto-resume if paused for system reasons and it's been reasonable time
-        switch reason {
-        case .systemSleep, .backgrounded:
-            return timeSincePaused < 3600 // 1 hour
-        case .lowBattery:
-            #if os(iOS)
-            return UIDevice.current.batteryLevel > 0.3
-            #else
-            return true
-            #endif
-        case .userRequested, .error:
-            return false
-        }
-    }
 }
 
 struct PauseResumeCapabilities {

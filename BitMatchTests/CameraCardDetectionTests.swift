@@ -43,6 +43,7 @@ final class CameraCardDetectionTests: XCTestCase {
         XCTAssertNil(VolumeMonitor.volumeURL(from: note))
     }
 
+    @MainActor
     func testStopRemovesObserversAndRestartDoesNotDuplicate() {
         var mountCount = 0
         let monitor = VolumeMonitor { event in

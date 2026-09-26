@@ -89,6 +89,9 @@ final class UnreadableMediaMonitor: ObservableObject {
     /// memory on the next disk event, which corrupted the heap.
     private var context: Unmanaged<CallbackBox>?
 
+    /// Main-actor: Disk Arbitration calls back on the main run loop, and the
+    /// callbacks only read it inside `MainActor.assumeIsolated`.
+    @MainActor
     private final class CallbackBox {
         weak var monitor: UnreadableMediaMonitor?
         init(_ monitor: UnreadableMediaMonitor) { self.monitor = monitor }

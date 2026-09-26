@@ -83,8 +83,8 @@ final class CameraCardDetectionService: ObservableObject {
         // the tasks themselves hold weak references and simply expire.
         scanTask?.cancel()
         for pending in pendingDetections.values { pending.task.cancel() }
-        volumeMonitor?.stopMonitoring()
-        cancellables.removeAll()
+        // The volume monitor removes its observers when released, and
+        // the cancellables cancel when released.
     }
     
     // MARK: - Public Methods
@@ -269,19 +269,22 @@ final class CameraCardDetectionService: ObservableObject {
 
 // MARK: - Volume Monitor
 
-class VolumeMonitor {
-    private let eventHandler: (VolumeEvent) -> Void
+/// Observers are registered on the main queue, so events arrive on the main actor.
+@MainActor
+final class VolumeMonitor {
+    private let eventHandler: @MainActor (VolumeEvent) -> Void
     private var isActive = false
     /// Block-observer tokens. `removeObserver(self)` does NOT remove
     /// block-based observers, so the tokens must be owned and removed
-    /// explicitly or restarts accumulate duplicate callbacks.
-    private var observerTokens: [NSObjectProtocol] = []
+    /// explicitly or restarts accumulate duplicate callbacks. The bag also
+    /// removes them when the monitor is released without `stopMonitoring()`.
+    private let observerTokens = ObserverTokens()
     #if os(macOS)
     /// NSWorkspace's center in the app; set before `startMonitoring`.
     var eventCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     #endif
 
-    init(eventHandler: @escaping (VolumeEvent) -> Void) {
+    init(eventHandler: @escaping @MainActor (VolumeEvent) -> Void) {
         self.eventHandler = eventHandler
     }
 
@@ -293,7 +296,7 @@ class VolumeMonitor {
         #if os(macOS)
         // Monitor volume mount/unmount events (NSWorkspace outside tests)
         let center = eventCenter
-        observerTokens.append(center.addObserver(
+        observerTokens.add(center.addObserver(
             forName: NSWorkspace.didMountNotification,
             object: nil,
             queue: .main
@@ -304,11 +307,11 @@ class VolumeMonitor {
                     volume: volumeURL,
                     timestamp: Date()
                 )
-                self?.eventHandler(event)
+                MainActor.assumeIsolated { self?.eventHandler(event) }
             }
-        })
+        }, center: center)
 
-        observerTokens.append(center.addObserver(
+        observerTokens.add(center.addObserver(
             forName: NSWorkspace.didUnmountNotification,
             object: nil,
             queue: .main
@@ -319,9 +322,9 @@ class VolumeMonitor {
                     volume: volumeURL,
                     timestamp: Date()
                 )
-                self?.eventHandler(event)
+                MainActor.assumeIsolated { self?.eventHandler(event) }
             }
-        })
+        }, center: center)
         #endif
     }
 
@@ -330,10 +333,6 @@ class VolumeMonitor {
 
         isActive = false
         #if os(macOS)
-        let center = eventCenter
-        for token in observerTokens {
-            center.removeObserver(token)
-        }
         observerTokens.removeAll()
         #endif
     }
@@ -348,7 +347,7 @@ class VolumeMonitor {
     /// `NSWorkspace.volumeURLUserInfoKey`, 10.6+) carries the same mount
     /// path as an `NSURL` and is preferred because it is typed.
     /// `NSDevicePath` is kept as a fallback for older payloads.
-    static func volumeURL(from notification: Notification) -> URL? {
+    nonisolated static func volumeURL(from notification: Notification) -> URL? {
         if let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL {
             return url
         }
@@ -361,8 +360,24 @@ class VolumeMonitor {
         return nil
     }
     #endif
-    
-    deinit {
-        stopMonitoring()
+    // No deinit: releasing `observerTokens` removes the observers.
+}
+
+/// Notification observer tokens, removed when the bag is emptied or released.
+/// `@unchecked Sendable`: `add` and `removeAll` run on the main actor (the
+/// owning `VolumeMonitor` is main-actor); `deinit` runs once no one else can
+/// touch it, and `NotificationCenter.removeObserver` is thread-safe.
+final class ObserverTokens: @unchecked Sendable {
+    private var tokens: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+
+    func add(_ token: NSObjectProtocol, center: NotificationCenter) {
+        tokens.append((center, token))
     }
+
+    func removeAll() {
+        tokens.forEach { $0.center.removeObserver($0.token) }
+        tokens.removeAll()
+    }
+
+    deinit { removeAll() }
 }
