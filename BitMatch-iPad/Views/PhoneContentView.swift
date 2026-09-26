@@ -41,6 +41,11 @@ struct PhoneContentView: View {
                     }
                     .padding(.bottom, 20)
                 }
+                VStack {
+                    NotificationPermissionBanner(coordinator: coordinator)
+                    Spacer()
+                }
+                .padding(.top, 8)
             }
             .navigationTitle("BitMatch")
             .navigationBarTitleDisplayMode(.inline)

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 - Finish and Transfers now share one fail-safe card state, show Copy Summary for every outcome, keep finished records in History, and reserve green and Eject for checksum-verified cards.
+- Settings now use the native Mac Settings window and add notification, queue, safe-eject and sound preferences; notification permission is offered after the first transfer starts, and File gains New Transfer and safety-gated Eject shortcuts.
 
 ## [0.2.0] - 2026-09-26
 

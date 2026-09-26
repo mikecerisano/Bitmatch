@@ -20,40 +20,73 @@ enum TransferSummaryPasteboard {
     }
 }
 
-/// Off until the person turns it on, and permission is asked only then
-/// (`NotificationPermissionPolicy`). Notifies only when BitMatch is not the
-/// app in front: the screen already shows the verdict.
 @MainActor
-final class TransferNotifier: ObservableObject {
-    static let enabledKey = "BitMatchNotifyWhenTransferEnds"
+protocol NotificationAuthorizationClient {
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
+    func authorizationStatus() async -> UNAuthorizationStatus
+}
 
-    private let defaults: UserDefaults
-    @Published private(set) var isEnabled: Bool
+@MainActor
+final class SystemNotificationAuthorizationClient: NotificationAuthorizationClient {
+    private let center = UNUserNotificationCenter.current()
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        isEnabled = defaults.bool(forKey: Self.enabledKey)
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        try await center.requestAuthorization(options: options)
     }
 
-    /// Asks for permission and turns notifications on if it is given.
-    /// Returns whether they are on.
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await center.notificationSettings().authorizationStatus
+    }
+}
+
+/// Applies the saved notification choices and never posts while BitMatch is
+/// in front: the screen already shows the verdict.
+@MainActor
+final class TransferNotifier: ObservableObject {
+    private let settings: GeneralSettings
+    private let authorizationClient: any NotificationAuthorizationClient
+    @Published private(set) var authorization = NotificationAuthorizationPresentation.notAsked
+
+    init(
+        settings: GeneralSettings,
+        authorizationClient: any NotificationAuthorizationClient = SystemNotificationAuthorizationClient()
+    ) {
+        self.settings = settings
+        self.authorizationClient = authorizationClient
+    }
+
+    /// Compatibility for the finish screen while its redesign lands: this
+    /// controls finish notifications only.
+    var isEnabled: Bool { settings.notifyWhenTransferOrQueueFinishes }
+
+    /// The only authorization request in the app. Callers invoke it from an
+    /// explicit Enable Notifications action, never during launch or Start.
     @discardableResult
     func enable() async -> Bool {
-        let granted = (try? await UNUserNotificationCenter.current()
+        let granted = (try? await authorizationClient
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
-        setEnabled(granted)
+        await refreshAuthorizationStatus()
         return granted
     }
 
-    func disable() { setEnabled(false) }
+    func disable() {
+        settings.notifyWhenTransferOrQueueFinishes = false
+    }
 
-    private func setEnabled(_ enabled: Bool) {
-        isEnabled = enabled
-        defaults.set(enabled, forKey: Self.enabledKey)
+    func refreshAuthorizationStatus() async {
+        authorization = NotificationAuthorizationPresentation.make(
+            status: await authorizationClient.authorizationStatus()
+        )
     }
 
     func post(_ notice: TransferFinishNotice) {
-        guard isEnabled, !Self.appIsInFront else { return }
+        guard TransferNotificationPolicy.shouldPost(
+            kind: notice.kind,
+            appIsInFront: Self.appIsInFront,
+            notifyAttention: settings.notifyWhenCardNeedsAttention,
+            notifyFinish: settings.notifyWhenTransferOrQueueFinishes,
+            notifyEachQueuedCard: settings.notifyForEachCardInQueue
+        ) else { return }
         let content = UNMutableNotificationContent()
         content.title = notice.title
         content.body = notice.body

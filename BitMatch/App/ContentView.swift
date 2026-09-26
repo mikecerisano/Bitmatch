@@ -13,7 +13,6 @@ struct ContentView: View {
 
     var body: some View {
         MacMainView(
-            environment: environment,
             coordinator: environment.coordinator,
             remoteBackups: environment.remoteBackups
         )
@@ -22,16 +21,12 @@ struct ContentView: View {
 }
 
 struct MacMainView: View {
-    let environment: MacAppEnvironment
     @ObservedObject var coordinator: SharedAppCoordinator
     @ObservedObject var remoteBackups: MacRemoteBackupController
     @ObservedObject private var volumeMonitor = VolumeMonitorService.shared
     @ObservedObject private var errorHandler = GlobalErrorHandler.shared
     @State private var showingTransfers = false
     @State private var showOnlyIssues = false
-    
-    // Preferences window management
-    @State private var preferencesWindowController: PreferencesWindowController?
     
     // Dynamic window height management
     @State private var transferOptionsExpanded = false
@@ -42,6 +37,7 @@ struct MacMainView: View {
     /// Cancel asks once (thesis decision), from the button or ⌘.
     @State private var confirmingTransferCancel = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openSettings) private var openSettings
 
     
     /// The screen the window shows, for its height. Only what changes a
@@ -113,6 +109,8 @@ struct MacMainView: View {
     private var configuredMainContentView: some View {
         keyboardShortcutsView
             .focusedSceneValue(\.canCancelOperation, coordinator.isOperationInProgress)
+            .focusedSceneValue(\.canStartNewTransfer, menuPresentation.newTransferEnabled)
+            .focusedSceneValue(\.ejectCardTitle, menuPresentation.ejectTitle)
             .sheet(isPresented: $showingTransfers) {
                 TransferLibraryView(coordinator: coordinator, journal: coordinator.transferJournal)
             }
@@ -167,6 +165,7 @@ struct MacMainView: View {
             mainContentArea
             // Lightweight toast overlays
             VStack {
+                NotificationPermissionBanner(coordinator: coordinator)
                 if showCancelNotice {
                     ToastView(
                         icon: "xmark.circle",
@@ -282,7 +281,7 @@ struct MacMainView: View {
                 .accessibilityLabel("Transfers and history")
                 .help("Transfers and history")
                 Button {
-                    openPreferences()
+                    openSettings()
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 16))
@@ -291,7 +290,7 @@ struct MacMainView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Preferences")
+                .help("Settings")
                 // Audit M8: a tooltip alone is not a reliable accessible name.
                 .accessibilityLabel("Settings")
             }
@@ -377,19 +376,29 @@ struct MacMainView: View {
         }
     }
     
-    // MARK: - Preferences Management
-    
-    private func openPreferences() {
-        if preferencesWindowController == nil {
-            preferencesWindowController = PreferencesWindowController(environment: environment)
-        }
-        
-        preferencesWindowController?.showWindow(nil)
-        preferencesWindowController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-    
     // MARK: - Helpers
+
+    private var menuPresentation: TransferMenuPresentation {
+        let sourceURL = coordinator.sourceURL
+        let outcome = coordinator.showsOutcomeSummary
+            ? TransferOutcomePresentation.make(coordinator: coordinator)
+            : nil
+        return TransferMenuPresentation.make(
+            isTransferRunning: coordinator.isOperationInProgress,
+            outcome: outcome,
+            sourceName: sourceURL?.lastPathComponent ?? "",
+            sourceIsEjectable: sourceURL.map(CardEjectService.isEjectable) ?? false
+        )
+    }
+
+    private func ejectCardFromMenu() {
+        guard menuPresentation.ejectTitle != nil, let sourceURL = coordinator.sourceURL else { return }
+        Task {
+            if let error = await CardEjectService.eject(sourceURL) {
+                await coordinator.showAlert(title: TransferMenuPresentation.ejectErrorTitle, message: error)
+            }
+        }
+    }
 
     private var showsTransferProgress: Bool {
         coordinator.currentMode == .copyAndVerify && coordinator.isOperationInProgress
@@ -522,8 +531,15 @@ struct MacMainView: View {
                     coordinator.cancelOperation()
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .showPreferences)) { _ in
-                openPreferences()
+            .onReceive(NotificationCenter.default.publisher(for: .newTransfer)) { _ in
+                guard menuPresentation.newTransferEnabled else { return }
+                // From Compare or Master Report, New Transfer goes back to
+                // Copy & Verify, or the command would appear to do nothing.
+                coordinator.switchMode(to: .copyAndVerify)
+                coordinator.startNewTransfer()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ejectCard)) { _ in
+                ejectCardFromMenu()
             }
             .onReceive(NotificationCenter.default.publisher(for: .operationCancelledByUser)) { _ in
                 showUserCancelToast()
@@ -549,11 +565,11 @@ struct MacMainView: View {
 extension Notification.Name {
     static let startVerification = Notification.Name("startVerification")
     static let cancelOperation = Notification.Name("cancelOperation")
+    static let newTransfer = Notification.Name("newTransfer")
+    static let ejectCard = Notification.Name("ejectCard")
     static let switchToCopyMode = Notification.Name("switchToCopyMode")
     static let switchToCompareMode = Notification.Name("switchToCompareMode")
     static let switchToMasterReportMode = Notification.Name("switchToMasterReportMode")
-    // NOTE: showPreferences is in SharedModels.swift
-    
     // Developer mode notifications
     static let fillTestData = Notification.Name("fillTestData")
     static let clearTestData = Notification.Name("clearTestData")

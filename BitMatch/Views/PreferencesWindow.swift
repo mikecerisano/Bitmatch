@@ -1,18 +1,31 @@
-// Views/PreferencesWindow.swift - Dedicated preferences window
+// Views/PreferencesWindow.swift - Native Settings scene content
 import SwiftUI
-import AppKit
 import BitMatchEngine
 
 struct PreferencesWindow: View {
     @ObservedObject var coordinator: SharedAppCoordinator
+    @ObservedObject private var generalSettings: GeneralSettings
+    @ObservedObject private var notifier: TransferNotifier
     let cameraAutoSource: MacCameraAutoSourceController
     let remoteBackups: MacRemoteBackupController
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("BitMatchSelectedSettingsPane") private var selectedPane = PreferencesPane.general
 
-    // Tab selection
-    @State private var selectedTab: PreferencesTab = .verification
+    init(
+        coordinator: SharedAppCoordinator,
+        cameraAutoSource: MacCameraAutoSourceController,
+        remoteBackups: MacRemoteBackupController
+    ) {
+        self.coordinator = coordinator
+        _generalSettings = ObservedObject(wrappedValue: coordinator.generalSettings)
+        _notifier = ObservedObject(wrappedValue: coordinator.transferNotifier)
+        self.cameraAutoSource = cameraAutoSource
+        self.remoteBackups = remoteBackups
+    }
 
-    enum PreferencesTab: String, CaseIterable {
+    enum PreferencesPane: String, CaseIterable {
+        case general = "General"
         case verification = "Verification"
         case backups = "Backups"
         case reports = "Reports"
@@ -20,6 +33,7 @@ struct PreferencesWindow: View {
 
         var icon: String {
             switch self {
+            case .general: return "gearshape"
             case .verification: return "checkmark.shield"
             case .backups: return "externaldrive.badge.plus"
             case .reports: return "doc.text"
@@ -29,80 +43,71 @@ struct PreferencesWindow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Tab bar
-            tabBar
-
-            Divider()
-
-            ScrollView {
-                Group {
-                    switch selectedTab {
-                    case .verification:
-                        verificationPreferences
-                    case .backups:
-                        backupsPreferences
-                    case .reports:
-                        reportPreferences
-                    case .cameras:
-                        camerasPreferences
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(20)
-            }
+        TabView(selection: $selectedPane) {
+            settingsPane(generalPreferences)
+                .tabItem { Label(PreferencesPane.general.rawValue, systemImage: PreferencesPane.general.icon) }
+                .tag(PreferencesPane.general)
+            settingsPane(verificationPreferences)
+                .tabItem { Label(PreferencesPane.verification.rawValue, systemImage: PreferencesPane.verification.icon) }
+                .tag(PreferencesPane.verification)
+            settingsPane(backupsPreferences)
+                .tabItem { Label(PreferencesPane.backups.rawValue, systemImage: PreferencesPane.backups.icon) }
+                .tag(PreferencesPane.backups)
+            settingsPane(reportPreferences)
+                .tabItem { Label(PreferencesPane.reports.rawValue, systemImage: PreferencesPane.reports.icon) }
+                .tag(PreferencesPane.reports)
+            settingsPane(camerasPreferences)
+                .tabItem { Label(PreferencesPane.cameras.rawValue, systemImage: PreferencesPane.cameras.icon) }
+                .tag(PreferencesPane.cameras)
         }
-        .frame(
-            minWidth: PreferencesPresentationPolicy.minimumWidth,
-            idealWidth: PreferencesPresentationPolicy.initialWidth,
-            maxWidth: .infinity,
-            minHeight: PreferencesPresentationPolicy.minimumHeight,
-            maxHeight: .infinity
-        )
-        .background(Color(NSColor.windowBackgroundColor))
+        .frame(width: 720, height: 560)
+        .task { await notifier.refreshAuthorizationStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await notifier.refreshAuthorizationStatus() }
+        }
     }
 
-    // MARK: - Tab Bar
+    private func settingsPane<Content: View>(_ content: Content) -> some View {
+        ScrollView {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(20)
+        }
+    }
+
+    // MARK: - General
 
     @ViewBuilder
-    private var tabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(PreferencesTab.allCases, id: \.self) { tab in
-                Button {
-                    selectedTab = tab
-                } label: {
-                    VStack(spacing: 4) {
-                        // Fixed-size icon well so glyphs of different visual
-                        // heights (gear, drive, doc, camera) share one
-                        // baseline instead of drifting per-icon.
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 16))
-                            .frame(width: PreferencesPresentationPolicy.tabIconWellSize, height: PreferencesPresentationPolicy.tabIconWellSize)
-                        Text(tab.rawValue)
-                            .font(.system(size: 11))
+    private var generalPreferences: some View {
+        Form {
+            Section(GeneralSettingsPresentation.notificationsSection) {
+                Toggle(GeneralSettingsPresentation.notifyAttention, isOn: $generalSettings.notifyWhenCardNeedsAttention)
+                Toggle(GeneralSettingsPresentation.notifyFinish, isOn: $generalSettings.notifyWhenTransferOrQueueFinishes)
+                Toggle(GeneralSettingsPresentation.notifyEachQueuedCard, isOn: $generalSettings.notifyForEachCardInQueue)
+
+                HStack {
+                    Text("\(GeneralSettingsPresentation.systemPermission): \(notifier.authorization.title)")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if notifier.authorization.showsSettingsButton {
+                        Button(GeneralSettingsPresentation.openNotificationSettings) {
+                            openURL(GeneralSettingsPresentation.macNotificationSettingsURL)
+                        }
                     }
-                    .foregroundColor(selectedTab == tab ? .accentColor : .secondary)
-                    .frame(width: PreferencesPresentationPolicy.tabWidth, height: PreferencesPresentationPolicy.tabHeight)
-                    // The bug this fixes: without an explicit shape, only the
-                    // glyph and text pixels were tappable, not the tab's
-                    // empty margin. contentShape makes the whole frame hit-testable.
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .background(
-                    selectedTab == tab ?
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.accentColor.opacity(0.1)) :
-                    nil
-                )
-                // Audit M1: selection was shown by tint color alone.
-                .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
             }
 
-            Spacer()
+            Section(GeneralSettingsPresentation.queueSection) {
+                Toggle(GeneralSettingsPresentation.queueCardsAutomatically, isOn: $generalSettings.queueNewCardsAutomatically)
+                Toggle(GeneralSettingsPresentation.autoEject, isOn: $generalSettings.autoEjectWhenSafe)
+            }
+
+            Section(GeneralSettingsPresentation.soundsSection) {
+                Toggle(GeneralSettingsPresentation.playSounds, isOn: $generalSettings.playSounds)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .formStyle(.grouped)
     }
 
     // MARK: - Verification
@@ -300,8 +305,6 @@ struct PreferencesWindow: View {
     }
 }
 
-// MARK: - Preferences Window Controller
-
 private extension PreferencesWindow {
     func clearReportMetadata() {
         var prefs = coordinator.reportSettings
@@ -311,40 +314,6 @@ private extension PreferencesWindow {
         prefs.company = ""
         prefs.notes = ""
         coordinator.reportSettings = prefs
-    }
-}
-
-class PreferencesWindowController: NSWindowController {
-    convenience init(environment: MacAppEnvironment) {
-        let window = NSWindow(
-            contentRect: NSRect(
-                x: 0,
-                y: 0,
-                width: PreferencesPresentationPolicy.initialWidth,
-                height: PreferencesPresentationPolicy.initialHeight
-            ),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-
-        window.title = "BitMatch Preferences"
-        if PreferencesPresentationPolicy.allowsManualResizing {
-            window.styleMask.insert(.resizable)
-        }
-        window.minSize = NSSize(
-            width: PreferencesPresentationPolicy.minimumWidth,
-            height: PreferencesPresentationPolicy.minimumHeight
-        )
-        window.center()
-        window.setFrameAutosaveName("PreferencesWindow")
-        window.contentView = NSHostingView(rootView: PreferencesWindow(
-            coordinator: environment.coordinator,
-            cameraAutoSource: environment.cameraAutoSource,
-            remoteBackups: environment.remoteBackups
-        ))
-
-        self.init(window: window)
     }
 }
 

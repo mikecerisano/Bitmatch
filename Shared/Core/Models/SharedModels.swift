@@ -220,7 +220,6 @@ struct FolderDisplayInfo {
 // MARK: - Notifications
 extension NSNotification.Name {
     static let cameraCardDetected = NSNotification.Name("cameraCardDetected")
-    static let showPreferences = NSNotification.Name("showPreferences")
     static let operationCancelledByUser = NSNotification.Name("operationCancelledByUser")
     static let operationCompleted = NSNotification.Name("operationCompleted")
 }

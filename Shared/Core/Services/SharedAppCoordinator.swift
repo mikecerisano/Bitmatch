@@ -95,15 +95,18 @@ class SharedAppCoordinator: ObservableObject {
     /// bars). Deliberately not forwarded to this object's `objectWillChange`:
     /// it ticks every 250 ms, so views observe it directly.
     let progressPresentation = ProgressPresentationModel()
-    /// The "transfer finished" notification, off until turned on.
+    /// General workflow choices, shared by Mac, iPad and iPhone.
+    let generalSettings: GeneralSettings
+    /// Background transfer notifications, filtered by `generalSettings`.
     let transferNotifier: TransferNotifier
-    /// The Mac setting for automatic eject after verified completion. Off by
-    /// default; the finish screen applies it but does not edit it.
-    @Published var autoEjectWhenSafe: Bool {
-        didSet { preferences.set(autoEjectWhenSafe, forKey: Self.autoEjectPreferenceKey) }
+    /// Kept as the shared outcome screen's binding while the setting itself
+    /// lives with the other General settings.
+    var autoEjectWhenSafe: Bool {
+        get { generalSettings.autoEjectWhenSafe }
+        set { generalSettings.autoEjectWhenSafe = newValue }
     }
-    static let autoEjectPreferenceKey = "BitMatchAutoEjectWhenSafe"
-    private let preferences: UserDefaults
+    static let autoEjectPreferenceKey = GeneralSettings.autoEjectKey
+    @Published private(set) var showsNotificationPermissionPrompt = false
     private var lastPresentedBytes: Int64 = 0
     /// Backups in the run being presented, so a later change of selection
     /// cannot mismatch the per-destination bars.
@@ -223,9 +226,9 @@ class SharedAppCoordinator: ObservableObject {
             selectedPreferences = .standard
         }
         self.reportPrefsStore = ReportPrefsStore(defaults: selectedPreferences)
-        self.transferNotifier = TransferNotifier(defaults: selectedPreferences)
-        self.preferences = selectedPreferences
-        self.autoEjectWhenSafe = selectedPreferences.bool(forKey: Self.autoEjectPreferenceKey)
+        let generalSettings = GeneralSettings(defaults: selectedPreferences)
+        self.generalSettings = generalSettings
+        self.transferNotifier = TransferNotifier(settings: generalSettings)
         self.cameraLabels = CameraLabelModel(defaults: selectedPreferences)
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
@@ -249,6 +252,8 @@ class SharedAppCoordinator: ObservableObject {
         stateService.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         cameraLabels.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        generalSettings.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         // Views read the job view model through this coordinator too.
         self.photographerJobViewModel.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
@@ -361,13 +366,46 @@ class SharedAppCoordinator: ObservableObject {
 
     private func notifyIfTransferEnded(_ state: OperationState) {
         guard currentMode == .copyAndVerify else { return }
+        let issueCount = results.filter { !$0.isSuccessStatus }.count
+        guard let kind = TransferNotificationDecision.kind(
+            state: state,
+            issueCount: issueCount,
+            queueIsRunning: queueIsRunning,
+            isReplayingQueuedTransfer: isReplayingQueuedTransfer,
+            notifyAttention: generalSettings.notifyWhenCardNeedsAttention,
+            notifyFinish: generalSettings.notifyWhenTransferOrQueueFinishes,
+            notifyEachQueuedCard: generalSettings.notifyForEachCardInQueue
+        ) else { return }
         guard let notice = TransferFinishNotice.make(
             state: state,
             sourceName: sourceURL?.lastPathComponent ?? "",
             destinations: destinationURLs,
-            issueCount: results.filter { !$0.isSuccessStatus }.count
+            issueCount: issueCount,
+            kind: kind
         ) else { return }
         transferNotifier.post(notice)
+    }
+
+    func enableNotificationsFromPrompt() async {
+        generalSettings.markNotificationPromptAnswered()
+        showsNotificationPermissionPrompt = false
+        _ = await transferNotifier.enable()
+    }
+
+    func declineNotificationsFromPrompt() {
+        generalSettings.markNotificationPromptAnswered()
+        showsNotificationPermissionPrompt = false
+    }
+
+    private func showNotificationPermissionPromptIfNeeded() {
+        guard !showsNotificationPermissionPrompt else { return }
+        showsNotificationPermissionPrompt = NotificationPermissionPromptPolicy.shouldShow(
+            transferWillStart: true,
+            promptWasAnswered: generalSettings.notificationPromptWasAnswered,
+            notifyAttention: generalSettings.notifyWhenCardNeedsAttention,
+            notifyFinish: generalSettings.notifyWhenTransferOrQueueFinishes,
+            notifyEachQueuedCard: generalSettings.notifyForEachCardInQueue
+        )
     }
 
     // MARK: - Progress presentation
@@ -842,6 +880,7 @@ class SharedAppCoordinator: ObservableObject {
 
         // A new run starts its smoothed progress from zero, even if the last
         // run never reached a terminal state.
+        showNotificationPermissionPromptIfNeeded()
         progressPresentation.stopProgressTracking()
         lastPresentedBytes = 0
         operationState = .inProgress

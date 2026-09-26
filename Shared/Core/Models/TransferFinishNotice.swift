@@ -1,6 +1,5 @@
 // TransferFinishNotice.swift - What the "transfer finished" notification says.
 import Foundation
-import BitMatchEngine
 
 /// The notification sent when a transfer ends while BitMatch is in the
 /// background. Only a real success says the card is safe to erase
@@ -8,13 +7,23 @@ import BitMatchEngine
 struct TransferFinishNotice: Equatable, Sendable {
     let title: String
     let body: String
+    let kind: TransferNotificationKind
 
-    /// `nil` while a transfer is active or has not started.
+    init(title: String, body: String, kind: TransferNotificationKind) {
+        self.title = title
+        self.body = body
+        self.kind = kind
+    }
+
+    /// `nil` while a transfer is active or has not started. `kind` is how
+    /// the finish is routed (standalone or queued card); anything that is
+    /// not safe or a clean Quick copy is always an attention notice.
     static func make(
         state: OperationState,
         sourceName: String,
         destinations: [URL],
-        issueCount: Int
+        issueCount: Int,
+        kind: TransferNotificationKind
     ) -> TransferFinishNotice? {
         let card = sourceName.isEmpty ? "The card" : sourceName
         let verdict = completionVerdict(state: state, issueCount: issueCount)
@@ -22,18 +31,22 @@ struct TransferFinishNotice: Equatable, Sendable {
         switch safetyState {
         case .safeToErase:
             let names = destinations.map(TransferOutcomePresentation.destinationDriveName)
-            return .init(title: "\(card) is safe to erase.", body: "Verified on \(naturalList(names)).")
+            return .init(title: "\(card) is safe to erase", body: "Verified on \(naturalList(names)).", kind: kind)
         case .copiedNotVerified:
-            return .init(title: "\(card) was copied without checksum verification.", body: "Do not erase the card.")
+            return .init(title: "\(card) was copied without checksum verification", body: "Do not erase the card.", kind: kind)
         case .needsAttention:
-            return .init(title: "\(card) needs attention.", body: "Do not erase the card.")
+            return .init(title: "\(card) needs attention", body: "Do not erase the card.", kind: .attention)
         case .failed:
-            return .init(title: "\(card) failed.", body: "Do not erase the card.")
+            return .init(title: "\(card) failed", body: "Do not erase the card.", kind: .attention)
         case .interrupted:
-            return .init(title: "\(card) was interrupted.", body: "Do not erase the card.")
+            return .init(title: "\(card) was interrupted", body: "Do not erase the card.", kind: .attention)
         case .waiting, .preparing, .copying, .verifying:
             return nil
         }
+    }
+
+    static func queueFinished(tally: String) -> TransferFinishNotice {
+        .init(title: "Queue finished: \(tally)", body: "", kind: .queueFinished)
     }
 
     private static func completionVerdict(state: OperationState, issueCount: Int) -> CompletionVerdict {
