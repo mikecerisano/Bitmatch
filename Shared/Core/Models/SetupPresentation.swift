@@ -41,6 +41,7 @@ struct StartButtonPresentation: Equatable, Sendable {
         projectBlocker: String?,
         projectUnit: String,
         isOperationInProgress: Bool,
+        isQueuePaused: Bool = false,
         sourceFileCount: Int?,
         sourceBytes: Int64?,
         destinationCount: Int
@@ -48,16 +49,16 @@ struct StartButtonPresentation: Equatable, Sendable {
         let isProject = usesProjectWorkflow || hasPreparedCard
         let unit = projectUnit.lowercased()
 
-        if isOperationInProgress {
+        if isOperationInProgress || isQueuePaused {
             return Self(
-                title: "Transfer in progress",
-                symbol: "hourglass",
+                title: isQueuePaused ? "Review the paused queue" : "Transfer in progress",
+                symbol: isQueuePaused ? "exclamationmark.triangle.fill" : "hourglass",
                 canStart: false,
                 startsProject: isProject,
                 nextStep: nil,
                 blocker: nil,
                 readyLine: nil,
-                accessibilityHint: "A transfer is already running"
+                accessibilityHint: isQueuePaused ? "Review or skip the paused card first" : "A transfer is already running"
             )
         }
 
@@ -154,6 +155,7 @@ struct SetupPresentation: Equatable {
         projectBlocker: String?,
         projectUnit: String,
         isOperationInProgress: Bool,
+        isQueuePaused: Bool = false,
         sourceFileCount: Int?,
         sourceBytes: Int64?,
         destinationCount: Int,
@@ -169,6 +171,7 @@ struct SetupPresentation: Equatable {
                 projectBlocker: projectBlocker,
                 projectUnit: projectUnit,
                 isOperationInProgress: isOperationInProgress,
+                isQueuePaused: isQueuePaused,
                 sourceFileCount: sourceFileCount,
                 sourceBytes: sourceBytes,
                 destinationCount: destinationCount

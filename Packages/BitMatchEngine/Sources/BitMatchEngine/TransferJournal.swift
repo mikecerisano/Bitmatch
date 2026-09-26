@@ -4,13 +4,12 @@ import Darwin
 import Synchronization
 
 public enum LocalTransferState: String, Codable, Sendable {
-    case queued, running, interrupted, completed, issues, cancelled
+    case queued, running, interrupted, completed, issues, failed, cancelled
 
-    public var canRetry: Bool { self == .queued || self == .interrupted || self == .issues || self == .cancelled }
+    public var canRetry: Bool { self == .queued || self == .interrupted || self == .issues || self == .failed || self == .cancelled }
 
-    /// States shown under the Queue tab. Cancelled transfers stay here because
-    /// they are retryable; surfacing Retry in the queue keeps recovery discoverable.
-    public var showsInQueue: Bool { self == .queued || self == .running || self == .interrupted || self == .issues || self == .cancelled }
+    /// The Queue tab is active work only; every terminal attempt belongs in History.
+    public var showsInQueue: Bool { self == .queued || self == .running }
 }
 
 /// The original selection, including its identity. Never substitute a new disk at the same path.
@@ -277,6 +276,25 @@ public final class TransferJournal: Sendable {
         }
     }
 
+    /// Resolves and validates only the recorded source. Ejection must use
+    /// this URL while retaining the returned security-scope lease; a saved
+    /// path alone cannot prove that the same card is still mounted there.
+    public func prepareSourceForEjection(id: UUID) throws -> LocalTransferAccess {
+        guard let record = records.first(where: { $0.id == id }) else {
+            throw LocalTransferJournalError.invalidState
+        }
+        var scopedURLs: [URL] = []
+        do {
+            let resolved = try record.source.resolve()
+            if resolved.startAccessingSecurityScopedResource() { scopedURLs.append(resolved) }
+            try record.source.validate(resolved)
+            return LocalTransferAccess(sourceURL: resolved, destinationURLs: [], scopedURLs: scopedURLs)
+        } catch {
+            scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+            throw error
+        }
+    }
+
     /// Indexes into `[source] + destinations` whose stored access no longer
     /// resolves to the original folder (stale bookmark, unplugged drive).
     public func staleResourceIndexes(id: UUID) throws -> [Int] {
@@ -361,6 +379,37 @@ public final class TransferJournal: Sendable {
                 record.endedAt = nil
                 record.summary = "Copying and verifying"
             }
+        }
+    }
+
+    /// A queued card whose original source cannot be opened never ran. Keep
+    /// that distinction durable instead of turning it into an interruption.
+    public func fail(id: UUID, summary: String) throws {
+        try update(id: id) { record in
+            guard record.state == .queued || record.state == .running else {
+                throw LocalTransferJournalError.invalidState
+            }
+            record.state = .failed
+            record.summary = summary
+            record.endedAt = Date()
+        }
+    }
+
+    public func removeQueued(id: UUID) throws {
+        try commit { records in
+            guard records.contains(where: { $0.id == id && $0.state == .queued }) else {
+                throw LocalTransferJournalError.invalidState
+            }
+            return records.filter { $0.id != id }
+        }
+    }
+
+    public func moveQueuedToTop(id: UUID) throws {
+        try commit { records in
+            guard let selected = records.first(where: { $0.id == id && $0.state == .queued }) else {
+                throw LocalTransferJournalError.invalidState
+            }
+            return records.filter { $0.id != id } + [selected]
         }
     }
 

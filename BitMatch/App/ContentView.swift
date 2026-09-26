@@ -54,7 +54,8 @@ struct MacMainView: View {
             if coordinator.isOperationInProgress && !coordinator.lastOperationWasCompare {
                 return .progress(
                     backups: coordinator.destinationURLs.count,
-                    queueCandidates: coordinator.queueCandidates(volumes: volumeMonitor.connectedVolumes).count
+                    queueCandidates: coordinator.queueCandidates(volumes: volumeMonitor.connectedVolumes).count,
+                    queueCards: coordinator.queuePresentation.rows.count
                 )
             }
             switch coordinator.lastOperationWasCompare ? CompletionState.idle : coordinator.completionState {
@@ -72,13 +73,15 @@ struct MacMainView: View {
                     optionsExpanded: transferOptionsExpanded,
                     connectedDrives: volumeMonitor.connectedVolumes.count,
                     showsQueueStrip: coordinator.queuedCardCount > 0,
+                    queueCards: coordinator.queuePresentation.rows.count,
                     showsProjectSetup: setup.showsProjectSetup
                 ))
             default:
                 let outcome = TransferOutcomePresentation.make(coordinator: coordinator)
                 return .outcome(
                     backups: coordinator.destinationURLs.count,
-                    needsAttention: outcome.counts.needsAttention > 0
+                    needsAttention: outcome.counts.needsAttention > 0,
+                    queueCards: coordinator.queuePresentation.rows.count
                 )
             }
         }
@@ -165,7 +168,6 @@ struct MacMainView: View {
             mainContentArea
             // Lightweight toast overlays
             VStack {
-                NotificationPermissionBanner(coordinator: coordinator)
                 if showCancelNotice {
                     ToastView(
                         icon: "xmark.circle",
@@ -202,7 +204,11 @@ struct MacMainView: View {
     private var mainScrollView: some View {
         ScrollView {
             VStack(spacing: 16) {
+                NotificationPermissionBanner(coordinator: coordinator)
                 mainContentSwitch
+                if coordinator.currentMode == .copyAndVerify && !coordinator.lastOperationWasCompare {
+                    MacQueueSection(coordinator: coordinator)
+                }
                 resultsArea
             }
             .padding(.horizontal, 20)
@@ -221,6 +227,14 @@ struct MacMainView: View {
             // The shared progress screen (UI plan 4.9); it observes progress
             // ticks itself, so this shell does not redraw on each one.
             MacTransferProgressView(coordinator: coordinator, confirmingCancel: $confirmingTransferCancel)
+                .padding(.top, 16)
+        } else if coordinator.queueIsRunning {
+            EmptyView()
+        } else if coordinator.queuePausedRecordID != nil && coordinator.reviewedQueueRecordID == nil {
+            EmptyView()
+        } else if coordinator.queueSessionEnded && coordinator.queuePresentation.showsQueueSummary
+                    && coordinator.reviewedQueueRecordID == nil {
+            MacQueueSummaryView(coordinator: coordinator)
                 .padding(.top, 16)
         } else {
             transferContentSwitch
@@ -512,14 +526,24 @@ struct MacMainView: View {
             .onReceive(NotificationCenter.default.publisher(for: .startVerification)) { _ in
                 switch coordinator.currentMode {
                 case .copyAndVerify:
-                    // The shared Start: refuses what the Start button would.
-                    Task { await coordinator.startCurrentMode() }
+                    guard coordinator.queuePausedRecordID == nil else { return }
+                    if coordinator.queueRunCommandEnabled {
+                        coordinator.startQueue()
+                    } else {
+                        // The shared Start: refuses what the Start button would.
+                        Task { await coordinator.startCurrentMode() }
+                    }
                 case .compareFolders:
                     // ⌘R obeys the same readiness rule as the Compare button.
                     CompareFoldersView.startIfReady(coordinator)
                 case .masterReport:
                     break
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .addToQueue)) { _ in
+                guard coordinator.canEnqueueSelection else { return }
+                do { try coordinator.enqueueSelection() }
+                catch { Task { await coordinator.showError(error) } }
             }
             .onReceive(NotificationCenter.default.publisher(for: .cancelOperation)) { _ in
                 // ⌘. does nothing when nothing runs. A transfer asks first,
@@ -564,6 +588,7 @@ struct MacMainView: View {
 // MARK: - Notification Names
 extension Notification.Name {
     static let startVerification = Notification.Name("startVerification")
+    static let addToQueue = Notification.Name("addToQueue")
     static let cancelOperation = Notification.Name("cancelOperation")
     static let newTransfer = Notification.Name("newTransfer")
     static let ejectCard = Notification.Name("ejectCard")

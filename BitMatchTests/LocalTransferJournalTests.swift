@@ -320,15 +320,82 @@ struct LocalTransferJournalTests {
         #expect(csvText.contains("\"requested\",\"Studio\""))
     }
 
-    @Test func cancelledTransfersStayVisibleInQueueForRetry() {
-        // Cancelled transfers are retryable, so the Queue tab must keep showing
-        // them; otherwise Retry is only discoverable under History.
+    @Test func onlyWaitingAndRunningTransfersStayVisibleInQueue() {
         #expect(LocalTransferState.cancelled.canRetry)
-        #expect(LocalTransferState.cancelled.showsInQueue)
+        #expect(!LocalTransferState.cancelled.showsInQueue)
         #expect(LocalTransferState.queued.showsInQueue)
         #expect(LocalTransferState.running.showsInQueue)
-        #expect(LocalTransferState.interrupted.showsInQueue)
-        #expect(LocalTransferState.issues.showsInQueue)
+        #expect(!LocalTransferState.interrupted.showsInQueue)
+        #expect(!LocalTransferState.issues.showsInQueue)
+        #expect(!LocalTransferState.failed.showsInQueue)
         #expect(!LocalTransferState.completed.showsInQueue)
+    }
+
+    @Test func failAcceptsOnlyQueuedOrRunningAndPersists() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var journal: LocalTransferJournal? = LocalTransferJournal(fileURL: f.journal)
+        let failedID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        try journal!.fail(id: failedID, summary: "Card missing")
+        #expect(journal!.records.first?.state == .failed)
+        #expect(journal!.records.first?.summary == "Card missing")
+        #expect(throws: LocalTransferJournalError.self) {
+            try journal!.fail(id: failedID, summary: "Again")
+        }
+        journal = nil
+        let restored = LocalTransferJournal(fileURL: f.journal)
+        #expect(restored.records.first?.id == failedID)
+        #expect(restored.records.first?.state == .failed)
+        #expect(restored.records.first?.endedAt != nil)
+    }
+
+    @Test func removeQueuedRejectsTerminalRecordsAndPersistsRemoval() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var journal: LocalTransferJournal? = LocalTransferJournal(fileURL: f.journal)
+        let removedID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        let terminalID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        try journal!.fail(id: terminalID, summary: "Failed")
+        try journal!.removeQueued(id: removedID)
+        #expect(throws: LocalTransferJournalError.self) { try journal!.removeQueued(id: terminalID) }
+        #expect(journal!.records.map(\.id) == [terminalID])
+        journal = nil
+        let restored = LocalTransferJournal(fileURL: f.journal)
+        #expect(restored.records.map(\.id) == [terminalID])
+    }
+
+    @Test func moveQueuedToTopRejectsTerminalRecordsAndPersistsOrder() throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var journal: LocalTransferJournal? = LocalTransferJournal(fileURL: f.journal)
+        let firstID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        let secondID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        let terminalID = try journal!.enqueue(
+            sourceURL: f.source, destinationURLs: [f.destination], verificationMode: .standard,
+            cameraSettings: CameraLabelSettings(), reportSettings: ReportPrefs()
+        )
+        try journal!.fail(id: terminalID, summary: "Failed")
+        try journal!.moveQueuedToTop(id: secondID)
+        #expect(journal!.records.map(\.id) == [terminalID, firstID, secondID])
+        #expect(throws: LocalTransferJournalError.self) { try journal!.moveQueuedToTop(id: terminalID) }
+        journal = nil
+        let restored = LocalTransferJournal(fileURL: f.journal)
+        #expect(restored.records.map(\.id) == [terminalID, firstID, secondID])
+        #expect(restored.records.last?.id == secondID)
     }
 }

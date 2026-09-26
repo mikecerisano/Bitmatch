@@ -79,7 +79,7 @@ struct TransferFinishNoticeTests {
         #expect(safe?.body.contains("Verified") == true)
     }
 
-    @Test func successAndQuickUseTheExplicitQueuedKind() {
+    @Test func onlySafeToEraseUsesTheExplicitQueuedSuccessKind() {
         #expect(notice(
             .completed(.init(success: true, message: "")),
             kind: .queuedCardSuccess
@@ -87,14 +87,14 @@ struct TransferFinishNoticeTests {
         #expect(notice(
             .completed(.init(success: false, message: "", copiedNotVerified: true)),
             kind: .queuedCardSuccess
-        )?.kind == .queuedCardSuccess)
+        ) == nil)
     }
 
     @Test func queueFinishWordingIncludesItsTally() {
         #expect(TransferFinishNotice.queueFinished(
-            tally: "3 safe to erase · 1 needs attention"
+            title: "Queue stopped", tally: "3 safe to erase · 1 needs attention"
         ) == .init(
-            title: "Queue finished: 3 safe to erase · 1 needs attention",
+            title: "Queue stopped: 3 safe to erase · 1 needs attention",
             body: "",
             kind: .queueFinished
         ))

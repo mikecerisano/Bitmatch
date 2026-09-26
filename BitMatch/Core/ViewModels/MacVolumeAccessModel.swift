@@ -36,6 +36,7 @@ final class MacVolumeAccessModel: ObservableObject {
     /// skips these until the drive disappears (unplug) or the user re-adds
     /// it, so rediscovery never undoes a deliberate removal.
     private var dismissedDestinationPaths = Set<String>()
+    private var autoQueuedVolumeIDs = Set<String>()
     /// Volume facts for `BackupTargetPolicy`. Tests supply their own, since
     /// their drives are not mounted.
     var volumeFacts: (URL) -> BackupTargetPolicy.VolumeFacts? = BackupTargetPolicy.VolumeFacts.read
@@ -112,6 +113,11 @@ final class MacVolumeAccessModel: ObservableObject {
                 self?.handleBackupDrivesUpdate(drives)
             }
             .store(in: &cancellables)
+
+        volumeMonitor.$connectedVolumes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] volumes in self?.autoQueueNewCards(from: volumes) }
+            .store(in: &cancellables)
     }
     
     private func handleCameraCardsUpdate(_ cards: [VolumeMonitorService.DetectedVolume]) {
@@ -127,6 +133,27 @@ final class MacVolumeAccessModel: ObservableObject {
         // Volume discovery only updates the available-card list. Choosing a
         // source belongs to the explicit auto-source policy in
         // MacCameraAutoSourceController, which first proves the card is readable.
+    }
+
+    private func autoQueueNewCards(from volumes: [ConnectedDrivesPresentation.Volume]) {
+        let mountedIDs = Set(volumes.compactMap(\.volumeID))
+        autoQueuedVolumeIDs.formIntersection(mountedIDs)
+        guard let shared, shared.generalSettings.queueNewCardsAutomatically,
+              shared.runningOneTimeTransfer != nil || shared.queueIsRunning else { return }
+        let candidates = AutoQueuePolicy.candidates(
+            eligibleRows: shared.autoQueueCandidates(volumes: volumes),
+            seenVolumeIDs: autoQueuedVolumeIDs,
+            activeDestinationVolumeIDs: []
+        )
+        for row in candidates {
+            guard let volumeID = row.volumeID else { continue }
+            do {
+                try shared.enqueueAutomaticallyDetectedCard(source: row.url)
+                autoQueuedVolumeIDs.insert(volumeID)
+            } catch {
+                SharedLogger.warning("Could not queue \(row.displayName): \(error.localizedDescription)", category: .transfer)
+            }
+        }
     }
     
     /// Internal (not private) so tests can drive the discovery policy

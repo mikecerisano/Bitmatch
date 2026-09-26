@@ -32,7 +32,8 @@ struct SetupPresentationTests {
         project: Bool = false,
         prepared: Bool = false,
         projectBlocker: String? = nil,
-        running: Bool = false
+        running: Bool = false,
+        queuePaused: Bool = false
     ) -> StartButtonPresentation {
         StartButtonPresentation.make(
             plan: plan,
@@ -41,6 +42,7 @@ struct SetupPresentationTests {
             projectBlocker: projectBlocker,
             projectUnit: "Card",
             isOperationInProgress: running,
+            isQueuePaused: queuePaused,
             sourceFileCount: 12,
             sourceBytes: 4_000,
             destinationCount: plan.destinationTitles.count
@@ -112,6 +114,14 @@ struct SetupPresentationTests {
         let presentation = start(plan(source: source, backups: [backup]), running: true)
 
         #expect(!presentation.canStart)
+    }
+
+    @Test func pausedQueueDisablesSetupStart() {
+        let presentation = start(
+            plan(source: source, backups: [backup]), queuePaused: true
+        )
+        #expect(!presentation.canStart)
+        #expect(presentation.title == "Review the paused queue")
     }
 
     /// A prepared card shows Project and locks One-time, whatever the

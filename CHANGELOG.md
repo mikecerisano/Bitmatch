@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 - Safety: A transfer is complete only when every selected backup has exactly one result for every source-manifest file, with no duplicate or unexpected rows.
+- Finish the inline Transfer Queue with per-card safety states, pause and recovery controls, queue summaries, notifications, and Dock attention counts.
 - Finish and Transfers now share one fail-safe card state, show Copy Summary for every outcome, keep finished records in History, and reserve green and Eject for checksum-verified cards.
 - Settings now use the native Mac Settings window and add notification, queue, safe-eject and sound preferences; notification permission is offered after the first transfer starts, and File gains New Transfer and safety-gated Eject shortcuts.
 

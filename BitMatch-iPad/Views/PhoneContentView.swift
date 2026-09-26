@@ -20,6 +20,7 @@ struct PhoneContentView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
+                        NotificationPermissionBanner(coordinator: coordinator)
                         TransferAttentionBanner(
                             needsAttentionCount: TransferLibraryPresentation.needsAttentionCount(coordinator.transferJournal.records)
                         ) { showingTransfers = true }
@@ -41,11 +42,6 @@ struct PhoneContentView: View {
                     }
                     .padding(.bottom, 20)
                 }
-                VStack {
-                    NotificationPermissionBanner(coordinator: coordinator)
-                    Spacer()
-                }
-                .padding(.top, 8)
             }
             .navigationTitle("BitMatch")
             .navigationBarTitleDisplayMode(.inline)

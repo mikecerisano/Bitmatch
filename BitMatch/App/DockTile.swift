@@ -57,9 +57,16 @@ final class DockTileController {
                 self?.show(DockTileState.make(state: state, fraction: progress?.overallProgress))
             }
             .store(in: &cancellables)
+        coordinator.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateAttentionBadge() }
+            }
+            .store(in: &cancellables)
     }
 
     private func show(_ state: DockTileState) {
+        updateAttentionBadge()
         guard state != shown else { return }
         shown = state
         let tile = NSApp.dockTile
@@ -78,6 +85,19 @@ final class DockTileController {
             tile.contentView = view
         }
         tile.display()
+    }
+
+    private func updateAttentionBadge() {
+        let presentation = coordinator.queuePresentation
+        let count = QueueDockBadgePolicy.totalUnresolvedCount(
+            rows: presentation.rows,
+            reviewedIDs: coordinator.reviewedQueueAttentionIDs,
+            standaloneAttentionCount: coordinator.standaloneAttentionRecordIDsSinceLaunch.count
+        )
+        let label = count == 0 ? nil : String(count)
+        guard NSApp.dockTile.badgeLabel != label else { return }
+        NSApp.dockTile.badgeLabel = label
+        NSApp.dockTile.display()
     }
 }
 

@@ -155,6 +155,11 @@ enum TransferNotificationKind: Equatable, Sendable {
     case queueFinished
 }
 
+enum TransferSignal: Equatable, Sendable {
+    case safeToErase
+    case attention
+}
+
 enum TransferNotificationPolicy {
     static func shouldPost(
         kind: TransferNotificationKind,
@@ -186,10 +191,13 @@ enum TransferNotificationDecision {
         notifyEachQueuedCard: Bool
     ) -> TransferNotificationKind? {
         switch state {
-        case .completed(let info) where info.success || (info.copiedNotVerified && issueCount == 0):
+        case .completed(let info) where info.success && issueCount == 0:
             if queueIsRunning || isReplayingQueuedTransfer {
                 return notifyEachQueuedCard ? .queuedCardSuccess : nil
             }
+            return notifyFinish ? .standaloneFinish : nil
+        case .completed(let info) where info.copiedNotVerified && issueCount == 0:
+            guard !queueIsRunning && !isReplayingQueuedTransfer else { return nil }
             return notifyFinish ? .standaloneFinish : nil
         case .completed, .failed, .cancelled:
             return notifyAttention ? .attention : nil

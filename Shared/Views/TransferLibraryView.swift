@@ -117,7 +117,7 @@ struct TransferLibraryView: View {
                     Button("Stop After Current") { coordinator.stopQueueAfterCurrentTransfer() }
                 } else {
                     Button("Run Queue", systemImage: "play.fill") { coordinator.startQueue() }
-                        .disabled(journal.persistenceError != nil || !journal.records.contains { $0.state == .queued && $0.projectID == nil })
+                        .disabled(journal.persistenceError != nil || !coordinator.queueRunCommandEnabled)
                 }
             }
         }
@@ -147,7 +147,7 @@ struct TransferLibraryView: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if actions.removeFromQueue {
                 Button("Remove", role: .destructive) {
-                    do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
+                    do { try coordinator.removeQueuedTransfer(record.id) }
                     catch { errorMessage = error.localizedDescription }
                 }
             }
@@ -186,8 +186,12 @@ struct TransferLibraryView: View {
         }
         if actions.removeFromQueue {
             Divider()
+            Button("Move to Top") {
+                do { try coordinator.moveQueuedTransferToTop(record.id) }
+                catch { errorMessage = error.localizedDescription }
+            }
             Button("Remove from queue", role: .destructive) {
-                do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
+                do { try coordinator.removeQueuedTransfer(record.id) }
                 catch { errorMessage = error.localizedDescription }
             }
         }
@@ -458,7 +462,7 @@ private struct AddQueuedTransferView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add to queue") { enqueue() }.disabled(source == nil || destinations.isEmpty)
+                    Button("Add to Queue") { enqueue() }.disabled(source == nil || destinations.isEmpty)
                 }
             }
             .fileImporter(isPresented: $showSourcePicker, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in

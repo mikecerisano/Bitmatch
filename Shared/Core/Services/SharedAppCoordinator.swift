@@ -6,9 +6,7 @@ import BitMatchEngine
 import SwiftUI
 import Combine
 
-#if os(macOS)
-import AppKit
-#else
+#if !os(macOS)
 import UIKit
 import UserNotifications
 #if canImport(ActivityKit)
@@ -55,14 +53,30 @@ class SharedAppCoordinator: ObservableObject {
     }
     private let reportPrefsStore: ReportPrefsStore
     @Published var generateASCMHL: Bool = UserDefaults.standard.object(forKey: "BitMatchGenerateASCMHL") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(generateASCMHL, forKey: "BitMatchGenerateASCMHL") }
+        didSet {
+            if !isReplayingQueuedTransfer {
+                UserDefaults.standard.set(generateASCMHL, forKey: "BitMatchGenerateASCMHL")
+            }
+        }
     }
     let transferJournal: LocalTransferJournal
     @Published private(set) var queueIsRunning = false
     @Published private(set) var queueMessage: String?
     @Published private(set) var isReplayingQueuedTransfer = false
+    @Published private(set) var queueSessionRecordIDs: Set<UUID> = []
+    @Published private(set) var reviewedQueueAttentionIDs: Set<UUID> = []
+    @Published private(set) var skippedQueueAttentionIDs: Set<UUID> = []
+    @Published private(set) var ejectedQueueSourceIDs: Set<UUID> = []
+    @Published private(set) var standaloneAttentionRecordIDsSinceLaunch: Set<UUID> = []
+    @Published private(set) var queuePausedRecordID: UUID?
+    @Published private(set) var reviewedQueueRecordID: UUID?
+    @Published private(set) var queueSessionEnded = false
+    private var queueSessionRecordOrder: [UUID] = []
     private var isProcessingQueue = false
     private var activeJournalRecordID: UUID?
+    private var queueFinishNotificationWasPosted = false
+    private var queueStopWasRequested = false
+    private var queueSessionSourceVolumeIDs: Set<String> = []
     @Published var photographerJobViewModel: PhotographerJobViewModel
     /// Setup's Quick/Project choice. Held here, not in a view, so every
     /// Start (button, ⌘R) obeys it: choosing Project blocks Start until a
@@ -99,6 +113,7 @@ class SharedAppCoordinator: ObservableObject {
     let generalSettings: GeneralSettings
     /// Background transfer notifications, filtered by `generalSettings`.
     let transferNotifier: TransferNotifier
+    let transferSignals = PassthroughSubject<TransferSignal, Never>()
     /// Kept as the shared outcome screen's binding while the setting itself
     /// lives with the other General settings.
     var autoEjectWhenSafe: Bool {
@@ -230,7 +245,57 @@ class SharedAppCoordinator: ObservableObject {
         self.generalSettings = generalSettings
         self.transferNotifier = TransferNotifier(settings: generalSettings)
         self.cameraLabels = CameraLabelModel(defaults: selectedPreferences)
-        self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
+        let selectedJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
+        self.transferJournal = selectedJournal
+        let existingIDs = Set(selectedJournal.records.map(\.id))
+        let persistedSession = selectedJournal.loadQueueSession()
+        // Computed in locals first: self cannot be read before every stored
+        // property is set.
+        let recoveredOrder: [UUID]
+        var skippedIDs: Set<UUID> = []
+        var pausedID: UUID?
+        var sessionEnded = false
+        if let persistedSession {
+            recoveredOrder = persistedSession.recordIDs.filter(existingIDs.contains)
+            skippedIDs = persistedSession.skippedRecordIDs.intersection(existingIDs)
+            pausedID = persistedSession.pausedRecordID.flatMap { existingIDs.contains($0) ? $0 : nil }
+            sessionEnded = persistedSession.ended
+        } else {
+            recoveredOrder = selectedJournal.records.reversed().filter {
+                $0.projectID == nil && (
+                    $0.state == .queued || $0.state == .running
+                        || ($0.state == .interrupted && $0.endedAt == nil)
+                )
+            }.map(\.id)
+        }
+        let recoveredSessionIDs = Set(recoveredOrder)
+        if persistedSession == nil {
+            pausedID = selectedJournal.records.first {
+                recoveredSessionIDs.contains($0.id) && Self.isQueueProblemState($0.state)
+            }?.id
+        } else {
+            let skipped = skippedIDs
+            let savedPauseIsStillValid = pausedID.flatMap { paused in
+                selectedJournal.records.first {
+                    $0.id == paused && Self.isQueueProblemState($0.state) && !skipped.contains($0.id)
+                }
+            } != nil
+            if !savedPauseIsStillValid && !sessionEnded {
+                pausedID = selectedJournal.records.first {
+                    recoveredSessionIDs.contains($0.id) && Self.isQueueProblemState($0.state)
+                        && !skipped.contains($0.id)
+                }?.id
+            }
+        }
+        self.skippedQueueAttentionIDs = skippedIDs
+        self.queuePausedRecordID = pausedID
+        self.queueSessionEnded = sessionEnded
+        self.queueFinishNotificationWasPosted = sessionEnded
+        self.queueSessionRecordOrder = recoveredOrder
+        self.queueSessionRecordIDs = recoveredSessionIDs
+        self.queueSessionSourceVolumeIDs = Set(selectedJournal.records.filter {
+            recoveredSessionIDs.contains($0.id)
+        }.compactMap { $0.source.volumeID })
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
         // whole app has one; iPad and iPhone build a portable one here.
         if let photographerJobViewModel {
@@ -356,7 +421,8 @@ class SharedAppCoordinator: ObservableObject {
 
         // Persist verification mode across launches
         $verificationMode
-            .sink { mode in
+            .sink { [weak self] mode in
+                guard self?.isReplayingQueuedTransfer != true else { return }
                 UserDefaults.standard.set(mode.rawValue, forKey: "lastVerificationMode")
             }
             .store(in: &cancellables)
@@ -616,24 +682,34 @@ class SharedAppCoordinator: ObservableObject {
     func enqueue(
         source: URL, destinations: [URL],
         verificationMode: VerificationMode? = nil,
+        cameraSettings: CameraLabelSettings? = nil,
         generateASCMHL: Bool? = nil,
         reportSettings: ReportPrefs? = nil
     ) throws -> UUID {
         let scopedURLs = ([source] + destinations).filter { $0.startAccessingSecurityScopedResource() }
         defer { scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
-        let settings = cameraLabelSettings
+        let settings = cameraSettings ?? self.cameraLabelSettings
         if let refusal = destinations.lazy.compactMap({
             BackupTargetPolicy.refusal(for: $0, origin: .userChoice, source: source)
         }).first {
             throw FileOperationError.unsafeOperation(refusal)
         }
         try SafetyValidator.validateResolvedDestinationRoots(source: source, destinations: destinations, settings: settings)
-        return try transferJournal.enqueue(
+        if queueSessionEnded && !hasWaitingQueueSessionRecord {
+            clearQueueSessionState()
+        }
+        let id = try transferJournal.enqueue(
             sourceURL: source, destinationURLs: destinations,
             verificationMode: verificationMode ?? self.verificationMode,
             cameraSettings: settings, reportSettings: reportSettings ?? self.reportSettings,
             generateASCMHL: generateASCMHL ?? self.generateASCMHL
         )
+        addQueueSessionRecord(id)
+        if let volumeID = transferJournal.records.first(where: { $0.id == id })?.source.volumeID {
+            queueSessionSourceVolumeIDs.insert(volumeID)
+        }
+        persistQueueSession()
+        return id
     }
 
     func enqueueSelection() throws {
@@ -652,7 +728,7 @@ class SharedAppCoordinator: ObservableObject {
     }
 
     func queueCandidates(volumes: [ConnectedDrivesPresentation.Volume]) -> [ConnectedDrivesPresentation.Row] {
-        guard let record = runningOneTimeTransfer else { return [] }
+        guard let record = queueTemplateRecord else { return [] }
         return ConnectedDrivesPresentation.queueCandidates(
             volumes: volumes,
             sourceURL: record.source.url.standardizedFileURL.resolvingSymlinksInPath(),
@@ -662,19 +738,61 @@ class SharedAppCoordinator: ObservableObject {
         )
     }
 
+    func autoQueueCandidates(volumes: [ConnectedDrivesPresentation.Volume]) -> [ConnectedDrivesPresentation.Row] {
+        guard let record = queueTemplateRecord else { return [] }
+        var seen = autoQueueSeenVolumeIDs
+        if let volumeID = record.source.volumeID { seen.insert(volumeID) }
+        return AutoQueuePolicy.candidates(
+            eligibleRows: queueCandidates(volumes: volumes),
+            seenVolumeIDs: seen,
+            activeDestinationVolumeIDs: Set(record.destinations.compactMap { $0.volumeID })
+        )
+    }
+
+    var autoQueueSeenVolumeIDs: Set<String> { queueSessionSourceVolumeIDs }
+
+    private var queueTemplateRecord: LocalTransferRecord? {
+        if let runningOneTimeTransfer { return runningOneTimeTransfer }
+        guard queueIsRunning else { return nil }
+        return transferJournal.records.first {
+            queueSessionRecordIDs.contains($0.id) && $0.projectID == nil
+        }
+    }
+
     func enqueueNext(source: URL) throws {
         guard let record = runningOneTimeTransfer else {
             throw FileOperationError.unsafeOperation("A one-time transfer must be running to queue the next card.")
         }
         // The next card gets the running transfer's own settings, not
         // whatever the setup screen or Preferences hold now.
+        addQueueSessionRecord(record.id)
+        if let volumeID = record.source.volumeID { queueSessionSourceVolumeIDs.insert(volumeID) }
         try enqueue(
             source: source, destinations: record.destinations.map(\.url),
             verificationMode: record.verificationMode,
+            cameraSettings: record.cameraSettings,
             generateASCMHL: record.generateASCMHL,
             reportSettings: record.reportSettings
         )
+        persistQueueSession()
         // startQueue waits for executeOperation to unwind before advancing.
+        startQueue()
+    }
+
+    func enqueueAutomaticallyDetectedCard(source: URL) throws {
+        guard let record = queueTemplateRecord else {
+            throw FileOperationError.unsafeOperation("A one-time queue must be running to add the card.")
+        }
+        addQueueSessionRecord(record.id)
+        if let volumeID = record.source.volumeID { queueSessionSourceVolumeIDs.insert(volumeID) }
+        try enqueue(
+            source: source, destinations: record.destinations.map(\.url),
+            verificationMode: record.verificationMode,
+            cameraSettings: record.cameraSettings,
+            generateASCMHL: record.generateASCMHL,
+            reportSettings: record.reportSettings
+        )
+        persistQueueSession()
         startQueue()
     }
 
@@ -684,16 +802,140 @@ class SharedAppCoordinator: ObservableObject {
             queueMessage = "Finish or cancel the folder comparison, then choose Run queue."
             return
         }
+        guard !hasUnresolvedQueueRecords else {
+            queueIsRunning = false
+            return
+        }
+        if queueSessionEnded && !hasWaitingQueueSessionRecord {
+            clearQueueSessionState()
+        }
+        let waiting = transferJournal.records.filter { $0.state == .queued && $0.projectID == nil }
+        for id in waiting.reversed().map(\.id) { addQueueSessionRecord(id) }
+        guard !waiting.isEmpty else { return }
+        queueFinishNotificationWasPosted = false
+        queueSessionEnded = false
+        queueStopWasRequested = false
         queueMessage = nil
         queueIsRunning = true
+        persistQueueSession()
         Task { await processNextQueuedTransfer() }
     }
 
-    func stopQueueAfterCurrentTransfer() { queueIsRunning = false }
+    func stopQueueAfterCurrentTransfer() {
+        queueStopWasRequested = true
+        queueIsRunning = false
+    }
+
+    func skipPausedCardAndContinue(_ expectedID: UUID) {
+        guard queuePausedRecordID == expectedID,
+              let record = transferJournal.records.first(where: { $0.id == expectedID }),
+              Self.isQueueProblemState(record.state) else { return }
+        skippedQueueAttentionIDs.insert(expectedID)
+        queuePausedRecordID = nil
+        queueMessage = nil
+        if transferJournal.records.contains(where: { $0.state == .queued && $0.projectID == nil }) {
+            persistQueueSession()
+            startQueue()
+        } else {
+            endQueueSession()
+        }
+    }
+
+    func removeQueuedTransfer(_ id: UUID) throws {
+        try transferJournal.removeQueued(id: id)
+        queueSessionRecordIDs.remove(id)
+        queueSessionRecordOrder.removeAll { $0 == id }
+        persistQueueSession()
+    }
+
+    func moveQueuedTransferToTop(_ id: UUID) throws {
+        try transferJournal.moveQueuedToTop(id: id)
+        queueSessionRecordOrder.removeAll { $0 == id }
+        queueSessionRecordOrder.insert(id, at: 0)
+        persistQueueSession()
+    }
+
+    func reviewQueuedTransfer(_ id: UUID) {
+        guard let record = transferJournal.records.first(where: { $0.id == id }) else { return }
+        let safety = TransferLibraryPresentation.safetyState(for: record)
+        let state: OperationState
+        switch safety {
+        case .safeToErase: state = .completed(.init(success: true, message: record.summary))
+        case .copiedNotVerified: state = .completed(.init(success: false, message: record.summary, copiedNotVerified: true))
+        case .needsAttention: state = .completed(.init(success: false, message: record.summary))
+        case .failed: state = .failed
+        case .interrupted: state = .cancelled
+        default: return
+        }
+        reviewedQueueAttentionIDs.insert(id)
+        reviewedQueueRecordID = id
+        activeJournalRecordID = id
+        sourceURL = record.source.url
+        destinationURLs = record.destinations.map(\.url)
+        verificationMode = record.verificationMode
+        results = record.results
+        operationState = state
+    }
+
+    var queuePresentation: QueueSessionPresentation {
+        let records = transferJournal.records.filter { queueSessionRecordIDs.contains($0.id) }
+        let mounted = Set(records.compactMap { record -> UUID? in
+            guard let access = try? transferJournal.prepareSourceForEjection(id: record.id) else { return nil }
+            access.release()
+            return record.id
+        })
+        return QueueSessionPresentation.make(
+            records: transferJournal.records,
+            sessionIDs: queueSessionRecordIDs,
+            sessionRecordIDsInOrder: queueSessionRecordOrder,
+            progress: progress,
+            mountedSourceIDs: mounted,
+            ejectedSourceIDs: ejectedQueueSourceIDs,
+            pausedRecordID: queuePausedRecordID
+        )
+    }
+
+    var hasUnresolvedQueueRecords: Bool {
+        transferJournal.records.contains { record in
+            queueSessionRecordIDs.contains(record.id)
+                && Self.isQueueProblemState(record.state)
+                && !skippedQueueAttentionIDs.contains(record.id)
+        }
+    }
+
+    private var hasWaitingQueueSessionRecord: Bool {
+        transferJournal.records.contains {
+            queueSessionRecordIDs.contains($0.id) && $0.state == .queued && $0.projectID == nil
+        }
+    }
+
+    var queueRunCommandEnabled: Bool {
+        QueueCommandPolicy.canRunQueue(
+            isPausedOnProblem: hasUnresolvedQueueRecords,
+            waitingCount: queuePresentation.rows.filter { $0.safetyState == .waiting }.count
+        )
+    }
+
+    var currentTransferBelongsToQueueSession: Bool {
+        activeJournalRecordID.map(queueSessionRecordIDs.contains) == true
+            && queueSessionRecordIDs.count >= 2
+    }
 
     func retryTransfer(_ id: UUID, generateASCMHL: Bool? = nil) {
         do {
-            _ = try transferJournal.requeue(id: id, generateASCMHL: generateASCMHL)
+            let retryID = try transferJournal.requeue(id: id, generateASCMHL: generateASCMHL)
+            queueSessionRecordIDs.remove(id)
+            queueSessionRecordIDs.insert(retryID)
+            if let index = queueSessionRecordOrder.firstIndex(of: id) {
+                queueSessionRecordOrder[index] = retryID
+            } else {
+                queueSessionRecordOrder.append(retryID)
+            }
+            skippedQueueAttentionIDs.remove(id)
+            if queuePausedRecordID == id { queuePausedRecordID = nil }
+            reviewedQueueRecordID = nil
+            queueMessage = nil
+            persistQueueSession()
             startQueue()
         } catch { queueMessage = error.localizedDescription }
     }
@@ -720,9 +962,8 @@ class SharedAppCoordinator: ObservableObject {
             return
         }
         #endif
-        guard let record = transferJournal.records.filter({ $0.state == .queued && $0.projectID == nil })
-            .min(by: { $0.createdAt < $1.createdAt }) else {
-            queueIsRunning = false
+        guard let record = transferJournal.records.last(where: { $0.state == .queued && $0.projectID == nil }) else {
+            endQueueSession()
             return
         }
         guard !photographerJobViewModel.hasPreparedIngestAwaitingStart else {
@@ -740,7 +981,15 @@ class SharedAppCoordinator: ObservableObject {
         // when it ends (UI plan §8 item 8).
         let userReportSettings = reportSettings
         let userCameraSettings = cameraLabelSettings
+        let userVerificationMode = verificationMode
+        let userGenerateASCMHL = generateASCMHL
         do {
+            if (try? transferJournal.staleResourceIndexes(id: record.id).contains(0)) == true {
+                let message = "\(record.title) is not connected"
+                try transferJournal.fail(id: record.id, summary: message)
+                handleAttemptTerminal(recordID: record.id)
+                return
+            }
             let access = try transferJournal.prepareToRun(id: record.id)
             defer { access.release() }
             isReplayingQueuedTransfer = true
@@ -748,6 +997,8 @@ class SharedAppCoordinator: ObservableObject {
             defer {
                 reportSettings = userReportSettings
                 cameraLabelSettings = userCameraSettings
+                verificationMode = userVerificationMode
+                generateASCMHL = userGenerateASCMHL
                 cameraLabels.suspendsSaving = false
             }
             // Queued backups were the user's picks; the rule still applies,
@@ -772,12 +1023,20 @@ class SharedAppCoordinator: ObservableObject {
             queueIsRunning = false
             queueMessage = error.localizedDescription
             do {
-                try transferJournal.markRunning(id: record.id)
-                try transferJournal.interrupt(id: record.id, summary: error.localizedDescription)
+                try transferJournal.fail(id: record.id, summary: error.localizedDescription)
+                handleAttemptTerminal(recordID: record.id)
             } catch {
-                queueMessage = "Queue stopped: \(error.localizedDescription)"
+                pauseQueueAttempt(
+                    recordID: record.id,
+                    message: "Queue stopped: \(error.localizedDescription)"
+                )
             }
         }
+    }
+
+
+    private static func isQueueProblemState(_ state: LocalTransferState) -> Bool {
+        state == .issues || state == .failed || state == .interrupted || state == .cancelled
     }
 
     func startOperation() async { await executeOperation(journalRecordID: nil) }
@@ -819,6 +1078,8 @@ class SharedAppCoordinator: ObservableObject {
                 isOperationInProgress = false
                 if queueIsRunning && !isProcessingQueue {
                     Task { await self.processNextQueuedTransfer() }
+                } else if currentTransferBelongsToQueueSession && queueStopWasRequested {
+                    endQueueSession()
                 }
             }
         }
@@ -852,10 +1113,22 @@ class SharedAppCoordinator: ObservableObject {
             activeJournalRecordID = recordID
         } catch {
             queueIsRunning = false
-            queueMessage = error.localizedDescription
+            let startError = error
+            queueMessage = startError.localizedDescription
+            if let journalRecordID, queueSessionRecordIDs.contains(journalRecordID) {
+                do {
+                    try transferJournal.fail(id: journalRecordID, summary: startError.localizedDescription)
+                    handleAttemptTerminal(recordID: journalRecordID, belongsToQueueSession: true)
+                } catch {
+                    pauseQueueAttempt(
+                        recordID: journalRecordID,
+                        message: "Queue stopped: \(error.localizedDescription)"
+                    )
+                }
+            }
             operationState = .failed
             updateProjectLifecycle(for: .failed)
-            await platformManager.presentError(error)
+            await platformManager.presentError(startError)
             return
         }
 
@@ -869,7 +1142,11 @@ class SharedAppCoordinator: ObservableObject {
             )
         } catch {
             try? transferJournal.interrupt(id: recordID, summary: error.localizedDescription)
-            queueIsRunning = false
+            if isReplayingQueuedTransfer || queueSessionRecordIDs.contains(recordID) {
+                pauseQueueAttempt(recordID: recordID, message: error.localizedDescription)
+            } else {
+                handleAttemptTerminal(recordID: recordID, belongsToQueueSession: false)
+            }
             operationState = .failed
             updateProjectLifecycle(for: .failed)
             await platformManager.presentError(error)
@@ -937,14 +1214,16 @@ class SharedAppCoordinator: ObservableObject {
 
         do {
             currentOperation = try await copyVerifyExecutor.execute(config: config, callbacks: callbacks)
+            let belongsToQueueSession = isReplayingQueuedTransfer || queueSessionRecordIDs.contains(recordID)
             if startCancellationRequested {
                 try transferJournal.cancel(id: recordID, results: results)
+                handleAttemptTerminal(recordID: recordID, belongsToQueueSession: belongsToQueueSession)
             } else if case .completed(let info) = operationState {
                 try transferJournal.finish(id: recordID, results: results, summary: info.message, hadIssues: !info.success)
-                if transferJournal.records.first(where: { $0.id == recordID })?.state != .completed { queueIsRunning = false }
+                handleAttemptTerminal(recordID: recordID, belongsToQueueSession: belongsToQueueSession)
             } else {
                 try transferJournal.interrupt(id: recordID, summary: "Transfer did not reach verified completion.", results: results)
-                queueIsRunning = false
+                handleAttemptTerminal(recordID: recordID, belongsToQueueSession: belongsToQueueSession)
             }
         } catch {
             queueIsRunning = false
@@ -954,11 +1233,142 @@ class SharedAppCoordinator: ObservableObject {
                 } else {
                     try transferJournal.interrupt(id: recordID, summary: error.localizedDescription, results: results)
                 }
+                handleAttemptTerminal(recordID: recordID)
             } catch {
-                queueMessage = "Could not save transfer results: \(error.localizedDescription)"
+                let message = "Could not save transfer results: \(error.localizedDescription)"
+                if isReplayingQueuedTransfer || queueSessionRecordIDs.contains(recordID) {
+                    pauseQueueAttempt(recordID: recordID, message: message)
+                } else {
+                    queueMessage = message
+                }
                 operationState = .failed
             }
         }
+    }
+
+    private func finishQueueSessionIfNeeded() {
+        let presentation = queuePresentation
+        guard queueSessionEnded, presentation.isMultiCard, presentation.headerTitle == nil,
+              !queueFinishNotificationWasPosted else { return }
+        queueFinishNotificationWasPosted = true
+        transferNotifier.post(.queueFinished(
+            title: presentation.summaryTitle ?? "Queue",
+            tally: presentation.tally.text
+        ))
+    }
+
+    private func addQueueSessionRecord(_ id: UUID) {
+        if queueSessionRecordIDs.insert(id).inserted {
+            queueSessionRecordOrder.append(id)
+        }
+    }
+
+    private func persistQueueSession() {
+        guard !queueSessionRecordIDs.isEmpty else { return }
+        let knownIDs = queueSessionRecordIDs
+        let orderedIDs = queueSessionRecordOrder.filter(knownIDs.contains)
+        do {
+            try transferJournal.saveQueueSession(PersistedQueueSession(
+                recordIDs: orderedIDs,
+                skippedRecordIDs: skippedQueueAttentionIDs,
+                pausedRecordID: queuePausedRecordID,
+                ended: queueSessionEnded
+            ))
+        } catch {
+            queueMessage = "Could not save queue session: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearQueueSessionState() {
+        queueSessionRecordIDs.removeAll()
+        queueSessionRecordOrder.removeAll()
+        reviewedQueueAttentionIDs.removeAll()
+        skippedQueueAttentionIDs.removeAll()
+        ejectedQueueSourceIDs.removeAll()
+        queueSessionSourceVolumeIDs.removeAll()
+        queuePausedRecordID = nil
+        reviewedQueueRecordID = nil
+        queueMessage = nil
+        queueSessionEnded = false
+        queueFinishNotificationWasPosted = false
+        queueStopWasRequested = false
+        do {
+            try transferJournal.clearQueueSession()
+        } catch {
+            queueMessage = "Could not clear queue session: \(error.localizedDescription)"
+        }
+    }
+
+    private func endQueueSession() {
+        queueIsRunning = false
+        queueSessionEnded = true
+        queueStopWasRequested = false
+        persistQueueSession()
+        finishQueueSessionIfNeeded()
+    }
+
+    private func handleAttemptTerminal(recordID: UUID, belongsToQueueSession: Bool? = nil) {
+        guard let record = transferJournal.records.first(where: { $0.id == recordID }) else { return }
+        let safety = TransferLibraryPresentation.safetyState(for: record)
+        let belongs = belongsToQueueSession
+            ?? (isReplayingQueuedTransfer || queueSessionRecordIDs.contains(recordID))
+        switch safety {
+        case .needsAttention, .failed, .interrupted, .copiedNotVerified:
+            if belongs {
+                pauseQueueAttempt(recordID: recordID, message: record.summary)
+            } else {
+                standaloneAttentionRecordIDsSinceLaunch.insert(recordID)
+                transferSignals.send(.attention)
+            }
+        case .safeToErase:
+            transferSignals.send(.safeToErase)
+        default:
+            break
+        }
+    }
+
+    private func pauseQueueAttempt(recordID: UUID, message: String) {
+        queueIsRunning = false
+        queuePausedRecordID = recordID
+        queueMessage = message
+        persistQueueSession()
+        signalQueueAttentionIfNeeded(for: recordID)
+    }
+
+    private func signalQueueAttentionIfNeeded(for id: UUID) {
+        guard !reviewedQueueAttentionIDs.contains(id) else { return }
+        transferSignals.send(.attention)
+    }
+
+    func markQueueSourceEjected(_ id: UUID) {
+        ejectedQueueSourceIDs.insert(id)
+    }
+
+    #if os(macOS)
+    func ejectQueueSource(
+        _ id: UUID,
+        using ejector: @Sendable (URL) async -> String? = { await CardEjectService.eject($0) }
+    ) async -> String? {
+        guard let record = transferJournal.records.first(where: { $0.id == id }),
+              TransferLibraryPresentation.safetyState(for: record) == .safeToErase else {
+            return "Only a verified card that is safe to erase can be ejected."
+        }
+        let access: LocalTransferAccess
+        do {
+            access = try transferJournal.prepareSourceForEjection(id: id)
+        } catch {
+            return error.localizedDescription
+        }
+        defer { access.release() }
+        if let error = await ejector(access.sourceURL) { return error }
+        markQueueSourceEjected(id)
+        return nil
+    }
+    #endif
+
+    func finishQueueSessionAndStartNewTransfer() {
+        clearQueueSessionState()
+        startNewTransfer()
     }
 
     /// The one Start, for every platform's Start button and keyboard
@@ -1273,6 +1683,15 @@ class SharedAppCoordinator: ObservableObject {
     /// O-1): the next card usually goes to the same backups, and keeping the
     /// old source risks copying the same card again by accident.
     func startNewTransfer() {
+        // A stopped queue with cards still waiting keeps its session, or
+        // those cards would be stranded behind a disabled Run Queue.
+        let hasWaitingCards = transferJournal.records.contains {
+            queueSessionRecordIDs.contains($0.id) && $0.state == .queued
+        }
+        if !hasWaitingCards && (queueSessionEnded || !hasUnresolvedQueueRecords) {
+            clearQueueSessionState()
+        }
+        reviewedQueueRecordID = nil
         resetForNewOperation()
         sourceURL = nil
     }
@@ -1297,6 +1716,7 @@ class SharedAppCoordinator: ObservableObject {
     }
 
     func saveVerificationMode() {
+        guard !isReplayingQueuedTransfer else { return }
         UserDefaults.standard.set(verificationMode.rawValue, forKey: "lastVerificationMode")
     }
 
@@ -1324,6 +1744,7 @@ class SharedAppCoordinator: ObservableObject {
     // MARK: - Computed Properties
 
     var canStartOperation: Bool {
+        guard !hasUnresolvedQueueRecords else { return false }
         switch currentMode {
         case .copyAndVerify:
             return operationReadinessAssessment.isReady && !isOperationInProgress
