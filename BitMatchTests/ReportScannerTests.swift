@@ -60,7 +60,7 @@ struct ReportScannerTests {
 
     // MARK: - Filenames
 
-    /// Plant: in `ReportScanner.isReportFilename`, delete the line
+    /// Plant: in `EvidenceReader.isReportFilename`, delete the line
     /// `|| lower.hasPrefix("bitmatch_report_")`. (The old iOS rule,
     /// `name == "BitMatchReport.json" || name.hasSuffix("_Report.json")`, fails it too.)
     @Test func findsExporterFilenames() async throws {
@@ -79,7 +79,7 @@ struct ReportScannerTests {
     // MARK: - What "verified" means
 
     /// Positive control, so the tests below cannot pass by rejecting everything.
-    /// Plant: in `ReportScanner.verificationMode(method:algorithm:)`, change
+    /// Plant: in `EvidenceReader.verificationMode(method:algorithm:)`, change
     /// `case "checksum":` to `case "checksum-legacy":`.
     @Test func standardReportIsVerified() async throws {
         let root = try makeTemporaryFolder()
@@ -107,7 +107,7 @@ struct ReportScannerTests {
     }
 
     /// A report whose method this build does not know is not verified.
-    /// Plant: in `ReportScanner.verificationMode(method:algorithm:)`, change
+    /// Plant: in `EvidenceReader.verificationMode(method:algorithm:)`, change
     /// `default: return nil` to `default: return .standard`.
     @Test func unknownVerificationMethodIsNotVerified() throws {
         let root = try makeTemporaryFolder()
@@ -125,7 +125,7 @@ struct ReportScannerTests {
     }
 
     /// A report with failures is not verified, whatever its mode.
-    /// Plant: in `ReportScanner.isVerified`, change `issues == 0 && matches > 0`
+    /// Plant: in `EvidenceReader.isVerified`, change `issues == 0 && matches > 0`
     /// to `matches > 0`.
     @Test func reportWithIssuesIsNotVerified() async throws {
         let root = try makeTemporaryFolder()
@@ -137,10 +137,24 @@ struct ReportScannerTests {
         #expect(cards.first?.verified == false)
     }
 
+    /// A report that checked no files is not verified: "verified" needs at
+    /// least one file compared.
+    /// Plant: in `EvidenceReader.isVerified`, change `issues == 0 && matches > 0`
+    /// to `issues == 0`.
+    @Test func reportThatCheckedNoFilesIsNotVerified() async throws {
+        let root = try makeTemporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeReport(mode: .paranoid, fileCount: 0, matchCount: 0, root: root)
+
+        let cards = await ReportScanner.scan(at: root)
+        #expect(cards.count == 1)
+        #expect(cards.first?.verified == false)
+    }
+
     // MARK: - Date window
 
     /// Only reports written on the chosen day are listed (default: today).
-    /// Plant: in `ReportScanner.scan`, change
+    /// Plant: in `EvidenceReader.scanReports`, change
     /// `calendar.isDate(modified, inSameDayAs: day) else { continue }` to
     /// `modified <= Date() else { continue }`.
     @Test func reportFromAnotherDayIsSkipped() async throws {
@@ -159,7 +173,7 @@ struct ReportScannerTests {
     // MARK: - Skipped reports are reported, not only logged
 
     /// A report over the size limit is named, next to the ones that were read.
-    /// Plant: in `ReportScanner.scanReports`, delete `skip(fileURL, .tooLarge)`.
+    /// Plant: in `EvidenceReader.scanReports`, delete `skip(fileURL, .tooLarge)`.
     @Test func oversizedReportIsListedAsSkipped() async throws {
         let root = try makeTemporaryFolder()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -174,7 +188,7 @@ struct ReportScannerTests {
     }
 
     /// A damaged BitMatch report is named; the good report beside it is still listed.
-    /// Plant: in `ReportScanner.scanReports`, delete the `skip(fileURL, .unreadable)`
+    /// Plant: in `EvidenceReader.scanReports`, delete the `skip(fileURL, .unreadable)`
     /// inside `else if isBitMatchNamed(...)`.
     @Test func damagedReportIsListedAsSkipped() async throws {
         let root = try makeTemporaryFolder()
@@ -192,7 +206,7 @@ struct ReportScannerTests {
 
     /// A report that exists but cannot be opened (no read permission) is
     /// named too, not dropped with only a log line (Promise 3).
-    /// Plant: in `ReportScanner.scanReports`, delete the `skip(fileURL, .unreadable)`
+    /// Plant: in `EvidenceReader.scanReports`, delete the `skip(fileURL, .unreadable)`
     /// in the branch that handles a failed read.
     @Test func reportThatCannotBeOpenedIsListedAsSkipped() async throws {
         let root = try makeTemporaryFolder()
@@ -216,7 +230,7 @@ struct ReportScannerTests {
 
     /// Another app's `*_report.json` is not a BitMatch report and is not
     /// counted as one that couldn't be read.
-    /// Plant: in `ReportScanner.scanReports`, change
+    /// Plant: in `EvidenceReader.scanReports`, change
     /// `} else if isBitMatchNamed(fileURL.lastPathComponent) {` to `} else {`.
     @Test func otherAppsReportIsNotCountedAsSkipped() async throws {
         let root = try makeTemporaryFolder()
