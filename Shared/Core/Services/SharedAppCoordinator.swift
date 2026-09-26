@@ -95,6 +95,8 @@ class SharedAppCoordinator: ObservableObject {
     /// bars). Deliberately not forwarded to this object's `objectWillChange`:
     /// it ticks every 250 ms, so views observe it directly.
     let progressPresentation = ProgressPresentationModel()
+    /// The "transfer finished" notification, off until turned on.
+    let transferNotifier: TransferNotifier
     private var lastPresentedBytes: Int64 = 0
     /// Backups in the run being presented, so a later change of selection
     /// cannot mismatch the per-destination bars.
@@ -214,6 +216,7 @@ class SharedAppCoordinator: ObservableObject {
             selectedPreferences = .standard
         }
         self.reportPrefsStore = ReportPrefsStore(defaults: selectedPreferences)
+        self.transferNotifier = TransferNotifier(defaults: selectedPreferences)
         self.cameraLabels = CameraLabelModel(defaults: selectedPreferences)
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
@@ -345,11 +348,29 @@ class SharedAppCoordinator: ObservableObject {
             .store(in: &cancellables)
     }
 
+    // MARK: - Finish notification
+
+    private func notifyIfTransferEnded(_ state: OperationState) {
+        guard currentMode == .copyAndVerify else { return }
+        guard let notice = TransferFinishNotice.make(
+            state: state,
+            sourceName: sourceURL?.lastPathComponent ?? "",
+            backupCount: destinationURLs.count,
+            issueCount: results.filter { !$0.isSuccessStatus }.count,
+            mode: verificationMode
+        ) else { return }
+        transferNotifier.post(notice)
+    }
+
     // MARK: - Progress presentation
 
     /// Feeds `progressPresentation`: engine progress at most every 120 ms,
     /// and the smoothing timer while an operation runs.
     private func setupProgressPresentation() {
+        operationStatePublisher
+            .removeDuplicates()
+            .sink { [weak self] state in self?.notifyIfTransferEnded(state) }
+            .store(in: &cancellables)
         IOSBackgroundTaskService.shared.secondsRemainingProvider = { [weak self] in
             self?.progressPresentation.measuredSecondsRemaining
         }
