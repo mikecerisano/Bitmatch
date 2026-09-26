@@ -39,20 +39,23 @@ final class ARRIDetectionService: Sendable {
             for line in lines {
                 let trimmedLine = line.trimmingCharacters(in: .whitespaces)
                 
-                // Check for ARRI camera models in metadata
-                if trimmedLine.contains("ALEXA") {
-                    if trimmedLine.contains("MINI LF") {
+                // Check for ARRI camera models in metadata. ALE files mix
+                // case ("ALEXA Mini LF"), so compare in upper case.
+                let upperLine = trimmedLine.uppercased()
+                if upperLine.contains("ALEXA") {
+                    let isLF = upperLine.range(of: #"\bLF\b"#, options: .regularExpression) != nil
+                    if upperLine.contains("MINI LF") {
                         return "ARRI Alexa Mini LF"
-                    } else if trimmedLine.contains("MINI") {
+                    } else if upperLine.contains("MINI") {
                         return "ARRI Alexa Mini"
-                    } else if trimmedLine.contains("LF") {
+                    } else if isLF {
                         return "ARRI Alexa LF"
                     } else {
                         return "ARRI Alexa"
                     }
                 }
                 
-                if trimmedLine.contains("AMIRA") {
+                if upperLine.contains("AMIRA") {
                     return "ARRI Amira"
                 }
                 

@@ -335,17 +335,16 @@ struct CameraCardLayoutDetectionTests {
         #expect(result == "Sony A7S III")
     }
 
-    // MARK: - Stage tests: known issues
+    // MARK: - Stage tests: ALE model names
 
-    /// Mixed-case model string in an ALE ("ALEXA Mini LF") is read as
-    /// "Alexa LF" because the MINI checks are case-sensitive (audit
-    /// finding G, not fixed yet).
+    /// A mixed-case model string in an ALE ("ALEXA Mini LF") names the
+    /// Mini LF, not the LF (audit finding G).
+    /// Plant: in `ARRIDetectionService.extractCameraFromALE`, test
+    /// `trimmedLine` instead of `upperLine`.
     @Test func arriStageReadsMiniLFFromALE() async throws {
         let result = try await withCard(CameraCardLayouts.arriMiniLF) {
             ARRIDetectionService.shared.detectARRICamera(at: $0)
         }
-        await withKnownIssue("ALE model read as \(result ?? "nil")") {
-            #expect(result == "ARRI Alexa Mini LF")
-        }
+        #expect(result == "ARRI Alexa Mini LF")
     }
 }
