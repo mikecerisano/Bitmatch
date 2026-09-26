@@ -459,6 +459,10 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
         // cannot return while one is still running (I3).
         let (verifyJobs, submitVerify) = AsyncStream<VerifyJob>.makeStream()
         try await withThrowingTaskGroup(of: Void.self) { run in
+            // Close the job stream however the copy loop exits, so the
+            // consumer never waits on a stream nobody will finish. (The
+            // group's cancellation also ends it; this does not rely on that.)
+            defer { submitVerify.finish() }
             if shouldPipelineVerify {
                 run.addTask {
                     await withTaskGroup(of: Void.self) { verifiers in
