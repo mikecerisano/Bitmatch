@@ -68,12 +68,15 @@ struct ResultOutcomeTests {
     /// Promise 2 in the verdict itself, not only upstream: a run whose rows
     /// were copied but never verified is not green, even if the run reported
     /// success (audit C2). Fails if `CompletionVerdict.resolve` drops the
-    /// copied-not-verified check.
+    /// copied-not-verified check. A run entirely of copied-not-verified rows
+    /// (Quick mode) reads as `.copiedNotVerified`, not `.success` and not
+    /// `.issues`; a run mixing verified and unverified rows is inconsistent
+    /// enough to flag as `.issues`. Neither is ever `.success`.
     @Test func copiedButUnverifiedRowsAreNeverGreen() {
         let succeeded = OperationState.completed(OperationCompletionInfo(success: true, message: "done"))
         let allCopied = [row(.copiedUnverified), row(.copiedUnverified)]
         let mixed = [row(.verified), row(.copiedUnverified)]
-        #expect(CompletionVerdict.resolve(state: succeeded, rows: allCopied, hasErrors: false, hasCriticalErrors: false) == .issues)
+        #expect(CompletionVerdict.resolve(state: succeeded, rows: allCopied, hasErrors: false, hasCriticalErrors: false) == .copiedNotVerified)
         #expect(CompletionVerdict.resolve(state: succeeded, rows: mixed, hasErrors: false, hasCriticalErrors: false) == .issues)
         #expect(CompletionVerdict.resolve(state: succeeded, rows: [row(.verified), row(.verified)], hasErrors: false, hasCriticalErrors: false) == .success)
     }

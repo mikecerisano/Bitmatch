@@ -6,6 +6,9 @@ import BitMatchEngine
 /// is always `.cancelled` (neither red "failed" nor amber "review").
 enum OutcomeTone: Equatable, Sendable {
     case verified
+    /// Quick mode: copied and not failed, but never checksum-verified.
+    /// Neutral, never green, never "safe to erase".
+    case copiedNotVerified
     case needsReview
     case failed
     case cancelled
@@ -14,6 +17,7 @@ enum OutcomeTone: Equatable, Sendable {
         if state == .cancelled { return .cancelled }
         switch verdict {
         case .success: return .verified
+        case .copiedNotVerified: return .copiedNotVerified
         case .issues: return .needsReview
         case .failed: return .failed
         }
@@ -75,6 +79,9 @@ struct TransferOutcomePresentation: Equatable, Sendable {
     let tone: OutcomeTone
     /// The one sentence about the source card. Exactly one source of truth.
     let guidance: String
+    /// The card's display name ("The card" when unknown), for the eject
+    /// button's label.
+    let cardName: String
     /// "N files failed", errors, warnings. Empty when the
     /// transfer was cancelled or verified.
     let issueLines: [String]
@@ -99,6 +106,33 @@ struct TransferOutcomePresentation: Equatable, Sendable {
     /// Spoken when the screen appears (audit C3).
     var announcement: String { "\(verdict.title). \(verdict.detail)" }
 
+    /// Eject is offered for any tone (Mac only, when the source is a
+    /// removable volume), but it is only the prominent, default action for a
+    /// fully verified result.
+    var ejectIsPrimaryAction: Bool { tone == .verified }
+
+    /// The plain caution line shown next to Eject when the result is not
+    /// fully verified. Nil for a verified result: nothing to caution about.
+    var ejectCautionLine: String? {
+        switch tone {
+        case .verified:
+            return nil
+        case .copiedNotVerified:
+            return "This card was only quick-checked. Make sure the backups are good before you eject it."
+        case .needsReview:
+            return "Some files need attention. Ejecting now could leave problems unresolved."
+        case .failed, .cancelled:
+            return "The transfer did not finish. Ejecting now could lose files that never made it to a backup."
+        }
+    }
+
+    /// Promise 2, enforced again at the door: automatic eject may only ever
+    /// fire for a fully verified result. Nothing else may call the real
+    /// eject without going through this.
+    static func shouldAutoEject(tone: OutcomeTone) -> Bool {
+        tone == .verified
+    }
+
     static func make(
         state: OperationState,
         rows: [ResultRow],
@@ -110,8 +144,13 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         duration: TimeInterval?,
         verificationMode: VerificationMode?,
         canRetry: Bool,
-        canExport: Bool
+        canExport: Bool,
+        sourceName: String = ""
     ) -> Self {
+        // `sourceName` passes through raw: `CompletionVerdictPresentation`
+        // owns the empty-name fallback and its "The card" / "the card"
+        // casing, so it must see "" here, not an already-capitalized default.
+        let card = sourceName.isEmpty ? "The card" : sourceName
         let resolved = CompletionVerdict.resolve(
             state: state,
             rows: rows,
@@ -122,7 +161,9 @@ struct TransferOutcomePresentation: Equatable, Sendable {
             state: state,
             rows: rows,
             hasErrors: hasErrors,
-            hasCriticalErrors: hasCriticalErrors
+            hasCriticalErrors: hasCriticalErrors,
+            cardName: sourceName,
+            backupCount: destinations.count
         )
         let tone = OutcomeTone.make(state: state, verdict: resolved)
         let counts = OutcomeFileCounts.make(rows: rows)
@@ -139,7 +180,8 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         return Self(
             verdict: verdict,
             tone: tone,
-            guidance: verdict.sourceGuidance ?? "Review the transfer evidence before clearing source media.",
+            guidance: verdict.sourceGuidance,
+            cardName: card,
             issueLines: makeIssueLines(tone: tone, counts: counts, errorCount: errorCount, warningCount: warningCount),
             durationLabel: duration.map { makeDurationLabel(tone: tone, state: state, seconds: $0) },
             counts: counts,
@@ -219,7 +261,9 @@ struct TransferOutcomePresentation: Equatable, Sendable {
                 ? "1 file failed"
                 : "\(counts.needsAttention) files failed")
         }
-        if counts.copiedNotVerified > 0 {
+        // Quick mode's headline already says "copied, not verified"; an
+        // identical issue line under it would only repeat the verdict.
+        if counts.copiedNotVerified > 0, tone != .copiedNotVerified {
             lines.append(counts.copiedNotVerified == 1
                 ? "1 file copied, not verified"
                 : "\(counts.copiedNotVerified) files copied, not verified")
@@ -238,7 +282,7 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         switch tone {
         case .cancelled: return "Stopped after \(text)"
         case .failed: return "Ended after \(text)"
-        case .verified, .needsReview:
+        case .verified, .copiedNotVerified, .needsReview:
             if case .completed = state { return "Completed in \(text)" }
             return "Ended after \(text)"
         }

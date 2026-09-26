@@ -124,9 +124,9 @@ struct BitMatch_iPadTests {
         let success = CompletionVerdictPresentation.make(.success)
         let issues = CompletionVerdictPresentation.make(.issues)
 
-        #expect(success.title == "Transfer complete")
-        #expect(issues.title == "Review required")
-        #expect(issues.sourceGuidance == "Review failed files before clearing source media.")
+        #expect(success.title == "The card is safe to erase")
+        #expect(issues.title == "The card needs attention")
+        #expect(issues.sourceGuidance == "Don't erase the card until every file below is resolved.")
     }
 
 }

@@ -5,16 +5,22 @@ import BitMatchEngine
 
 /// What the outcome screen can ask its adapter to do. `retry` and `export`
 /// are nil when the finished transfer has no journal record that allows them.
+/// `eject` is nil wherever ejecting isn't possible: iPad, iPhone, or a Mac
+/// source that isn't a removable volume.
 struct OutcomeActions {
     var newTransfer: () -> Void
     var retry: (() -> Void)?
     var export: ((_ asCSV: Bool) throws -> TransferHistoryDocument)?
+    /// Nil on the plain error message; nil the closure itself when eject
+    /// isn't offered at all.
+    var eject: (() async -> String?)?
 }
 
 extension OutcomeTone {
     var color: Color {
         switch self {
         case .verified: .green
+        case .copiedNotVerified: .blue
         case .needsReview: .orange
         case .failed: .red
         case .cancelled: .secondary
@@ -37,6 +43,10 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
     let notice: String?
     let actions: OutcomeActions
     let isBusy: Bool
+    @ObservedObject var notifier: TransferNotifier
+    /// Mac only: nil wherever eject itself isn't offered (`actions.eject ==
+    /// nil`). "Off" by default (build step 4).
+    let autoEjectPreference: Binding<Bool>?
     private let projectEvidence: ProjectEvidence
 
     @State private var width: CGFloat = 0
@@ -46,6 +56,10 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
     @State private var exportType = UTType.json
     @State private var showsExporter = false
     @State private var exportError: String?
+    @State private var isEjecting = false
+    @State private var ejectError: String?
+    @State private var ejected = false
+    @State private var notifyPermissionDenied = false
     @AccessibilityFocusState private var verdictFocused: Bool
 
     init(
@@ -54,6 +68,8 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
         notice: String? = nil,
         isBusy: Bool = false,
         actions: OutcomeActions,
+        notifier: TransferNotifier,
+        autoEjectPreference: Binding<Bool>? = nil,
         @ViewBuilder projectEvidence: () -> ProjectEvidence
     ) {
         self.presentation = presentation
@@ -61,6 +77,8 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
         self.notice = notice
         self.isBusy = isBusy
         self.actions = actions
+        self.notifier = notifier
+        self.autoEjectPreference = autoEjectPreference
         self.projectEvidence = projectEvidence()
     }
 
@@ -74,8 +92,10 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
                 HStack(alignment: .top, spacing: 24) {
                     VStack(alignment: .leading, spacing: 16) {
                         verdictHeader
+                        ejectSection
                         issues
                         actionButtons
+                        notifySection
                         details
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -89,9 +109,11 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
             } else {
                 VStack(alignment: .leading, spacing: 16) {
                     verdictHeader
+                    ejectSection
                     issues
                     destinationList
                     actionButtons
+                    notifySection
                     projectEvidence
                     details
                     fileList
@@ -114,6 +136,10 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
                 showsFiles = true
                 issuesOnly = true
             }
+            attemptAutoEject()
+        }
+        .onChange(of: presentation.tone) {
+            attemptAutoEject()
         }
         .fileExporter(
             isPresented: $showsExporter,
@@ -127,15 +153,18 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
 
     // MARK: Verdict
 
+    /// The one state nobody can miss: a large icon and headline on a tinted
+    /// banner, so "safe to erase" reads as a verdict, not a status line.
     private var verdictHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 14) {
             Image(systemName: presentation.verdict.symbol)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 40, weight: .semibold))
                 .foregroundStyle(presentation.tone.color)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(presentation.verdict.title)
-                    .font(.title2.weight(.semibold))
+                    .font(.title.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(presentation.verdict.detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -151,10 +180,122 @@ struct OutcomeScreen<ProjectEvidence: View>: View {
             }
             Spacer(minLength: 0)
         }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(presentation.tone.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityFocused($verdictFocused)
+    }
+
+    // MARK: Eject
+
+    @ViewBuilder
+    private var ejectSection: some View {
+        if let eject = actions.eject {
+            VStack(alignment: .leading, spacing: 8) {
+                if ejected {
+                    Label("\(presentation.cardName) ejected.", systemImage: "checkmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    let button = Button {
+                        runEject(eject)
+                    } label: {
+                        Group {
+                            if isEjecting {
+                                ProgressView()
+                            } else {
+                                Label("Eject \(presentation.cardName)", systemImage: "eject.fill")
+                            }
+                        }
+                        .frame(maxWidth: layout == .compact ? .infinity : nil, minHeight: Self.minTarget)
+                    }
+                    .disabled(isEjecting || isBusy)
+                    if presentation.ejectIsPrimaryAction {
+                        button.buttonStyle(.borderedProminent).tint(presentation.tone.color)
+                    } else {
+                        button.buttonStyle(.bordered)
+                    }
+                    if let caution = presentation.ejectCautionLine {
+                        Text(caution)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let ejectError {
+                    Label(ejectError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let autoEjectPreference {
+                    Toggle("Eject the card automatically when it's safe to erase", isOn: autoEjectPreference)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Promise 2, gated a second time here (build step 4): even with the
+    /// preference on, this only fires for a fully verified result, and only
+    /// once per outcome (`ejected` latches after the first attempt).
+    private func attemptAutoEject() {
+        guard !ejected, !isEjecting, ejectError == nil,
+              let eject = actions.eject,
+              autoEjectPreference?.wrappedValue == true,
+              TransferOutcomePresentation.shouldAutoEject(tone: presentation.tone)
+        else { return }
+        runEject(eject)
+    }
+
+    private func runEject(_ eject: @escaping () async -> String?) {
+        ejectError = nil
+        isEjecting = true
+        Task {
+            let error = await eject()
+            isEjecting = false
+            if let error {
+                ejectError = error
+            } else {
+                ejected = true
+            }
+        }
+    }
+
+    // MARK: Notify
+
+    /// Small and secondary (build step 3): the finish screen's one line for
+    /// turning on the background "transfer ended" notification.
+    private var notifySection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(
+                "Notify me when a transfer ends",
+                isOn: Binding(
+                    get: { notifier.isEnabled },
+                    set: { isOn in
+                        if isOn {
+                            Task {
+                                let granted = await notifier.enable()
+                                notifyPermissionDenied = !granted
+                            }
+                        } else {
+                            notifier.disable()
+                            notifyPermissionDenied = false
+                        }
+                    }
+                )
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            if notifyPermissionDenied {
+                Text("Notifications are off in System Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: Issues
@@ -374,9 +515,14 @@ extension OutcomeScreen where ProjectEvidence == EmptyView {
         rows: [ResultRow],
         notice: String? = nil,
         isBusy: Bool = false,
-        actions: OutcomeActions
+        actions: OutcomeActions,
+        notifier: TransferNotifier,
+        autoEjectPreference: Binding<Bool>? = nil
     ) {
-        self.init(presentation: presentation, rows: rows, notice: notice, isBusy: isBusy, actions: actions) {
+        self.init(
+            presentation: presentation, rows: rows, notice: notice, isBusy: isBusy, actions: actions,
+            notifier: notifier, autoEjectPreference: autoEjectPreference
+        ) {
             EmptyView()
         }
     }

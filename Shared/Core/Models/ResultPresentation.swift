@@ -64,6 +64,10 @@ struct ReportResultStatistics {
 
 enum CompletionVerdict: Equatable {
     case success
+    /// Every row copied and none failed, but nothing was checksum-verified
+    /// (Quick mode). Never green, never "safe to erase" — but also not an
+    /// "issue" to review, since nothing actually went wrong.
+    case copiedNotVerified
     case issues
     case failed
 
@@ -89,11 +93,16 @@ enum CompletionVerdict: Equatable {
         // Green means verified (Promise 2): a row that was copied but never
         // checksum- or byte-verified keeps the run out of success, whatever
         // the run itself reported.
-        if rows.contains(where: { ResultOutcome(statusText: $0.status) == .copiedUnverified }) {
-            return .issues
+        let successRows = summary.successfulRows
+        let copiedNotVerifiedRows = successRows.filter {
+            ResultOutcome(statusText: $0.status) == .copiedUnverified
         }
-
-        return .success
+        guard !copiedNotVerifiedRows.isEmpty else {
+            return .success
+        }
+        // A run where every row is copied-not-verified is Quick mode; a run
+        // where only some rows are is an inconsistent result worth review.
+        return copiedNotVerifiedRows.count == successRows.count ? .copiedNotVerified : .issues
     }
 }
 

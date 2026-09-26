@@ -97,6 +97,14 @@ class SharedAppCoordinator: ObservableObject {
     let progressPresentation = ProgressPresentationModel()
     /// The "transfer finished" notification, off until turned on.
     let transferNotifier: TransferNotifier
+    /// The finish screen's "Eject the card automatically when it's safe to
+    /// erase" preference (Mac only; harmless but unused elsewhere). Off by
+    /// default: erasing is a decision the person makes, not the app.
+    @Published var autoEjectWhenSafe: Bool {
+        didSet { preferences.set(autoEjectWhenSafe, forKey: Self.autoEjectPreferenceKey) }
+    }
+    static let autoEjectPreferenceKey = "BitMatchAutoEjectWhenSafe"
+    private let preferences: UserDefaults
     private var lastPresentedBytes: Int64 = 0
     /// Backups in the run being presented, so a later change of selection
     /// cannot mismatch the per-destination bars.
@@ -217,6 +225,8 @@ class SharedAppCoordinator: ObservableObject {
         }
         self.reportPrefsStore = ReportPrefsStore(defaults: selectedPreferences)
         self.transferNotifier = TransferNotifier(defaults: selectedPreferences)
+        self.preferences = selectedPreferences
+        self.autoEjectWhenSafe = selectedPreferences.bool(forKey: Self.autoEjectPreferenceKey)
         self.cameraLabels = CameraLabelModel(defaults: selectedPreferences)
         self.transferJournal = transferJournal ?? LocalTransferJournal(fileURL: testJournalURL)
         // The Mac passes its Core Data-backed, SFTP-capable view model so the
