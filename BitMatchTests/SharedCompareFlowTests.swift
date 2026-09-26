@@ -654,7 +654,8 @@ private final class CancellingCompareFileSystem: FakeFileSystemService {
     override nonisolated func getFileSize(for url: URL) throws -> Int64 { 10 }
 }
 
-private final class CancellingChecksumService: ChecksumService {
+/// `@unchecked Sendable`: `onVerify` is set once, before the compare runs.
+private final class CancellingChecksumService: ChecksumService, @unchecked Sendable {
     var onVerify: (() async -> Void)?
 
     func generateChecksum(

@@ -481,7 +481,8 @@ private final class ExecutorFileOperationsService: FileOperationsService {
     func resumeOperation() async {}
 }
 
-private final class ExecutorPlatformManager: PlatformManager {
+/// `@unchecked Sendable`: `onPresentError` is set once, before the run.
+private final class ExecutorPlatformManager: PlatformManager, @unchecked Sendable {
     nonisolated let fileSystem: FileSystemService = FakeFileSystemService()
     nonisolated let checksum: ChecksumService = ExecutorChecksumService()
     nonisolated let fileOperations: FileOperationsService

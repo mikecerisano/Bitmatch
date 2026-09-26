@@ -137,7 +137,7 @@ final class PhotographerJobViewModel: ObservableObject {
     }
 
     private let workflowDefaults: UserDefaults
-    static let lastWorkflowKey = "BitMatchLastProjectWorkflow"
+    nonisolated static let lastWorkflowKey = "BitMatchLastProjectWorkflow"
 
     /// Most people use one project type: the last one chosen, or the first
     /// option on a first launch. An open project's own workflow still wins.

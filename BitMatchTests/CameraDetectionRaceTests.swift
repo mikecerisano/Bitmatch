@@ -31,7 +31,7 @@ final class CameraDetectionRaceTests: XCTestCase {
 
         /// Resume the longest-waiting detector call (FIFO matches
         /// suspension order).
-        func resumeNext(returning value: CameraCard?) {
+        func resumeNext(returning value: sending CameraCard?) {
             let next = lock.withLock { () -> CheckedContinuation<CameraCard?, Never>? in
                 guard !continuations.isEmpty else { return nil }
                 return continuations.removeFirst()
@@ -39,13 +39,14 @@ final class CameraDetectionRaceTests: XCTestCase {
             next?.resume(returning: value)
         }
 
-        func resumeAll(returning value: CameraCard?) {
+        /// Each waiter gets its own value (`CameraCard` is not Sendable).
+        func resumeAll(returning value: @autoclosure () -> CameraCard?) {
             let pending = lock.withLock { () -> [CheckedContinuation<CameraCard?, Never>] in
                 defer { continuations.removeAll() }
                 return continuations
             }
             for continuation in pending {
-                continuation.resume(returning: value)
+                continuation.resume(returning: value())
             }
         }
 
@@ -54,7 +55,7 @@ final class CameraDetectionRaceTests: XCTestCase {
         }
     }
 
-    private func card(for volume: URL, model: String? = nil) -> CameraCard {
+    private static func card(for volume: URL, model: String? = nil) -> CameraCard {
         CameraCard(
             name: "EOS",
             manufacturer: "Canon",
@@ -123,14 +124,14 @@ final class CameraDetectionRaceTests: XCTestCase {
 
         // The stale scan finishes first: the post-detection cancellation
         // check must drop it.
-        gate.resumeNext(returning: card(for: volA))
+        gate.resumeNext(returning: Self.card(for: volA))
         let staleSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(staleSettled)
         let stalePaths = await cardInfo(of: service)
         XCTAssertFalse(stalePaths.map(\.path).contains(volA.path))
 
         // The live scan publishes normally.
-        gate.resumeNext(returning: card(for: volB))
+        gate.resumeNext(returning: Self.card(for: volB))
         let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let paths = await cardInfo(of: service)
@@ -153,7 +154,7 @@ final class CameraDetectionRaceTests: XCTestCase {
         XCTAssertTrue(scanReachedDetector)
 
         await unmount(service, volume: volX)
-        gate.resumeAll(returning: card(for: volX))
+        gate.resumeAll(returning: Self.card(for: volX))
 
         // The scan provably moved past volX (it reached volY's detection),
         // and volX was never re-added.
@@ -196,7 +197,7 @@ final class CameraDetectionRaceTests: XCTestCase {
 
         // Even though the live detection now completes with a card, the
         // unmounted volume must stay absent.
-        gate.resumeNext(returning: card(for: vol))
+        gate.resumeNext(returning: Self.card(for: vol))
         let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let finalPaths = await cardInfo(of: service)
@@ -257,12 +258,12 @@ final class CameraDetectionRaceTests: XCTestCase {
         XCTAssertTrue(remountDetectionStarted)
 
         // The pre-remount scan iteration finishes first with a stale card.
-        gate.resumeNext(returning: card(for: vol, model: "M1"))
+        gate.resumeNext(returning: Self.card(for: vol, model: "M1"))
         let staleSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 1 }
         XCTAssertTrue(staleSettled)
 
         // The post-remount detection publishes the fresh card.
-        gate.resumeNext(returning: card(for: vol, model: "M2"))
+        gate.resumeNext(returning: Self.card(for: vol, model: "M2"))
         let liveSettled = await waitUntil(timeout: .seconds(5)) { gate.settledCount == 2 }
         XCTAssertTrue(liveSettled)
         let cards = await cardInfo(of: service)

@@ -22,9 +22,9 @@ struct ReportScannerCancellationTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let task = Task { await ReportScanner.scan(at: dir) }
+        let task = Task { await ReportScanner.scan(at: dir).count }
         task.cancel()
-        let transfers = await task.value
-        #expect(transfers.isEmpty)
+        let found = await task.value
+        #expect(found == 0)
     }
 }

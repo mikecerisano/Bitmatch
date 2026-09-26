@@ -826,13 +826,13 @@ struct PhotographerJobViewModelTests {
     }
 
     @Test func canonicalDestinationSelectionIsDeterministic() throws {
-        var analyzedDestinationPaths: [[String]] = []
+        let analyzedDestinationPaths = Locked<[[String]]>([])
         let store = InMemoryPhotographerJobStore()
         let viewModel = PhotographerJobViewModel(
             store: store,
             now: { now },
             confirmedAnalyzer: { rows in
-                analyzedDestinationPaths.append(rows.compactMap(\.destinationPath))
+                analyzedDestinationPaths.mutate { $0.append(rows.compactMap(\.destinationPath)) }
                 return "confirmed"
             },
             workflowDefaults: .isolatedWorkflowDefaults(remembering: .photography)
@@ -845,7 +845,7 @@ struct PhotographerJobViewModelTests {
 
         try viewModel.completeIngest(results: [secondary, primary])
 
-        #expect(analyzedDestinationPaths == [["/primary/\(renderedPackage)/A.ARW"]])
+        #expect(analyzedDestinationPaths.value == [["/primary/\(renderedPackage)/A.ARW"]])
     }
 
     @Test func resetClearsCardSpecificStateAndKeepsJobForNextCard() throws {
