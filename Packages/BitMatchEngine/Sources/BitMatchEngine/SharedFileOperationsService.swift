@@ -1,5 +1,4 @@
 // SharedFileOperationsService.swift - Platform-agnostic file operations
-// Uses shared AsyncSemaphore from AsyncSemaphore.swift
 import Foundation
 import Synchronization
 
@@ -126,25 +125,13 @@ public actor RunLedger {
     }
 }
 
-/// Serialized storage for pipelined verification tasks.
-public actor VerifyTaskStore {
-    public init() {}
-
-    private var tasks: [Task<Void, Never>] = []
-
-    public func enqueue(_ task: Task<Void, Never>, maxQueued: Int) -> Task<Void, Never>? {
-        tasks.append(task)
-        if tasks.count >= max(1, maxQueued) {
-            return tasks.removeFirst()
-        }
-        return nil
-    }
-
-    public func drain() -> [Task<Void, Never>] {
-        let pending = tasks
-        tasks.removeAll()
-        return pending
-    }
+/// One copied file waiting to be verified.
+private struct VerifyJob: Sendable {
+    let source: URL
+    let destination: URL
+    let relativePath: String
+    let fileSize: Int64
+    let pinnedRoot: PinnedDestinationDirectory
 }
 
 /// Safe multiplication that returns Int64.max on overflow (Bug 6 fix)
@@ -294,23 +281,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
         try await pauseGate.wait()
     }
 
-    private func finishVerificationTasks(
-        in store: VerifyTaskStore,
-        cancelling: Bool
-    ) async {
-        let tasks = await store.drain()
-        if cancelling {
-            tasks.forEach { $0.cancel() }
-        }
-        await withTaskCancellationHandler {
-            for task in tasks {
-                await task.value
-            }
-        } onCancel: {
-            tasks.forEach { $0.cancel() }
-        }
-    }
-    
     // MARK: - Private Implementation
     
     private func executeOperation(
@@ -341,8 +311,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             }
         }
 
-        let verifyTaskStore = VerifyTaskStore()
-        do {
         SharedLogger.debug("Validating access to source: \(operation.sourceURL.path)", category: .transfer)
         guard await fileSystem.validateFileAccess(url: operation.sourceURL) else {
             throw BitMatchError.fileAccessDenied(operation.sourceURL)
@@ -400,8 +368,6 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             && pipelinedVerification
         // Perf 6: adaptive concurrency based on CPU count
         let verifyConcurrency = max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
-        let verifySemaphore = AsyncSemaphore(count: shouldPipelineVerify ? verifyConcurrency : 0)
-        let maxQueuedVerifyTasks = 200
 
         // The one way progress is reported. Total bytes: the caller's
         // estimate, else the average copied file size times the plan.
@@ -440,265 +406,275 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
         // Perf 7: adaptive copy worker count
         let copyWorkers = min(4, max(1, ProcessInfo.processInfo.activeProcessorCount / 2))
 
-        // Collect each destination's resolved output root so per-destination
-        // Handoff records are handled by the executor after verification finishes.
-        var resolvedDestinations: [(raw: URL, root: URL)] = []
-
-        for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
-            // Pin the selected destination and every recipe component before
-            // copying. Subsequent directory creation and publish are relative
-            // to that descriptor, never a re-resolved pathname.
-            let pinnedDestination: PinnedDestinationDirectory
+        // One verify, recorded whatever happens except cancellation.
+        let verify: @Sendable (VerifyJob) async -> Void = { job in
             do {
-                _ = try SafetyValidator.resolvedDestinationRootChecked(
-                    source: operation.sourceURL,
-                    destination: destinationURL,
-                    settings: operation.settings
-                )
-                let rootComponents = SafetyValidator.destinationRootComponents(
-                    source: operation.sourceURL,
-                    settings: operation.settings
-                )
-                // No pathname-based write happens here: PinnedDestinationDirectory.open
-                // creates every recipe component descriptor-relative with O_NOFOLLOW.
                 try Task.checkCancellation()
-                try destinationSetupHook?(destinationURL)
-                pinnedDestination = try PinnedDestinationDirectory.open(
-                    destination: destinationURL,
-                    rootComponents: rootComponents
+                try await self.waitIfPaused()
+                let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
+                    source: job.source,
+                    pinnedRoot: job.pinnedRoot,
+                    relativePath: job.relativePath,
+                    verificationMode: operation.verificationMode,
+                    checksumService: self.checksumService
                 )
-            } catch let error as FileOperationError {
-                // A safety-policy rejection (e.g. a symlink substituted into
-                // the destination path) is a fail-closed signal, not a
-                // per-destination access problem -- surface it as before so
-                // the whole operation aborts rather than silently treating
-                // the attack as "this destination is unavailable".
-                throw error
+                let verified = FileOperationResult(
+                    sourceURL: job.source,
+                    destinationURL: job.destination,
+                    success: verificationResult.matches,
+                    error: nil,
+                    fileSize: job.fileSize,
+                    verificationResult: verificationResult,
+                    processingTime: 0
+                )
+                let event = await ledger.recordVerify(verified, now: Date())
+                if event.emit {
+                    progressCallback(makeProgress(
+                        .verifying, job.source.lastPathComponent, event.snapshot, Date(),
+                        Double(event.snapshot.filesVerified) / Double(max(1, totalFiles))
+                    ))
+                }
+                await onFileResult?(verified)
             } catch is CancellationError {
-                // Cancellation is never "this destination failed": it must not
-                // fabricate failure rows or move on to the next destination.
-                throw CancellationError()
+                // Skip result on cancellation
             } catch {
-                // A single inaccessible destination (e.g. permission denied,
-                // volume ejected) must not abort the whole multi-destination
-                // transfer. Report every planned file for this destination as
-                // failed and move on to the next one.
-                SharedLogger.error("Unable to open destination #\(destIndex + 1): \(error.localizedDescription)", category: .transfer)
-                let fallbackRoot = SafetyValidator.resolvedDestinationRoot(
-                    source: operation.sourceURL,
-                    destination: destinationURL,
-                    settings: operation.settings
+                let failure = FileOperationResult(
+                    sourceURL: job.source,
+                    destinationURL: job.destination,
+                    success: false,
+                    error: error,
+                    fileSize: 0,
+                    verificationResult: nil,
+                    processingTime: 0
                 )
-                for entry in sourceManifest {
-                    let result = FileOperationResult(
-                        sourceURL: entry.url,
-                        destinationURL: fallbackRoot.appendingPathComponent(entry.relativePath),
-                        success: false,
-                        error: error,
-                        fileSize: 0,
-                        verificationResult: nil,
-                        processingTime: 0
-                    )
-                    await ledger.recordCopyFailure(result, destination: destIndex)
-                    await onFileResult?(result)
-                }
-                continue
+                await ledger.recordVerifyFailure(failure)
+                await onFileResult?(failure)
             }
-            let destFolder = pinnedDestination.logicalRootURL
-            resolvedDestinations.append((raw: destinationURL, root: destFolder))
-
-            SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
-
-            // Copy to this destination using atomic writes and resume-aware skip
-            SharedLogger.info("→ Begin copy to dest #\(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
-            try await FileCopyService.copyAllSafely(
-                from: operation.sourceURL,
-                toPinnedRoot: pinnedDestination,
-                verificationMode: operation.verificationMode,
-                workers: copyWorkers,
-                checksumService: self.checksumService,
-                preEnumeratedFiles: sourceFileURLs,
-                pauseCheck: {
-                    try await pauseGate.wait()
-                },
-                onProgress: { fileName, fileSize in
-                    // fileName here is the relative path; emit per-file copy result, and enqueue verify if enabled
-                    let relativePath = fileName
-                    // Key result rows by the manifest's URL so copy and verify rows
-                    // for one file share an identity even when the enumerator
-                    // reports the source through a different path alias.
-                    let srcURL = manifestURLByRelativePath[relativePath]
-                        ?? operation.sourceURL.appendingPathComponent(relativePath)
-                    let dstURL = destFolder.appendingPathComponent(relativePath)
-                    let copyResult = FileOperationResult(
-                        sourceURL: srcURL,
-                        destinationURL: dstURL,
-                        success: true,
-                        error: nil,
-                        fileSize: max(0, fileSize),
-                        verificationResult: nil,
-                        processingTime: 0
-                    )
-                    let copied = await ledger.recordCopy(copyResult, destination: destIndex, now: Date())
-                    if copied.log {
-                        let formatted = ByteCountFormatter.string(fromByteCount: copied.snapshot.bytesCopied, countStyle: .file)
-                        SharedLogger.debug("Copy progress: files=\(copied.snapshot.filesCopied)/\(totalFiles) bytes=\(formatted)", category: .transfer)
-                    }
-                    await onFileResult?(copyResult)
-
-                    if shouldPipelineVerify {
-                        let mode = operation.verificationMode
-                        let task = Task { [verifySemaphore] in
-                            // Bug 7 fix: use withSemaphore to guarantee permit release on cancel/throw.
-                            // Only acquisition can throw here (CancellationError while
-                            // queued): every operation outcome is recorded inside,
-                            // so `try?` discards exactly the no-permit case.
-                            _ = try? await withSemaphore(verifySemaphore) {
-                                do {
-                                    try Task.checkCancellation()
-                                    try await self.waitIfPaused()
-                                    let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
-                                        source: srcURL,
-                                        pinnedRoot: pinnedDestination,
-                                        relativePath: relativePath,
-                                        verificationMode: mode,
-                                        checksumService: self.checksumService
-                                    )
-                                    let verified = FileOperationResult(
-                                        sourceURL: srcURL,
-                                        destinationURL: dstURL,
-                                        success: verificationResult.matches,
-                                        error: nil,
-                                        fileSize: max(0, fileSize),
-                                        verificationResult: verificationResult,
-                                        processingTime: 0
-                                    )
-                                    let event = await ledger.recordVerify(verified, now: Date())
-                                    if event.emit {
-                                        progressCallback(makeProgress(
-                                            .verifying, srcURL.lastPathComponent, event.snapshot, Date(),
-                                            Double(event.snapshot.filesVerified) / Double(max(1, totalFiles))
-                                        ))
-                                    }
-                                    await onFileResult?(verified)
-                                } catch is CancellationError {
-                                    // Skip result on cancellation
-                                } catch {
-                                    let failure = FileOperationResult(
-                                        sourceURL: srcURL,
-                                        destinationURL: dstURL,
-                                        success: false,
-                                        error: error,
-                                        fileSize: 0,
-                                        verificationResult: nil,
-                                        processingTime: 0
-                                    )
-                                    await ledger.recordVerifyFailure(failure)
-                                    await onFileResult?(failure)
-                                }
-                            }
-                        }
-                        if let next = await verifyTaskStore.enqueue(task, maxQueued: maxQueuedVerifyTasks) {
-                            await withTaskCancellationHandler {
-                                await next.value
-                            } onCancel: {
-                                next.cancel()
-                            }
-                        }
-                    }
-
-                    if copied.emit {
-                        progressCallback(makeProgress(.copying, fileName, copied.snapshot, Date(), nil))
-                    }
-                },
-                onError: { fileName, err in
-                    let nsErr = err as NSError
-                    SharedLogger.error("Copy error on dest #\(destIndex + 1): \(fileName) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
-                    let srcURL = operation.sourceURL.appendingPathComponent(fileName)
-                    let dstURL = destFolder.appendingPathComponent(fileName)
-                    let result = FileOperationResult(
-                        sourceURL: srcURL,
-                        destinationURL: dstURL,
-                        success: false,
-                        error: err,
-                        fileSize: (try? self.fileSystem.getFileSize(for: srcURL)) ?? 0,
-                        verificationResult: nil,
-                        processingTime: 0
-                    )
-                    await ledger.recordCopyFailure(result, destination: destIndex)
-                    await onFileResult?(result)
-                }
-            )
-
-            // Verification pass per file
-            SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
-            // If pipelining is enabled, we skip the sequential verification pass for this destination
-            if operation.verificationMode != .quick && shouldPipelineVerify == false {
-                // Perf 1: reuse the source manifest instead of re-enumerating filesystem
-                for entry in sourceManifest {
-                        try Task.checkCancellation()
-                        try await waitIfPaused()
-                        let fileURL = entry.url
-                        let relativePath = entry.relativePath
-                        let destinationFileURL = destFolder.appendingPathComponent(relativePath)
-                        let fileStartTime = Date()
-                        
-                        do {
-                            let sizeForVerify = max(0, entry.size)
-                            // Verification reads the destination through the pinned
-                            // directory descriptor; this URL is report metadata only.
-                            let event = await ledger.beginSequentialVerify(now: Date())
-                            if event.emit {
-                                progressCallback(makeProgress(
-                                    .verifying, fileURL.lastPathComponent, event.snapshot, Date(),
-                                    Double(event.snapshot.filesVerified) / Double(max(1, totalFiles))
-                                ))
-                            }
-                            let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
-                                source: fileURL,
-                                pinnedRoot: pinnedDestination,
-                                relativePath: relativePath,
-                                verificationMode: operation.verificationMode,
-                                checksumService: self.checksumService
-                            )
-                            
-                            let fileSize = sizeForVerify
-                            let result = FileOperationResult(
-                                sourceURL: fileURL,
-                                destinationURL: destinationFileURL,
-                                success: verificationResult.matches,
-                                error: nil,
-                                fileSize: fileSize,
-                                verificationResult: verificationResult,
-                                processingTime: Date().timeIntervalSince(fileStartTime)
-                            )
-                            await ledger.record(result)
-                            await onFileResult?(result)
-                        
-                        } catch {
-                            let nsErr = error as NSError
-                            SharedLogger.error("Verify error on dest #\(destIndex + 1): \(fileURL.lastPathComponent) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
-                            let result = FileOperationResult(
-                                sourceURL: fileURL,
-                                destinationURL: destinationFileURL,
-                                success: false,
-                                error: error,
-                                fileSize: 0,
-                                verificationResult: nil,
-                                processingTime: Date().timeIntervalSince(fileStartTime)
-                            )
-                            await ledger.record(result)
-                            await onFileResult?(result)
-                        }
-                        // Copies were counted in the copy callbacks.
-                } // end file iteration
-            } // end non-pipelined verify
-
-            SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
         }
-        
-        // Wait for any in-flight pipelined verifications to complete.
-        await finishVerificationTasks(in: verifyTaskStore, cancelling: false)
+
+        // Copies hand verify jobs to one consumer for the whole run, which
+        // keeps at most `verifyConcurrency` verifies in flight, so a backup
+        // verifies while the next one copies. The stream never drops a job.
+        // Every verify is a child of this group: however the run ends, it
+        // cannot return while one is still running (I3).
+        let (verifyJobs, submitVerify) = AsyncStream<VerifyJob>.makeStream()
+        try await withThrowingTaskGroup(of: Void.self) { run in
+            if shouldPipelineVerify {
+                run.addTask {
+                    await withTaskGroup(of: Void.self) { verifiers in
+                        var inFlight = 0
+                        for await job in verifyJobs {
+                            if inFlight >= verifyConcurrency {
+                                await verifiers.next()
+                                inFlight -= 1
+                            }
+                            verifiers.addTask { await verify(job) }
+                            inFlight += 1
+                        }
+                    }
+                }
+            }
+
+            for (destIndex, destinationURL) in operation.destinationURLs.enumerated() {
+                // Pin the selected destination and every recipe component before
+                // copying. Subsequent directory creation and publish are relative
+                // to that descriptor, never a re-resolved pathname.
+                let pinnedDestination: PinnedDestinationDirectory
+                do {
+                    _ = try SafetyValidator.resolvedDestinationRootChecked(
+                        source: operation.sourceURL,
+                        destination: destinationURL,
+                        settings: operation.settings
+                    )
+                    let rootComponents = SafetyValidator.destinationRootComponents(
+                        source: operation.sourceURL,
+                        settings: operation.settings
+                    )
+                    // No pathname-based write happens here: PinnedDestinationDirectory.open
+                    // creates every recipe component descriptor-relative with O_NOFOLLOW.
+                    try Task.checkCancellation()
+                    try destinationSetupHook?(destinationURL)
+                    pinnedDestination = try PinnedDestinationDirectory.open(
+                        destination: destinationURL,
+                        rootComponents: rootComponents
+                    )
+                } catch let error as FileOperationError {
+                    // A safety-policy rejection (e.g. a symlink substituted into
+                    // the destination path) is a fail-closed signal, not a
+                    // per-destination access problem -- surface it as before so
+                    // the whole operation aborts rather than silently treating
+                    // the attack as "this destination is unavailable".
+                    throw error
+                } catch is CancellationError {
+                    // Cancellation is never "this destination failed": it must not
+                    // fabricate failure rows or move on to the next destination.
+                    throw CancellationError()
+                } catch {
+                    // A single inaccessible destination (e.g. permission denied,
+                    // volume ejected) must not abort the whole multi-destination
+                    // transfer. Report every planned file for this destination as
+                    // failed and move on to the next one.
+                    SharedLogger.error("Unable to open destination #\(destIndex + 1): \(error.localizedDescription)", category: .transfer)
+                    let fallbackRoot = SafetyValidator.resolvedDestinationRoot(
+                        source: operation.sourceURL,
+                        destination: destinationURL,
+                        settings: operation.settings
+                    )
+                    for entry in sourceManifest {
+                        let result = FileOperationResult(
+                            sourceURL: entry.url,
+                            destinationURL: fallbackRoot.appendingPathComponent(entry.relativePath),
+                            success: false,
+                            error: error,
+                            fileSize: 0,
+                            verificationResult: nil,
+                            processingTime: 0
+                        )
+                        await ledger.recordCopyFailure(result, destination: destIndex)
+                        await onFileResult?(result)
+                    }
+                    continue
+                }
+                let destFolder = pinnedDestination.logicalRootURL
+
+                SharedLogger.info("➡️ Starting destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
+
+                // Copy to this destination using atomic writes and resume-aware skip
+                SharedLogger.info("→ Begin copy to dest #\(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
+                try await FileCopyService.copyAllSafely(
+                    from: operation.sourceURL,
+                    toPinnedRoot: pinnedDestination,
+                    verificationMode: operation.verificationMode,
+                    workers: copyWorkers,
+                    checksumService: self.checksumService,
+                    preEnumeratedFiles: sourceFileURLs,
+                    pauseCheck: {
+                        try await pauseGate.wait()
+                    },
+                    onProgress: { fileName, fileSize in
+                        // fileName here is the relative path; emit per-file copy result, and enqueue verify if enabled
+                        let relativePath = fileName
+                        // Key result rows by the manifest's URL so copy and verify rows
+                        // for one file share an identity even when the enumerator
+                        // reports the source through a different path alias.
+                        let srcURL = manifestURLByRelativePath[relativePath]
+                            ?? operation.sourceURL.appendingPathComponent(relativePath)
+                        let dstURL = destFolder.appendingPathComponent(relativePath)
+                        let copyResult = FileOperationResult(
+                            sourceURL: srcURL,
+                            destinationURL: dstURL,
+                            success: true,
+                            error: nil,
+                            fileSize: max(0, fileSize),
+                            verificationResult: nil,
+                            processingTime: 0
+                        )
+                        let copied = await ledger.recordCopy(copyResult, destination: destIndex, now: Date())
+                        if copied.log {
+                            let formatted = ByteCountFormatter.string(fromByteCount: copied.snapshot.bytesCopied, countStyle: .file)
+                            SharedLogger.debug("Copy progress: files=\(copied.snapshot.filesCopied)/\(totalFiles) bytes=\(formatted)", category: .transfer)
+                        }
+                        await onFileResult?(copyResult)
+
+                        if shouldPipelineVerify {
+                            submitVerify.yield(VerifyJob(
+                                source: srcURL, destination: dstURL, relativePath: relativePath,
+                                fileSize: max(0, fileSize), pinnedRoot: pinnedDestination
+                            ))
+                        }
+
+                        if copied.emit {
+                            progressCallback(makeProgress(.copying, fileName, copied.snapshot, Date(), nil))
+                        }
+                    },
+                    onError: { fileName, err in
+                        let nsErr = err as NSError
+                        SharedLogger.error("Copy error on dest #\(destIndex + 1): \(fileName) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
+                        let srcURL = operation.sourceURL.appendingPathComponent(fileName)
+                        let dstURL = destFolder.appendingPathComponent(fileName)
+                        let result = FileOperationResult(
+                            sourceURL: srcURL,
+                            destinationURL: dstURL,
+                            success: false,
+                            error: err,
+                            fileSize: (try? self.fileSystem.getFileSize(for: srcURL)) ?? 0,
+                            verificationResult: nil,
+                            processingTime: 0
+                        )
+                        await ledger.recordCopyFailure(result, destination: destIndex)
+                        await onFileResult?(result)
+                    }
+                )
+
+                // Verification pass per file
+                SharedLogger.info("🔎 Starting verify on destination \(destIndex + 1)/\(destinationCount): \(destFolder.lastPathComponent)", category: .transfer)
+                // If pipelining is enabled, we skip the sequential verification pass for this destination
+                if operation.verificationMode != .quick && shouldPipelineVerify == false {
+                    // Perf 1: reuse the source manifest instead of re-enumerating filesystem
+                    for entry in sourceManifest {
+                            try Task.checkCancellation()
+                            try await waitIfPaused()
+                            let fileURL = entry.url
+                            let relativePath = entry.relativePath
+                            let destinationFileURL = destFolder.appendingPathComponent(relativePath)
+                            let fileStartTime = Date()
+                        
+                            do {
+                                let sizeForVerify = max(0, entry.size)
+                                // Verification reads the destination through the pinned
+                                // directory descriptor; this URL is report metadata only.
+                                let event = await ledger.beginSequentialVerify(now: Date())
+                                if event.emit {
+                                    progressCallback(makeProgress(
+                                        .verifying, fileURL.lastPathComponent, event.snapshot, Date(),
+                                        Double(event.snapshot.filesVerified) / Double(max(1, totalFiles))
+                                    ))
+                                }
+                                let verificationResult = try await FileCopyService.verifyPinnedDestinationFile(
+                                    source: fileURL,
+                                    pinnedRoot: pinnedDestination,
+                                    relativePath: relativePath,
+                                    verificationMode: operation.verificationMode,
+                                    checksumService: self.checksumService
+                                )
+                            
+                                let fileSize = sizeForVerify
+                                let result = FileOperationResult(
+                                    sourceURL: fileURL,
+                                    destinationURL: destinationFileURL,
+                                    success: verificationResult.matches,
+                                    error: nil,
+                                    fileSize: fileSize,
+                                    verificationResult: verificationResult,
+                                    processingTime: Date().timeIntervalSince(fileStartTime)
+                                )
+                                await ledger.record(result)
+                                await onFileResult?(result)
+                        
+                            } catch {
+                                let nsErr = error as NSError
+                                SharedLogger.error("Verify error on dest #\(destIndex + 1): \(fileURL.lastPathComponent) – \(nsErr.domain)(\(nsErr.code)): \(nsErr.localizedDescription)", category: .transfer)
+                                let result = FileOperationResult(
+                                    sourceURL: fileURL,
+                                    destinationURL: destinationFileURL,
+                                    success: false,
+                                    error: error,
+                                    fileSize: 0,
+                                    verificationResult: nil,
+                                    processingTime: Date().timeIntervalSince(fileStartTime)
+                                )
+                                await ledger.record(result)
+                                await onFileResult?(result)
+                            }
+                            // Copies were counted in the copy callbacks.
+                    } // end file iteration
+                } // end non-pipelined verify
+
+                SharedLogger.info("✅ Completed destination \(destIndex + 1)/\(destinationCount): \(destFolder.path)", category: .transfer)
+            }
+            submitVerify.finish()
+            try await run.waitForAll()
+        }
         try Task.checkCancellation()
 
         // The executor writes optional ASC MHL handoff records after authoritative verification.
@@ -731,9 +707,5 @@ public final class SharedFileOperationsService: FileOperationsService, Sendable 
             settings: operation.settings,
             estimatedTotalBytes: operation.estimatedTotalBytes
         )
-        } catch {
-            await finishVerificationTasks(in: verifyTaskStore, cancelling: true)
-            throw error
-        }
     }
 }
