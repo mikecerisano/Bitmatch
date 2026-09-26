@@ -140,4 +140,10 @@ public struct TransferReadiness: Equatable, Sendable {
         }
         return FileManager.default.isWritableFile(atPath: url.path)
     }
+
+    public init(status: Status, blockers: [String], warnings: [String]) {
+        self.status = status
+        self.blockers = blockers
+        self.warnings = warnings
+    }
 }

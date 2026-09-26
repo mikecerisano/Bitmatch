@@ -8,6 +8,11 @@ public struct FolderComparer: Sendable {
     public let fileAccess: any FileAccess
     public let checksum: any ChecksumService
 
+    public init(fileAccess: any FileAccess, checksum: any ChecksumService) {
+        self.fileAccess = fileAccess
+        self.checksum = checksum
+    }
+
     /// Reports progress through `progress`, which is awaited so updates
     /// arrive in order and before the result.
     public func compare(

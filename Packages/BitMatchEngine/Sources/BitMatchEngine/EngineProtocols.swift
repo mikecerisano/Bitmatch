@@ -63,6 +63,17 @@ public struct FileOperation {
         guard let endTime = endTime else { return nil }
         return endTime.timeIntervalSince(startTime)
     }
+
+    public init(sourceURL: URL, destinationURLs: [URL], startTime: Date, endTime: Date?, results: [FileOperationResult], verificationMode: VerificationMode, settings: CameraLabelSettings, estimatedTotalBytes: Int64?) {
+        self.sourceURL = sourceURL
+        self.destinationURLs = destinationURLs
+        self.startTime = startTime
+        self.endTime = endTime
+        self.results = results
+        self.verificationMode = verificationMode
+        self.settings = settings
+        self.estimatedTotalBytes = estimatedTotalBytes
+    }
 }
 
 public struct FileOperationResult {
@@ -82,4 +93,14 @@ public struct FileOperationResult {
     }
 
     public var statusDescription: String { outcome.statusText }
+
+    public init(sourceURL: URL, destinationURL: URL, success: Bool, error: Error?, fileSize: Int64, verificationResult: VerificationResult?, processingTime: TimeInterval) {
+        self.sourceURL = sourceURL
+        self.destinationURL = destinationURL
+        self.success = success
+        self.error = error
+        self.fileSize = fileSize
+        self.verificationResult = verificationResult
+        self.processingTime = processingTime
+    }
 }

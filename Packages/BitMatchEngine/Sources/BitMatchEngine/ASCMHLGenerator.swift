@@ -11,6 +11,12 @@ public enum ASCMHLGenerator {
         public let relativePath: String
         public let size: Int64
         public let expectedSHA256: String
+
+        public init(relativePath: String, size: Int64, expectedSHA256: String) {
+            self.relativePath = relativePath
+            self.size = size
+            self.expectedSHA256 = expectedSHA256
+        }
     }
 
     public enum GenerationError: LocalizedError {

@@ -98,6 +98,17 @@ public enum BackupTargetPolicy {
 
         /// A NAS or SMB share, as the system reports it.
         public var isNetwork: Bool { isLocal == false }
+
+        public init(volumeRootPath: String, volumeID: String?, volumeName: String?, isRootFileSystem: Bool, isInternal: Bool?, isRemovable: Bool, isEjectable: Bool, isLocal: Bool? = nil) {
+            self.volumeRootPath = volumeRootPath
+            self.volumeID = volumeID
+            self.volumeName = volumeName
+            self.isRootFileSystem = isRootFileSystem
+            self.isInternal = isInternal
+            self.isRemovable = isRemovable
+            self.isEjectable = isEjectable
+            self.isLocal = isLocal
+        }
     }
 
     /// Why `target` may not be added as a backup by `origin`, or nil when

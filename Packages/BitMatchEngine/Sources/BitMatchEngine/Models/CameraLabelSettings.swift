@@ -113,4 +113,14 @@ public struct CameraLabelSettings: Codable {
             }
         }
     }
+
+    public init(label: String = "", position: LabelPosition = .prefix, separator: Separator = .underscore, autoNumber: Bool = true, groupByCamera: Bool = false, generateUniqueName: Bool = true, destinationPathComponents: [String]? = nil) {
+        self.label = label
+        self.position = position
+        self.separator = separator
+        self.autoNumber = autoNumber
+        self.groupByCamera = groupByCamera
+        self.generateUniqueName = generateUniqueName
+        self.destinationPathComponents = destinationPathComponents
+    }
 }

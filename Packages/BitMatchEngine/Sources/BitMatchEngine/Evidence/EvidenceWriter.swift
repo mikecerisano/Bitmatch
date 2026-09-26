@@ -46,6 +46,15 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         public let fileCount: Int
         public let cameraDetected: String?
         public let driveType: String  // "NVMe", "SSD", "HDD", "Network"
+
+        public init(path: String, name: String, totalSize: Int64, fileCount: Int, cameraDetected: String?, driveType: String) {
+            self.path = path
+            self.name = name
+            self.totalSize = totalSize
+            self.fileCount = fileCount
+            self.cameraDetected = cameraDetected
+            self.driveType = driveType
+        }
     }
     
     public struct DestinationInfo: Codable {
@@ -56,6 +65,15 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         /// Not measured per backup; nil rather than a guess (Promise 3).
         public let copyDuration: TimeInterval?
         public let verifyDuration: TimeInterval?
+
+        public init(path: String, name: String, availableSpace: Int64, driveType: String, copyDuration: TimeInterval?, verifyDuration: TimeInterval?) {
+            self.path = path
+            self.name = name
+            self.availableSpace = availableSpace
+            self.driveType = driveType
+            self.copyDuration = copyDuration
+            self.verifyDuration = verifyDuration
+        }
     }
     
     public struct Statistics: Codable {
@@ -67,11 +85,27 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         public let averageFileSize: Int64
         public let largestFile: FileInfo?
         public let smallestFile: FileInfo?
+
+        public init(totalFiles: Int, totalBytes: Int64, matches: Int, issues: Int, successRate: Double, averageFileSize: Int64, largestFile: FileInfo?, smallestFile: FileInfo?) {
+            self.totalFiles = totalFiles
+            self.totalBytes = totalBytes
+            self.matches = matches
+            self.issues = issues
+            self.successRate = successRate
+            self.averageFileSize = averageFileSize
+            self.largestFile = largestFile
+            self.smallestFile = smallestFile
+        }
     }
     
     public struct FileInfo: Codable {
         public let path: String
         public let size: Int64
+
+        public init(path: String, size: Int64) {
+            self.path = path
+            self.size = size
+        }
     }
     
     public struct Performance: Codable {
@@ -86,6 +120,18 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         public let filesPerSecond: Double
         public let workers: Int
         public let bottleneck: String?  // "Source Read", "Destination Write", "CPU", "Network"
+
+        public init(totalDuration: TimeInterval, copyDuration: TimeInterval?, verifyDuration: TimeInterval?, throughputMBps: Double, peakSpeedMBps: Double?, averageSpeedMBps: Double, filesPerSecond: Double, workers: Int, bottleneck: String?) {
+            self.totalDuration = totalDuration
+            self.copyDuration = copyDuration
+            self.verifyDuration = verifyDuration
+            self.throughputMBps = throughputMBps
+            self.peakSpeedMBps = peakSpeedMBps
+            self.averageSpeedMBps = averageSpeedMBps
+            self.filesPerSecond = filesPerSecond
+            self.workers = workers
+            self.bottleneck = bottleneck
+        }
     }
     
     public struct Verification: Codable {
@@ -93,12 +139,41 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         public let algorithm: String?
         public let issuesByType: [String: Int]
         public let checksumCache: CacheStats?
+
+        public init(method: String, algorithm: String?, issuesByType: [String: Int], checksumCache: CacheStats?) {
+            self.method = method
+            self.algorithm = algorithm
+            self.issuesByType = issuesByType
+            self.checksumCache = checksumCache
+        }
     }
     
     public struct CacheStats: Codable {
         public let hits: Int
         public let misses: Int
         public let hitRate: Double
+
+        public init(hits: Int, misses: Int, hitRate: Double) {
+            self.hits = hits
+            self.misses = misses
+            self.hitRate = hitRate
+        }
+    }
+
+    public init(reportVersion: String, timestamp: Date, jobId: UUID, mode: String, source: SourceInfo, destinations: [DestinationInfo], statistics: Statistics, extensions: [String: Int], performance: Performance, verification: Verification, results: [JSONReportItem], photographyJob: Project?, notes: String? = nil) {
+        self.reportVersion = reportVersion
+        self.timestamp = timestamp
+        self.jobId = jobId
+        self.mode = mode
+        self.source = source
+        self.destinations = destinations
+        self.statistics = statistics
+        self.extensions = extensions
+        self.performance = performance
+        self.verification = verification
+        self.results = results
+        self.photographyJob = photographyJob
+        self.notes = notes
     }
 }
 
@@ -147,6 +222,15 @@ public struct ProjectCSVEvidence: Sendable {
     public let card: String
     public let packagePath: String
     public let summaryRows: [[String]]
+
+    public init(job: String, photographer: String, camera: String, card: String, packagePath: String, summaryRows: [[String]]) {
+        self.job = job
+        self.photographer = photographer
+        self.camera = camera
+        self.card = card
+        self.packagePath = packagePath
+        self.summaryRows = summaryRows
+    }
 }
 
 // MARK: - Evidence Writer

@@ -119,6 +119,22 @@ public struct ReportPrefs: Codable {
     public var autoPopulateSource: Bool = false
     public var showCameraDetectionNotifications: Bool = true
     public var checksumAlgorithm: ChecksumAlgorithm = .sha256
+
+    public init(verificationMode: VerificationMode? = nil, includeThumbnails: Bool = false, clientName: String = "", projectName: String = "", production: String = "", company: String = "", notes: String = "", makeReport: Bool = true, verifyWithChecksum: Bool = true, enableAutoCameraDetection: Bool = true, autoPopulateSource: Bool = false, showCameraDetectionNotifications: Bool = true, checksumAlgorithm: ChecksumAlgorithm = .sha256) {
+        self.verificationMode = verificationMode
+        self.includeThumbnails = includeThumbnails
+        self.clientName = clientName
+        self.projectName = projectName
+        self.production = production
+        self.company = company
+        self.notes = notes
+        self.makeReport = makeReport
+        self.verifyWithChecksum = verifyWithChecksum
+        self.enableAutoCameraDetection = enableAutoCameraDetection
+        self.autoPopulateSource = autoPopulateSource
+        self.showCameraDetectionNotifications = showCameraDetectionNotifications
+        self.checksumAlgorithm = checksumAlgorithm
+    }
 }
 
 extension ResultRow: Codable {

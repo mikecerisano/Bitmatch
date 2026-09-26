@@ -23,17 +23,33 @@ public enum EvidenceReader {
         public let displayName: String
         public let reason: Reason
         public var id: URL { url }
+
+        public init(url: URL, displayName: String, reason: Reason) {
+            self.url = url
+            self.displayName = displayName
+            self.reason = reason
+        }
     }
 
     /// A report that was found and decoded.
     public struct FoundReport: Sendable {
         public let url: URL
         public let snapshot: Snapshot
+
+        public init(url: URL, snapshot: Snapshot) {
+            self.url = url
+            self.snapshot = snapshot
+        }
     }
 
     public struct ScanResult: Sendable {
         public let reports: [FoundReport]
         public let skipped: [SkippedReport]
+
+        public init(reports: [FoundReport], skipped: [SkippedReport]) {
+            self.reports = reports
+            self.skipped = skipped
+        }
     }
 
     /// Scans `root` recursively for reports last written on the same calendar
@@ -172,16 +188,57 @@ public enum EvidenceReader {
             public let totalSize: Int64
             public let fileCount: Int
             public let cameraDetected: String?
+
+            public init(path: String, name: String?, totalSize: Int64, fileCount: Int, cameraDetected: String?) {
+                self.path = path
+                self.name = name
+                self.totalSize = totalSize
+                self.fileCount = fileCount
+                self.cameraDetected = cameraDetected
+            }
         }
-        public struct Destination: Decodable { let path: String }
+
+        public struct Destination: Decodable {
+            public let path: String
+
+            public init(path: String) {
+                self.path = path
+            }
+        }
         public struct Statistics: Decodable {
             public let matches: Int
             public let issues: Int
+
+            public init(matches: Int, issues: Int) {
+                self.matches = matches
+                self.issues = issues
+            }
         }
-        public struct Performance: Decodable { let totalDuration: TimeInterval }
+
+        public struct Performance: Decodable {
+            public let totalDuration: TimeInterval
+
+            public init(totalDuration: TimeInterval) {
+                self.totalDuration = totalDuration
+            }
+        }
         public struct Verification: Decodable {
             public let method: String
             public let algorithm: String?
+
+            public init(method: String, algorithm: String?) {
+                self.method = method
+                self.algorithm = algorithm
+            }
+        }
+
+        public init(timestamp: Date, source: Source, destinations: [Destination], statistics: Statistics, performance: Performance, verification: Verification?) {
+            self.timestamp = timestamp
+            self.source = source
+            self.destinations = destinations
+            self.statistics = statistics
+            self.performance = performance
+            self.verification = verification
         }
     }
 

@@ -14,6 +14,8 @@ private struct FileResultKey: Hashable {
 
 // Thread-safe accumulator for results coalescing (copy -> verified)
 public actor ResultStore {
+    public init() {}
+
     private var list: [FileOperationResult] = []
     private var indexByKey: [FileResultKey: Int] = [:]
 
@@ -30,6 +32,8 @@ public actor ResultStore {
 }
 
 public actor VerifyCounter {
+    public init() {}
+
     private var value: Int = 0
 
     public func reset() {
@@ -68,6 +72,8 @@ public actor DestinationProgress {
 
 /// Serialized progress state to avoid data races across concurrent copy/verify tasks.
 public actor ProgressState {
+    public init() {}
+
     private var processedFiles = 0
     private var totalBytesProcessed: Int64 = 0
     private var lastProgressCallbackTime = Date.distantPast
@@ -78,6 +84,13 @@ public actor ProgressState {
         public let totalBytesProcessed: Int64
         public let shouldEmitProgress: Bool
         public let shouldLog: Bool
+
+        public init(processedFiles: Int, totalBytesProcessed: Int64, shouldEmitProgress: Bool, shouldLog: Bool) {
+            self.processedFiles = processedFiles
+            self.totalBytesProcessed = totalBytesProcessed
+            self.shouldEmitProgress = shouldEmitProgress
+            self.shouldLog = shouldLog
+        }
     }
 
     public func recordCopy(fileSize: Int64, totalFiles: Int, now: Date, throttleInterval: TimeInterval) -> CopyUpdate {
@@ -123,6 +136,8 @@ public actor ProgressState {
 
 /// Serialized storage for pipelined verification tasks.
 public actor VerifyTaskStore {
+    public init() {}
+
     private var tasks: [Task<Void, Never>] = []
 
     public func enqueue(_ task: Task<Void, Never>, maxQueued: Int) -> Task<Void, Never>? {
@@ -149,6 +164,8 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
 /// Owns the single operation admitted by a service instance.
 /// Cancellation never releases the slot; only the matching operation's exit does.
 public final class ActiveOperationRegistry: @unchecked Sendable {
+    public init() {}
+
     private struct Entry {
         var task: Task<FileOperation, Error>?
         var cancellationRequested = false

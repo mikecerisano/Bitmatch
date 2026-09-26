@@ -11,6 +11,8 @@ import Synchronization
 /// checksum and destination reads deep in the engine pause with that run and
 /// no other. Work outside a run (Compare, off-site checks) sees no gate.
 public final class PauseGate: Sendable {
+    public init() {}
+
     @TaskLocal public static var current: PauseGate?
 
     /// Waits on the current run's gate, if there is one.

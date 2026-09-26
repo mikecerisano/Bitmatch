@@ -44,6 +44,11 @@ public enum TransferCompletion {
     public struct ASCMHLJob: Sendable {
         public let root: URL
         public let files: [ASCMHLGenerator.VerifiedFile]
+
+        public init(root: URL, files: [ASCMHLGenerator.VerifiedFile]) {
+            self.root = root
+            self.files = files
+        }
     }
 
     /// A history is written only for a backup whose every file verified
@@ -120,12 +125,22 @@ public enum TransferCompletion {
         /// `nil` when no project finalizer ran (an ordinary copy).
         public let locallySafe: Bool?
 
+        public init(didPersist: Bool, locallySafe: Bool?) {
+            self.didPersist = didPersist
+            self.locallySafe = locallySafe
+        }
+
         public var permitsSuccess: Bool { didPersist && (locallySafe ?? true) }
     }
 
     public struct Verdict: Equatable, Sendable {
         public let success: Bool
         public let message: String
+
+        public init(success: Bool, message: String) {
+            self.success = success
+            self.message = message
+        }
     }
 
     /// Success needs every file on every backup to succeed, a checksum mode

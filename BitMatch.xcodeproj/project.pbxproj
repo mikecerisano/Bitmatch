@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E7B1E0012F10000000000004 /* BitMatchEngine in Frameworks */ = {isa = PBXBuildFile; productRef = E7B1E0012F10000000000002 /* BitMatchEngine */; };
+		E7B1E0012F10000000000005 /* BitMatchEngine in Frameworks */ = {isa = PBXBuildFile; productRef = E7B1E0012F10000000000003 /* BitMatchEngine */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		271378012E52C7CA0048DEC7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -117,6 +122,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7B1E0012F10000000000004 /* BitMatchEngine in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +144,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7B1E0012F10000000000005 /* BitMatchEngine in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,6 +214,7 @@
 			);
 			name = BitMatch;
 			packageProductDependencies = (
+				E7B1E0012F10000000000002 /* BitMatchEngine */,
 			);
 			productName = BitMatch;
 			productReference = 271377ED2E52C7C80048DEC7 /* BitMatch.app */;
@@ -277,6 +285,7 @@
 			);
 			name = "BitMatch-iPad";
 			packageProductDependencies = (
+				E7B1E0012F10000000000003 /* BitMatchEngine */,
 			);
 			productName = "BitMatch-iPad";
 			productReference = 27E11E5A2E61599E00BA16F6 /* BitMatch-iPad.app */;
@@ -371,6 +380,9 @@
 			);
 			mainGroup = 271377E42E52C7C80048DEC7;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E7B1E0012F10000000000001 /* XCLocalSwiftPackageReference "Packages/BitMatchEngine" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 271377EE2E52C7C80048DEC7 /* Products */;
 			projectDirPath = "";
@@ -965,6 +977,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		E7B1E0012F10000000000001 /* XCLocalSwiftPackageReference "Packages/BitMatchEngine" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/BitMatchEngine;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E7B1E0012F10000000000002 /* BitMatchEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BitMatchEngine;
+		};
+		E7B1E0012F10000000000003 /* BitMatchEngine */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BitMatchEngine;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 271377E52E52C7C80048DEC7 /* Project object */;
 }

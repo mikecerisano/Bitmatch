@@ -74,6 +74,15 @@ public struct VerificationResult: Codable {
             return "❌ Files differ - \(checksumType.rawValue) mismatch"
         }
     }
+
+    public init(sourceChecksum: String, destinationChecksum: String, matches: Bool, checksumType: ChecksumAlgorithm, processingTime: TimeInterval, fileSize: Int64) {
+        self.sourceChecksum = sourceChecksum
+        self.destinationChecksum = destinationChecksum
+        self.matches = matches
+        self.checksumType = checksumType
+        self.processingTime = processingTime
+        self.fileSize = fileSize
+    }
 }
 
 // MARK: - Verification Mode

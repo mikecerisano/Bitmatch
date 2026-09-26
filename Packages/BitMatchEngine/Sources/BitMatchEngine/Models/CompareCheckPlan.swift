@@ -37,4 +37,9 @@ public struct CompareCheckPlan: Equatable, Sendable {
         }
         return names.joined(separator: " and ") + " checksums"
     }
+
+    public init(byteByByte: Bool, checksums: [ChecksumAlgorithm]) {
+        self.byteByByte = byteByByte
+        self.checksums = checksums
+    }
 }
