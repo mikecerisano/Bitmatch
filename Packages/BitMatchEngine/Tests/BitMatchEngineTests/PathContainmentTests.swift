@@ -3,7 +3,7 @@
 // never created, so every case is about the rule's text handling.
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct PathContainmentTests {
     private let base = "var/folders/bitmatch_contain_\(UUID().uuidString)"

@@ -72,39 +72,35 @@ final class MacOSFileSystemService: FileSystemService, Sendable {
         }
     }
     
+    // Everything but the pickers is plain local-disk access.
+    private let local = LocalFileAccess()
+
     func validateFileAccess(url: URL) async -> Bool {
-        return FileManager.default.fileExists(atPath: url.path)
+        await local.validateFileAccess(url: url)
     }
 
     func startAccessing(url: URL) -> Bool {
-        return true
+        local.startAccessing(url: url)
     }
 
-    func stopAccessing(url: URL) {}
-    
-    func getFileList(from folderURL: URL) async throws -> [URL] {
-        try FileTreeEnumerator.enumerateRegularFiles(base: folderURL).map(\.url)
+    func stopAccessing(url: URL) {
+        local.stopAccessing(url: url)
     }
-    
-    // NOTE: copyFile removed - all copying uses FileCopyService.copyAllSafely() for atomic writes
+
+    func getFileList(from folderURL: URL) async throws -> [URL] {
+        try await local.getFileList(from: folderURL)
+    }
 
     nonisolated func getFileSize(for url: URL) throws -> Int64 {
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        return attributes[.size] as? Int64 ?? 0
+        try local.getFileSize(for: url)
     }
-    
+
     nonisolated func createDirectory(at url: URL) throws {
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try local.createDirectory(at: url)
     }
-    
+
     nonisolated func freeSpace(at url: URL) -> Int64 {
-        do {
-            let values = try url.resourceValues(forKeys: [.volumeAvailableCapacityKey])
-            return Int64(values.volumeAvailableCapacity ?? 0)
-        } catch {
-            SharedLogger.error("Error checking free space: \(error)", category: .transfer)
-            return 0
-        }
+        local.freeSpace(at: url)
     }
 }
 

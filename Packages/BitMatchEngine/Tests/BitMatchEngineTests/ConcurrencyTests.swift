@@ -1,5 +1,5 @@
 import XCTest
-@testable import BitMatch
+@testable import BitMatchEngine
 
 final class ConcurrencyTests: XCTestCase {
 

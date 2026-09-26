@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import XCTest
-@testable import BitMatch
+@testable import BitMatchEngine
 
 final class ASCMHLGeneratorTests: XCTestCase {
     func testC4MatchesOfficialReferenceEmptyDataVector() {

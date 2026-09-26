@@ -1,7 +1,7 @@
 // SharedFileOperationsQuickModeTests.swift
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct SharedFileOperationsQuickModeTests {
 
@@ -21,7 +21,7 @@ struct SharedFileOperationsQuickModeTests {
             try Data("q2".utf8).write(to: source.appendingPathComponent("q2.txt"))
 
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 
@@ -78,7 +78,7 @@ struct SharedFileOperationsQuickModeTests {
             try fm.setAttributes([.modificationDate: sharedDate], ofItemAtPath: existingDestination.path)
 
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 

@@ -1,7 +1,7 @@
 // SharedFileOperationsParanoidTests.swift
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct SharedFileOperationsParanoidTests {
 
@@ -21,7 +21,7 @@ struct SharedFileOperationsParanoidTests {
             try Data("beta".utf8).write(to: source.appendingPathComponent("beta.txt"))
 
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 

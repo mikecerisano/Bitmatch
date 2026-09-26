@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 /// Reuse of an existing destination file must use the same checks as copy
 /// verification: Paranoid is byte-by-byte plus SHA-256 (docs/THESIS.md,

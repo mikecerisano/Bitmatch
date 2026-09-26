@@ -5,7 +5,7 @@
 // checks the same verdict through a real run on each platform.
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct TransferCompletionVerdictTests {
     private let verified = ResultRow(path: "/c/A.MXF", status: ResultOutcome.verified.statusText,

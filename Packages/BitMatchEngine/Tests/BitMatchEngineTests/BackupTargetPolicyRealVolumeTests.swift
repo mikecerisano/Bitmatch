@@ -7,7 +7,7 @@
 // like system folders.)
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 #if os(macOS)
 struct BackupTargetPolicyRealVolumeTests {

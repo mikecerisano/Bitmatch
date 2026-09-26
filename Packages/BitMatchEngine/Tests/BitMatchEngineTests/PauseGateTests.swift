@@ -1,7 +1,7 @@
 // PauseGateTests.swift
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 @Suite(.timeLimit(.minutes(1)))
 struct PauseGateTests {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import BitMatch
+@testable import BitMatchEngine
 
 /// Regression tests for checksum behavior when a file shrinks mid-read
 /// (failing card, yanked drive, concurrent writer).

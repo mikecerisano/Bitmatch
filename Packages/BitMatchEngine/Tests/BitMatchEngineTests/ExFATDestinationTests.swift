@@ -7,7 +7,7 @@
 import Darwin
 import Foundation
 import XCTest
-@testable import BitMatch
+@testable import BitMatchEngine
 
 final class ExFATDestinationTests: XCTestCase {
     private var image: URL!
@@ -107,7 +107,7 @@ final class ExFATDestinationTests: XCTestCase {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
         let operation = try await SharedFileOperationsService(
-            fileSystem: MacOSFileSystemService.shared,
+            fileSystem: LocalFileAccess(),
             checksum: SharedChecksumService.shared
         ).performFileOperation(
             sourceURL: fixture.source,

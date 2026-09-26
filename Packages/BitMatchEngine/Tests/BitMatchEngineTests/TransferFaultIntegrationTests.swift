@@ -3,7 +3,7 @@ import XCTest
 #if canImport(Darwin)
 import Darwin
 #endif
-@testable import BitMatch
+@testable import BitMatchEngine
 
 final class TransferFaultIntegrationTests: XCTestCase {
     private static let serializationGate = DispatchSemaphore(value: 1)
@@ -242,7 +242,7 @@ private func describe(_ results: [FileOperationResult]) -> String {
 }
 
 private func makeService(
-    fileSystem: FileSystemService = MacOSFileSystemService.shared
+    fileSystem: any FileAccess = LocalFileAccess()
 ) -> SharedFileOperationsService {
     SharedFileOperationsService(
         fileSystem: fileSystem,
@@ -365,7 +365,7 @@ private final class CapturedSuccessfulResult: @unchecked Sendable {
     }
 }
 
-private final class FaultInjectingFileSystemService: FakeFileSystemService {
+private final class FaultInjectingFileSystemService: FakeFileAccess {
     private let faultDestination: URL
     private let inaccessibleRoot: URL
     private let lock = NSLock()
@@ -374,7 +374,7 @@ private final class FaultInjectingFileSystemService: FakeFileSystemService {
     init(faultDestination: URL, inaccessibleRoot: URL) {
         self.faultDestination = faultDestination.standardizedFileURL
         self.inaccessibleRoot = inaccessibleRoot
-        super.init(backing: MacOSFileSystemService.shared)
+        super.init(backing: LocalFileAccess())
     }
 
     var didInjectFault: Bool {

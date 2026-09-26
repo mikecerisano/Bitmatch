@@ -15,6 +15,10 @@ let package = Package(
             name: "BitMatchEngine",
             swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]
         ),
+        .testTarget(
+            name: "BitMatchEngineTests",
+            dependencies: ["BitMatchEngine"]
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

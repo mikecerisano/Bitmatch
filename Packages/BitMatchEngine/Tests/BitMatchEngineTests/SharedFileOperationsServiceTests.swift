@@ -1,7 +1,7 @@
 // SharedFileOperationsServiceTests.swift
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct SharedFileOperationsServiceTests {
 
@@ -24,7 +24,7 @@ struct SharedFileOperationsServiceTests {
 
             // Service under test
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 
@@ -93,7 +93,7 @@ struct SharedFileOperationsServiceTests {
             try Data("pause reset".utf8).write(to: sourceRoot.appendingPathComponent("clip.txt"))
 
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
             await sut.pauseOperation()

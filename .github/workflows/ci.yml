@@ -27,3 +27,11 @@ jobs:
       - run: bash test.sh ipad-build
         env:
           DERIVED_DATA_ROOT: ${{ runner.temp }}/bitmatch-derived-data
+
+  engine-tests:
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - run: bash test.sh engine-test

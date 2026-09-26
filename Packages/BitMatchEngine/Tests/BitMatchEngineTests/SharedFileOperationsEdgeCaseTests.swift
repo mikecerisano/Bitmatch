@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct SharedFileOperationsEdgeCaseTests {
 
@@ -57,7 +57,7 @@ struct SharedFileOperationsEdgeCaseTests {
 
             let settings = CameraLabelSettings()
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 
@@ -110,7 +110,7 @@ struct SharedFileOperationsEdgeCaseTests {
 
             let settings = CameraLabelSettings()
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 
@@ -165,7 +165,7 @@ struct SharedFileOperationsEdgeCaseTests {
             try Data("do-not-overwrite".utf8).write(to: existingDestination, options: .atomic)
 
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 
@@ -207,7 +207,7 @@ struct SharedFileOperationsEdgeCaseTests {
 
             let settings = CameraLabelSettings()
             let sut = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared
             )
 

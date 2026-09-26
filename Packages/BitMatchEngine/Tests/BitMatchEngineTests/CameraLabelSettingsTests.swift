@@ -1,5 +1,5 @@
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct CameraLabelSettingsTests {
 

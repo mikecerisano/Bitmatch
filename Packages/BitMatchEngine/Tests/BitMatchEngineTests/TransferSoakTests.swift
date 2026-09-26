@@ -3,7 +3,7 @@ import XCTest
 #if canImport(Darwin)
 import Darwin
 #endif
-@testable import BitMatch
+@testable import BitMatchEngine
 
 final class TransferSoakTests: XCTestCase {
     func testSeededStandardTransferToTwoDestinations() async throws {
@@ -31,7 +31,7 @@ final class TransferSoakTests: XCTestCase {
                 defer { fixture.cleanup() }
                 let source = soakCanonicalFileURL(fixture.source)
                 let operation = try await SharedFileOperationsService(
-                    fileSystem: MacOSFileSystemService.shared,
+                    fileSystem: LocalFileAccess(),
                     checksum: SharedChecksumService.shared
                 ).performFileOperation(
                     sourceURL: source,

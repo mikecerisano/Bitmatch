@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 @Suite(.serialized)
 struct EngineGuardTests {
@@ -43,7 +43,7 @@ struct EngineGuardTests {
             let checksum = GatedChecksumService()
             let secondBackup = fixture.destinations[1].standardizedFileURL
             let service = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: checksum,
                 destinationSetupHook: { destination in
                     guard destination.standardizedFileURL == secondBackup else { return }
@@ -108,7 +108,7 @@ struct EngineGuardTests {
             let fixture = try DisposableTransferFixture(seed: 62, fileCount: 6, bytesPerFile: 8 * 1024)
             defer { fixture.cleanup() }
             let service = SharedFileOperationsService(
-                fileSystem: MacOSFileSystemService.shared,
+                fileSystem: LocalFileAccess(),
                 checksum: SharedChecksumService.shared,
                 pipelinedVerification: false
             )
@@ -328,7 +328,7 @@ struct EngineGuardTests {
     // MARK: Helpers
 
     private func makeService(checksum: any ChecksumService = SharedChecksumService.shared) -> SharedFileOperationsService {
-        SharedFileOperationsService(fileSystem: MacOSFileSystemService.shared, checksum: checksum)
+        SharedFileOperationsService(fileSystem: LocalFileAccess(), checksum: checksum)
     }
 }
 

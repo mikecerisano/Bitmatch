@@ -1,5 +1,5 @@
 import XCTest
-@testable import BitMatch
+@testable import BitMatchEngine
 
 /// Regression tests for report status classification.
 /// The exported PDF/CSV/JSON reports previously classified any status whose

@@ -1,7 +1,7 @@
 // SharedChecksumByteCompareTests.swift
 import Foundation
 import Testing
-@testable import BitMatch
+@testable import BitMatchEngine
 
 struct SharedChecksumByteCompareTests {
 

@@ -27,12 +27,15 @@ case "$JOB" in
     : "${IOS_SIMULATOR_DESTINATION:?Set IOS_SIMULATOR_DESTINATION, for example platform=iOS Simulator,name=iPad (A16)}"
     run_xcodebuild ipad-test test -scheme BitMatch-iPad -destination "$IOS_SIMULATOR_DESTINATION" -only-testing:BitMatch-iPadTests
     ;;
+  engine-test)
+    swift test --package-path "$ROOT/Packages/BitMatchEngine"
+    ;;
   release-builds)
     run_xcodebuild mac-release build -scheme BitMatch -configuration Release -destination 'platform=macOS'
     run_xcodebuild ipad-release build -scheme BitMatch-iPad -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
     ;;
   *)
-    echo "Usage: $0 {mac-test|mac-build|ipad-build|ipad-test|release-builds}" >&2
+    echo "Usage: $0 {engine-test|mac-test|mac-build|ipad-build|ipad-test|release-builds}" >&2
     exit 64
     ;;
 esac
