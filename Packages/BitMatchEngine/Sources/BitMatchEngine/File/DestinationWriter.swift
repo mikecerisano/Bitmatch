@@ -108,12 +108,12 @@ public final class PinnedDestinationDirectory: @unchecked Sendable {
     /// macOS). A file system that does not implement the full flush at all
     /// (ENOTSUP) keeps the `fsync`; any other failure fails the file.
     public static func flushToMedium(_ fd: Int32) throws {
-        guard fsync(fd) == 0 else { throw posixError("Unable to write the copy to the drive") }
-        if fcntl(fd, F_FULLFSYNC) == -1 {
-            guard errno == ENOTSUP || errno == EOPNOTSUPP else {
-                throw posixError("Unable to flush the copy to the drive")
-            }
+        // F_FULLFSYNC includes everything fsync does.
+        guard fcntl(fd, F_FULLFSYNC) == -1 else { return }
+        guard errno == ENOTSUP || errno == EOPNOTSUPP else {
+            throw posixError("Unable to flush the copy to the drive")
         }
+        guard fsync(fd) == 0 else { throw posixError("Unable to flush the copy to the drive") }
     }
 
     /// Makes a just-published name durable: the directory entry itself is
@@ -334,9 +334,10 @@ public final class PinnedDestinationFile: @unchecked Sendable {
         }
         // Verification reads the drive, not pages another reader cached.
         guard fcntl(readerFD, F_NOCACHE, 1) != -1 else {
-            let message = "This drive would not let BitMatch bypass the system cache, so the copy could not be checked on the drive itself: " + String(cString: strerror(errno))
+            let failure = errno
             _ = Darwin.close(readerFD)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message])
+            let message = "This drive would not let BitMatch bypass the system cache, so the copy could not be checked on the drive itself: " + String(cString: strerror(failure))
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(failure), userInfo: [NSLocalizedDescriptionKey: message])
         }
         return FileHandle(fileDescriptor: readerFD, closeOnDealloc: true)
     }
