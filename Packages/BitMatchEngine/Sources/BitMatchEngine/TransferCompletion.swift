@@ -175,7 +175,7 @@ public enum TransferCompletion: Sendable {
         if !project.didPersist {
             completionMessage += "; the project record was not saved"
         } else if project.locallySafe == false {
-            completionMessage += "; the project could not be confirmed safe locally"
+            completionMessage += "; the card is not yet verified on all the project's backups"
         }
         if !handoffIssues.isEmpty {
             completionMessage += "; " + handoffIssues.joined(separator: "; ")
