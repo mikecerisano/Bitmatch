@@ -122,6 +122,26 @@ struct EngineGuardTests {
         }
     }
 
+    /// One free-space rule (THESIS decision): the measured source plus
+    /// 1 GB, checked by `SafetyValidator`, which is what Setup shows. A
+    /// caller's progress estimate never refuses a transfer that fits.
+    /// Plant: restore the engine's second check, estimate + 100 MB against
+    /// `fileSystem.freeSpace`.
+    @Test func insufficientSpaceUsesOneRule() async throws {
+        try await FileOperationsTestLock.shared.run {
+            let fixture = try DisposableTransferFixture(seed: 91, fileCount: 2, bytesPerFile: 4 * 1024)
+            defer { fixture.cleanup() }
+            let operation = try await makeService().performFileOperation(
+                sourceURL: fixture.source, destinationURLs: [fixture.destinations[0]],
+                verificationMode: .standard, settings: CameraLabelSettings(),
+                estimatedTotalBytes: 1_000_000_000_000_000,
+                progressCallback: { _ in }, onFileResult: nil
+            )
+            #expect(operation.results.count == fixture.manifest.count)
+            #expect(operation.results.allSatisfy { $0.verificationResult?.matches == true })
+        }
+    }
+
     // MARK: T7 / I7
 
     /// Verification never runs more than `max(2, cores/2)` checksums at once.

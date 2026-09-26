@@ -279,7 +279,8 @@ struct PhotographerDestinationLayoutTests {
             )
             let sut = SharedFileOperationsService(
                 fileSystem: fileSystem,
-                checksum: SharedChecksumService.shared
+                checksum: SharedChecksumService.shared,
+                destinationSetupHook: { _ in fileSystem.substituteOnce() }
             )
 
             do {
@@ -350,12 +351,9 @@ private final class LateSymlinkSubstitutionFileSystem: FakeFileSystemService {
         lock.withLock { hasSubstituted }
     }
 
-    override nonisolated func freeSpace(at url: URL) -> Int64 {
-        substituteOnce()
-        return super.freeSpace(at: url)
-    }
-
-    private nonisolated func substituteOnce() {
+    /// Runs from the engine's destination setup hook: after the safety
+    /// checks, just before the destination is opened.
+    nonisolated func substituteOnce() {
         let shouldSubstitute = lock.withLock {
             guard !hasSubstituted else { return false }
             hasSubstituted = true

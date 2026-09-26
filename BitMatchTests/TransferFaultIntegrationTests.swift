@@ -178,7 +178,11 @@ final class TransferFaultIntegrationTests: XCTestCase {
                 try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inaccessibleRoot.path)
             }
 
-            let operation = try await makeService(fileSystem: faultFileSystem).performFileOperation(
+            let operation = try await SharedFileOperationsService(
+                fileSystem: faultFileSystem,
+                checksum: SharedChecksumService.shared,
+                destinationSetupHook: { faultFileSystem.injectFault(for: $0) }
+            ).performFileOperation(
                 sourceURL: source,
                 destinationURLs: [goodDestination, faultDestination],
                 verificationMode: .standard,
@@ -379,13 +383,14 @@ private final class FaultInjectingFileSystemService: FakeFileSystemService {
         return injected
     }
 
-    override nonisolated func freeSpace(at url: URL) -> Int64 {
-        let available = super.freeSpace(at: url)
-        guard url.standardizedFileURL == faultDestination else { return available }
+    /// Runs from the engine's destination setup hook: after the safety
+    /// checks, just before the destination is opened.
+    nonisolated func injectFault(for url: URL) {
+        guard url.standardizedFileURL == faultDestination else { return }
 
         lock.lock()
         defer { lock.unlock() }
-        guard !injected else { return available }
+        guard !injected else { return }
         do {
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o000],
@@ -395,6 +400,5 @@ private final class FaultInjectingFileSystemService: FakeFileSystemService {
         } catch {
             injected = false
         }
-        return available
     }
 }

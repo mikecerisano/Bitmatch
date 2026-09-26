@@ -402,20 +402,8 @@ class SharedFileOperationsService: FileOperationsService {
         let totalStageUnits = operation.verificationMode == .quick ? 1 : 2
         let progressState = ProgressState()
         
-        // Step 2a: Validate sufficient storage space
-        for (index, destinationURL) in operation.destinationURLs.enumerated() {
-            let available = fileSystem.freeSpace(at: destinationURL)
-            SharedLogger.debug("Storage check dest #\(index+1): need \(totalSizeBytes), have \(available)", category: .transfer)
-            
-            // Add 100MB buffer for overhead/filesystem structures
-            let requiredSizeBytes = try SafetyValidator.checkedRequiredSpace(
-                sourceBytes: totalSizeBytes,
-                headroomBytes: 100 * 1024 * 1024
-            )
-            if available < requiredSizeBytes {
-                throw BitMatchError.insufficientStorage(totalSizeBytes, available)
-            }
-        }
+        // Free space was checked once, above, by SafetyValidator: the
+        // measured source plus 1 GB, the rule Setup shows.
 
         // Step 3: Copy files to each destination
         let startTime = Date()
