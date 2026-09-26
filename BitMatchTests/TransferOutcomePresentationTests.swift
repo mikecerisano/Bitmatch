@@ -80,7 +80,7 @@ struct TransferOutcomePresentationTests {
     // (the verdict-only text the old iPad issue box used).
     @Test func cancelledGuidanceIsNotFailedFileGuidance() {
         let outcome = make(state: .cancelled, rows: partialRows, hasErrors: true, warningCount: 1)
-        #expect(outcome.guidance == "Keep source media intact until a transfer completes.")
+        #expect(outcome.guidance == "Keep the card intact until a transfer completes.")
         #expect(!outcome.guidance.contains("failed"))
     }
 

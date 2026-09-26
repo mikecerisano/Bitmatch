@@ -22,7 +22,8 @@ extension TransferOutcomePresentation {
             duration: duration,
             verificationMode: record?.verificationMode,
             canRetry: isFinished && record?.canRetry == true,
-            canExport: isFinished
+            canExport: isFinished,
+            sourceName: record?.title ?? coordinator.sourceURL?.lastPathComponent ?? ""
         )
     }
 }
@@ -61,8 +62,25 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
             notice: retryRequested ? coordinator.queueMessage : nil,
             isBusy: coordinator.isOperationInProgress,
             actions: actions(for: presentation),
-            projectEvidence: { projectEvidence }
+            notifier: coordinator.transferNotifier,
+            autoEjectPreference: autoEjectPreference
+        ) {
+            projectEvidence
+        }
+    }
+
+    /// Nil wherever eject isn't offered at all: only Mac exposes the
+    /// preference, and only once eject itself is possible.
+    private var autoEjectPreference: Binding<Bool>? {
+        #if os(macOS)
+        guard let sourceURL = coordinator.sourceURL, CardEjectService.isEjectable(sourceURL) else { return nil }
+        return Binding(
+            get: { coordinator.autoEjectWhenSafe },
+            set: { coordinator.autoEjectWhenSafe = $0 }
         )
+        #else
+        return nil
+        #endif
     }
 
     private func actions(for presentation: TransferOutcomePresentation) -> OutcomeActions {
@@ -78,6 +96,12 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
         if presentation.canExport {
             export = { asCSV in try coordinator.completionExportDocument(asCSV: asCSV) }
         }
+        var eject: (() async -> String?)?
+        #if os(macOS)
+        if let sourceURL = coordinator.sourceURL, CardEjectService.isEjectable(sourceURL) {
+            eject = { await CardEjectService.eject(sourceURL) }
+        }
+        #endif
         return OutcomeActions(
             newTransfer: {
                 retryRequested = false
@@ -85,7 +109,8 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
                 onNewTransfer()
             },
             retry: retry,
-            export: export
+            export: export,
+            eject: eject
         )
     }
 }
