@@ -151,6 +151,7 @@ struct TransferLibraryView: View {
                     Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .modifier(TouchTarget())
                 .accessibilityLabel("More actions for \(record.title)")
