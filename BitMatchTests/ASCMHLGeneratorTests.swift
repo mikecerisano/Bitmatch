@@ -10,7 +10,7 @@ final class ASCMHLGeneratorTests: XCTestCase {
 
     func testEmptyInventoryDoesNotPublishHistory() throws {
         let (root, _) = try fixture()
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [], startTime: Date()))
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [], startTime: Date(), toolVersion: "test"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ascmhl").path))
     }
 
@@ -19,7 +19,7 @@ final class ASCMHLGeneratorTests: XCTestCase {
         let nested = root.appendingPathComponent("nested")
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         for source in [root, root.deletingLastPathComponent(), nested] {
-            XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), sourceURL: source)) { error in
+            XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), sourceURL: source, toolVersion: "test")) { error in
                 guard case ASCMHLGenerator.GenerationError.sourceOverlap = error else {
                     return XCTFail("Expected source overlap, got \(error)")
                 }
@@ -28,7 +28,7 @@ final class ASCMHLGeneratorTests: XCTestCase {
         let alias = root.deletingLastPathComponent().appendingPathComponent("ascmhl-alias-\(UUID())")
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root)
         defer { try? FileManager.default.removeItem(at: alias) }
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: alias.appendingPathComponent("nested"), files: [file], startTime: Date(), sourceURL: root)) { error in
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: alias.appendingPathComponent("nested"), files: [file], startTime: Date(), sourceURL: root, toolVersion: "test")) { error in
             guard case ASCMHLGenerator.GenerationError.sourceOverlap = error else {
                 return XCTFail("Expected source overlap through alias, got \(error)")
             }
@@ -49,17 +49,19 @@ final class ASCMHLGeneratorTests: XCTestCase {
     func testChangedDestinationDoesNotPublishHistory() throws {
         let (root, file) = try fixture()
         try Data("corrupt media!".utf8).write(to: root.appendingPathComponent("clip.txt"))
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date()))
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), toolVersion: "test"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("ascmhl").path))
     }
 
     func testExistingHistoryIsByteForBytePreserved() throws {
         let (root, file) = try fixture()
-        let manifest = try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date())
+        let manifest = try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), toolVersion: "test")
         let chain = manifest.deletingLastPathComponent().appendingPathComponent("ascmhl_chain.xml")
         let original = try Data(contentsOf: manifest)
         let originalChain = try Data(contentsOf: chain)
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date()))
+        XCTAssertTrue(String(decoding: original, as: UTF8.self).contains(#"<tool version="test">BitMatch</tool>"#),
+                      "the manifest names the app version it was given")
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), toolVersion: "test"))
         XCTAssertEqual(try Data(contentsOf: manifest), original)
         XCTAssertEqual(try Data(contentsOf: chain), originalChain)
     }
@@ -67,16 +69,16 @@ final class ASCMHLGeneratorTests: XCTestCase {
     func testNestedHistoryAndUnsafePathsAreRejected() throws {
         let (root, file) = try fixture()
         for path in ["../clip.txt", "/clip.txt", "a/../clip.txt", "ascmhl/clip.txt", "a\\clip.txt"] {
-            XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [.init(relativePath: path, size: file.size, expectedSHA256: file.expectedSHA256)], startTime: Date()))
+            XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [.init(relativePath: path, size: file.size, expectedSHA256: file.expectedSHA256)], startTime: Date(), toolVersion: "test"))
         }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("nested/ascmhl"), withIntermediateDirectories: true)
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date()))
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file], startTime: Date(), toolVersion: "test"))
     }
 
     func testSymlinkAndDuplicatePathsAreRejected() throws {
         let (root, file) = try fixture()
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file, file], startTime: Date()))
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [file, file], startTime: Date(), toolVersion: "test"))
         try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("alias.txt").path, withDestinationPath: "clip.txt")
-        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [.init(relativePath: "alias.txt", size: file.size, expectedSHA256: file.expectedSHA256)], startTime: Date()))
+        XCTAssertThrowsError(try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: [.init(relativePath: "alias.txt", size: file.size, expectedSHA256: file.expectedSHA256)], startTime: Date(), toolVersion: "test"))
     }
 }

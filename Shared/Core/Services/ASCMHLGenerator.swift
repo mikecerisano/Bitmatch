@@ -35,7 +35,8 @@ enum ASCMHLGenerator {
     /// Re-reads each destination file before publishing anything, supports cancellation,
     /// and atomically publishes the new history directory without overwriting one.
     static func generateInitialHistory(
-        destinationURL: URL, files: [VerifiedFile], startTime: Date, sourceURL: URL? = nil
+        destinationURL: URL, files: [VerifiedFile], startTime: Date, sourceURL: URL? = nil,
+        toolVersion: String
     ) throws -> URL {
         guard !files.isEmpty else { throw GenerationError.emptyInventory }
         let sourceFD: Int32
@@ -122,7 +123,7 @@ enum ASCMHLGenerator {
           <creatorinfo>
             <creationdate>\(date.string(from: startTime))</creationdate>
             <hostname>\(escape(ProcessInfo.processInfo.hostName))</hostname>
-            <tool version="\(escape(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"))">BitMatch</tool>
+            <tool version="\(escape(toolVersion))">BitMatch</tool>
             <comment>Initial destination inventory. MD5 computed after checking destination bytes against the transfer SHA-256. Includes listed files only; no inherited history or directory hashes.</comment>
           </creatorinfo>
           <processinfo><process>in-place</process></processinfo>

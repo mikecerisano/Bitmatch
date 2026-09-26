@@ -60,7 +60,7 @@ struct SharedFileOperationsParanoidTests {
                         relativePath: $0.destinationURL.relativePath(to: copiedRoot),
                         size: $0.fileSize,
                         expectedSHA256: $0.verificationResult?.sourceChecksum ?? "")
-                }, startTime: op.startTime, sourceURL: source)
+                }, startTime: op.startTime, sourceURL: source, toolVersion: "test")
             #expect(fm.fileExists(atPath: history.path))
             #expect(fm.fileExists(atPath: copiedRoot.appendingPathComponent("ascmhl/ascmhl_chain.xml").path))
             #expect(!fm.fileExists(atPath: source.appendingPathComponent("ascmhl").path))

@@ -358,12 +358,13 @@ final class CopyVerifyExecutor {
         ))
         let sourceURL = config.sourceURL
         let startTime = operation.startTime
+        let toolVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
         let work = Task.detached(priority: .utility) { [jobs, issues] () throws -> [String] in
             var failures = issues
             for (root, files) in jobs {
                 try Task.checkCancellation()
                 do {
-                    _ = try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: files, startTime: startTime, sourceURL: sourceURL)
+                    _ = try ASCMHLGenerator.generateInitialHistory(destinationURL: root, files: files, startTime: startTime, sourceURL: sourceURL, toolVersion: toolVersion)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
