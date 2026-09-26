@@ -69,6 +69,7 @@ class OperationStateService: ObservableObject {
 
     /// Record a state reported by the coordinator or the engine.
     func adopt(_ newState: OperationState) {
+        guard currentState != newState else { return }
         stateMachine.adopt(newState)
         currentState = newState
     }
@@ -173,7 +174,7 @@ class OperationStateService: ObservableObject {
         return current
     }
 
-    func completeOperation(operationId requested: UUID? = nil, success: Bool, message: String) {
+    func completeOperation(operationId requested: UUID? = nil, info: OperationCompletionInfo) {
         guard let operationId = currentOperation(matching: requested) else { return }
 
         // Clean up any saved state
@@ -184,7 +185,7 @@ class OperationStateService: ObservableObject {
 
         // Terminal transitions are authoritative: the coordinator's completed
         // callback must agree with the state service, not just clear the ID.
-        applyTransition(.completed(OperationCompletionInfo(success: success, message: message)))
+        applyTransition(.completed(info))
         currentOperationId = nil
         SharedLogger.info("StateService: completed and cleaned up", category: .transfer)
     }

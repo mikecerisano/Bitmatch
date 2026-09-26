@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Finish and Transfers now share one fail-safe card state, show Copy Summary for every outcome, keep finished records in History, and reserve green and Eject for checksum-verified cards.
+
 ## [0.2.0] - 2026-09-26
 
 A redesign release. BitMatch now tells you, in plain words, when a card is safe to erase, and shows it on the Dock while you work. The Mac main screen lists your connected cards and drives and lets you queue card after card. Settings, the Transfers list, Compare, Master Report and the iPad layout were rebuilt to match, reports paginate cleanly, and the copy and verify engine is now one Swift 6 package shared by every platform.

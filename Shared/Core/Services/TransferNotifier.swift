@@ -8,6 +8,18 @@ import AppKit
 import UIKit
 #endif
 
+@MainActor
+enum TransferSummaryPasteboard {
+    static func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
+    }
+}
+
 /// Off until the person turns it on, and permission is asked only then
 /// (`NotificationPermissionPolicy`). Notifies only when BitMatch is not the
 /// app in front: the screen already shows the verdict.

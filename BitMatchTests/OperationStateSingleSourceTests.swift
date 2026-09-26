@@ -47,7 +47,7 @@ struct OperationStateSingleSourceTests {
         service.pauseOperation(reason: .userRequested, currentProgress: nil)
         #expect(service.currentState.isPaused)
 
-        service.completeOperation(success: true, message: "done")
+        service.completeOperation(info: OperationCompletionInfo(success: true, message: "done"))
 
         #expect(service.currentState == .completed(OperationCompletionInfo(success: true, message: "done")))
         #expect(!service.currentState.canResume)
@@ -65,7 +65,7 @@ struct OperationStateSingleSourceTests {
         #expect(service.currentState == .inProgress)
         service.failOperation(operationId: stale)
         #expect(service.currentState == .inProgress)
-        service.completeOperation(operationId: stale, success: true, message: "stale")
+        service.completeOperation(operationId: stale, info: OperationCompletionInfo(success: true, message: "stale"))
         #expect(service.currentState == .inProgress)
     }
 
@@ -108,7 +108,10 @@ struct OperationStateSingleSourceTests {
         let id = start(coordinator.stateService)
         engine.onPause = {
             await MainActor.run {
-                coordinator.stateService.completeOperation(operationId: id, success: true, message: "done")
+                coordinator.stateService.completeOperation(
+                    operationId: id,
+                    info: OperationCompletionInfo(success: true, message: "done")
+                )
             }
         }
 

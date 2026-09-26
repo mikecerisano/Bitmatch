@@ -6,35 +6,68 @@ import BitMatchEngine
 /// Pure values, so every platform shows the same state the same way.
 enum TransferLibraryPresentation {
 
-    /// A record's state as a word, a symbol and a tone. The word and symbol
-    /// differ for every state, so colour is never the only signal. Green
-    /// (`.verified`) is only for a completed transfer whose copies were
-    /// checksum-verified.
+    /// A record's state as a word, a symbol and a tint. Color is never the
+    /// only signal, and green belongs only to checksum-verified completion.
     struct StateLabel: Equatable, Sendable {
         let title: String
+        let accessibilityLabel: String
         let systemImage: String
-        let tone: ResultStatusTone
+        let tint: CardSafetyTint
     }
 
-    static func stateLabel(_ state: LocalTransferState, verificationMode: VerificationMode) -> StateLabel {
-        switch state {
-        case .completed where verificationMode == .quick:
-            // The journal already files Quick runs as `.issues`; this keeps an
-            // older or hand-edited record from turning green.
-            return StateLabel(title: "Copied, not verified", systemImage: "doc.on.doc", tone: .warning)
-        case .completed:
-            return StateLabel(title: "Verified", systemImage: "checkmark.circle.fill", tone: .verified)
-        case .issues:
-            return StateLabel(title: "Needs review", systemImage: "exclamationmark.triangle.fill", tone: .warning)
-        case .interrupted:
-            return StateLabel(title: "Interrupted", systemImage: "pause.circle.fill", tone: .warning)
-        case .cancelled:
-            return StateLabel(title: "Cancelled", systemImage: "xmark.circle", tone: .neutral)
-        case .queued:
-            return StateLabel(title: "Queued", systemImage: "clock", tone: .neutral)
-        case .running:
-            return StateLabel(title: "Copying", systemImage: "arrow.triangle.2.circlepath", tone: .inProgress)
+    static func safetyState(for record: LocalTransferRecord) -> CardSafetyState {
+        switch record.state {
+        case .queued: return .waiting
+        case .running: return .copying(progress: nil)
+        case .completed, .issues:
+            guard !record.results.isEmpty else { return .needsAttention }
+            if record.verificationMode == .quick {
+                if hasCompleteEvidence(record, where: {
+                    ResultOutcome(statusText: $0.status) == .copiedUnverified
+                }) {
+                    return .copiedNotVerified
+                }
+                // Quick never verifies file contents, even if a malformed or
+                // legacy record carries rows that claim otherwise.
+                return .needsAttention
+            }
+            if record.state == .completed, hasCompleteEvidence(record, where: \.isVerifiedStatus) {
+                return .safeToErase
+            }
+            return .needsAttention
+        case .interrupted, .cancelled: return .interrupted
         }
+    }
+
+    static func stateLabel(for record: LocalTransferRecord) -> StateLabel {
+        stateLabel(safetyState(for: record))
+    }
+
+    private static func stateLabel(_ safetyState: CardSafetyState) -> StateLabel {
+        let accessibilityLabel = safetyState == .copiedNotVerified
+            ? "Copied, not verified: size check only"
+            : safetyState.title
+        return StateLabel(
+            title: safetyState.title,
+            accessibilityLabel: accessibilityLabel,
+            systemImage: safetyState.symbol,
+            tint: safetyState.tint
+        )
+    }
+
+    private static func hasCompleteEvidence(
+        _ record: LocalTransferRecord,
+        where accepts: (ResultRow) -> Bool
+    ) -> Bool {
+        let summaries = DestinationResultSummary.make(
+            rows: record.results,
+            destinations: record.destinations.map(\.url)
+        )
+        guard summaries.count == record.destinations.count,
+              summaries.allSatisfy({ !$0.rows.isEmpty && $0.rows.allSatisfy(accepts) }),
+              let expectedPaths = summaries.first.map({ Set($0.rows.map(\.path)) }),
+              !expectedPaths.isEmpty else { return false }
+        return summaries.allSatisfy { Set($0.rows.map(\.path)) == expectedPaths }
     }
 
     /// The buttons a record offers. Mirrors the journal's own rules
@@ -69,9 +102,9 @@ enum TransferLibraryPresentation {
         actions(state: record.state, isProjectCard: record.projectID != nil, generateASCMHL: record.generateASCMHL)
     }
 
-    /// Queue shows work that is waiting or recoverable; History shows everything.
+    /// Queue is active work only. Every finished attempt belongs in History.
     static func isVisible(state: LocalTransferState, showHistory: Bool) -> Bool {
-        showHistory || state.showsInQueue
+        showHistory ? state != .queued && state != .running : state == .queued || state == .running
     }
 
     /// Case-insensitive match on the card, summary, project and backup folder names.
@@ -102,8 +135,8 @@ enum TransferLibraryPresentation {
 
     /// The counts shown on the Queue/History segmented control.
     static func tabCounts(_ records: [LocalTransferRecord]) -> (queue: Int, history: Int) {
-        let queue = records.filter { $0.state.showsInQueue }.count
-        return (queue, records.count)
+        let queue = records.filter { $0.state == .queued || $0.state == .running }.count
+        return (queue, records.count - queue)
     }
 
     /// The row's secondary line, next to the date: how many backups and how
@@ -117,9 +150,9 @@ enum TransferLibraryPresentation {
     // MARK: - Banner
 
     /// How many transfers the banner on every platform asks the user to
-    /// review. Only interrupted runs count: nobody has seen their outcome,
-    /// and their copies are unchecked. A run that finished with issues showed
-    /// its verdict on the completion screen already, and it stays in the queue.
+    /// review. Only interrupted runs count here: nobody has seen their
+    /// outcome, and their copies are unchecked. Every finished run remains
+    /// available in History.
     static func needsAttentionCount(states: [LocalTransferState]) -> Int {
         states.filter { $0 == .interrupted }.count
     }

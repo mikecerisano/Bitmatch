@@ -23,7 +23,7 @@ struct OperationStateServiceTerminalTests {
 
     @Test func completionTransitionsToCompleted() {
         let (service, _) = startedService()
-        service.completeOperation(success: true, message: "done")
+        service.completeOperation(info: OperationCompletionInfo(success: true, message: "done"))
         guard case .completed(let info) = service.currentState else {
             Issue.record("expected .completed, got \(service.currentState)")
             return

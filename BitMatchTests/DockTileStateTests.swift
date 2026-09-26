@@ -17,6 +17,6 @@ struct DockTileStateTests {
         #expect(DockTileState.make(state: .verifying, fraction: nil) == .running(percent: 0))
         #expect(DockTileState.make(state: .copying, fraction: 1.7) == .running(percent: 100))
         #expect(DockTileState.make(state: .notStarted, fraction: 0.5) == .appIcon)
-        #expect(DockTileState.make(state: .cancelled, fraction: 0.5) == .appIcon)
+        #expect(DockTileState.make(state: .cancelled, fraction: 0.5) == .needsReview)
     }
 }

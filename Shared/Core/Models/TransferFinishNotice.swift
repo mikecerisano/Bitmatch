@@ -9,36 +9,49 @@ struct TransferFinishNotice: Equatable, Sendable {
     let title: String
     let body: String
 
-    /// `nil` for a cancelled or never-started transfer: nothing to report.
+    /// `nil` while a transfer is active or has not started.
     static func make(
         state: OperationState,
         sourceName: String,
-        backupCount: Int,
+        destinations: [URL],
         issueCount: Int
     ) -> TransferFinishNotice? {
         let card = sourceName.isEmpty ? "The card" : sourceName
-        let backups = backupCount == 1 ? "1 backup" : "\(backupCount) backups"
-        switch state {
-        case .completed(let info) where info.success:
-            return .init(title: "\(card) is safe to erase",
-                         body: "Copied to \(backups) and verified.")
-        case .completed where issueCount > 0:
-            let files = issueCount == 1 ? "1 file" : "\(issueCount) files"
-            return .init(title: "\(card) needs attention",
-                         body: "\(files) had problems. Open BitMatch to review.")
-        // Only when Quick was the one gap: a Quick run whose report or
-        // project failed still needs attention.
-        case .completed(let info) where info.copiedNotVerified:
-            return .init(title: "\(card) copied, not verified",
-                         body: "Quick mode only compared file sizes. Keep the card until it is verified.")
-        case .completed:
-            return .init(title: "\(card) needs attention",
-                         body: "The copy finished but was not fully confirmed. Open BitMatch to review.")
+        let verdict = completionVerdict(state: state, issueCount: issueCount)
+        let safetyState = CardSafetyState.make(state: state, verdict: verdict)
+        switch safetyState {
+        case .safeToErase:
+            let names = destinations.map(TransferOutcomePresentation.destinationDriveName)
+            return .init(title: "\(card) is safe to erase.", body: "Verified on \(naturalList(names)).")
+        case .copiedNotVerified:
+            return .init(title: "\(card) was copied without checksum verification.", body: "Do not erase the card.")
+        case .needsAttention:
+            return .init(title: "\(card) needs attention.", body: "Do not erase the card.")
         case .failed:
-            return .init(title: "\(card) transfer failed",
-                         body: "Open BitMatch to see what went wrong.")
-        default:
+            return .init(title: "\(card) failed.", body: "Do not erase the card.")
+        case .interrupted:
+            return .init(title: "\(card) was interrupted.", body: "Do not erase the card.")
+        case .waiting, .preparing, .copying, .verifying:
             return nil
+        }
+    }
+
+    private static func completionVerdict(state: OperationState, issueCount: Int) -> CompletionVerdict {
+        switch state {
+        case .completed(let info) where info.success && issueCount == 0: return .success
+        case .completed(let info) where info.copiedNotVerified && issueCount == 0: return .copiedNotVerified
+        case .completed: return .issues
+        case .failed: return .failed
+        default: return .issues
+        }
+    }
+
+    private static func naturalList(_ values: [String]) -> String {
+        switch values.count {
+        case 0: return "the selected backups"
+        case 1: return values[0]
+        case 2: return "\(values[0]) and \(values[1])"
+        default: return values.dropLast().joined(separator: ", ") + ", and " + values.last!
         }
     }
 }

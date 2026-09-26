@@ -22,17 +22,21 @@ enum DockTileState: Equatable {
     static func make(state: OperationState, fraction: Double?) -> DockTileState {
         let percent = Int((min(max(fraction ?? 0, 0), 1) * 100).rounded(.down))
         switch state {
-        case .idle, .notStarted, .cancelled:
+        case .idle, .notStarted:
             return .appIcon
         case .inProgress, .copying, .verifying, .resuming:
             return .running(percent: percent)
         case .paused:
             return .paused(percent: percent)
         case .completed(let info):
-            // Green only for a real success (Promise 2).
-            return info.success ? .verified : .needsReview
+            let verdict: CompletionVerdict = info.success
+                ? .success
+                : info.copiedNotVerified ? .copiedNotVerified : .issues
+            return CardSafetyState.make(state: state, verdict: verdict).isSafe ? .verified : .needsReview
         case .failed:
             return .failed
+        case .cancelled:
+            return .needsReview
         }
     }
 }
@@ -117,13 +121,7 @@ struct SegmentRing: View {
         guard index < lit else { return Color.white.opacity(0.09) }
         switch style {
         case .progress:
-            // Blue at the start, green by the end: copy turning to verified.
-            let t = Double(index) / 11
-            return Color(
-                red: 0.30,
-                green: 0.58 + (0.88 - 0.58) * t,
-                blue: 1.0 + (0.56 - 1.0) * t
-            )
+            return Self.blue
         case .verified: return Self.green
         case .warning: return Self.amber
         case .failure: return Self.red

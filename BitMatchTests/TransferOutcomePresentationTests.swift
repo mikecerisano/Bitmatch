@@ -28,7 +28,10 @@ struct TransferOutcomePresentationTests {
         errorCount: Int = 0,
         warningCount: Int = 0,
         duration: TimeInterval? = 75,
-        canRetry: Bool = true
+        canRetry: Bool = true,
+        sourceFileCount: Int? = 1,
+        sourceBytes: Int64? = 100,
+        completionReason: String? = nil
     ) -> TransferOutcomePresentation {
         TransferOutcomePresentation.make(
             state: state,
@@ -39,9 +42,12 @@ struct TransferOutcomePresentationTests {
             errorCount: errorCount,
             warningCount: warningCount,
             duration: duration,
+            sourceFileCount: sourceFileCount,
+            sourceBytes: sourceBytes,
             verificationMode: .standard,
             canRetry: canRetry,
-            canExport: true
+            canExport: true,
+            completionReason: completionReason
         )
     }
 
@@ -57,15 +63,12 @@ struct TransferOutcomePresentationTests {
         [row("A001.mov", .verified, backup: backupA), row("A001.mov", .verified, backup: backupB)]
     }
 
-    // MARK: Cancelled says cancelled
+    // MARK: Interrupted says interrupted
 
-    // Plant: in `OutcomeTone.make`, derive the tone from the verdict symbol
-    // (`presentation.symbol == "checkmark.circle.fill" ? .verified : … : .failed`),
-    // as the old Mac `completionTint` did.
-    @Test func cancelledToneIsCancelled() {
+    @Test func cancelledOperationPresentsAsInterrupted() {
         let outcome = make(state: .cancelled, rows: partialRows, hasErrors: true, warningCount: 1)
-        #expect(outcome.tone == .cancelled)
-        #expect(outcome.verdict.title == "Transfer cancelled")
+        #expect(outcome.safetyState == .interrupted)
+        #expect(outcome.verdict.title == "Transfer interrupted — the card is not safe to erase")
     }
 
     // Plant: in `makeIssueLines`, delete `guard tone != .cancelled else { return [] }`.
@@ -80,17 +83,17 @@ struct TransferOutcomePresentationTests {
     // (the verdict-only text the old iPad issue box used).
     @Test func cancelledGuidanceIsNotFailedFileGuidance() {
         let outcome = make(state: .cancelled, rows: partialRows, hasErrors: true, warningCount: 1)
-        #expect(outcome.guidance == "Keep the card intact until a transfer completes.")
+        #expect(outcome.guidance == "Do not erase the card.")
         #expect(!outcome.guidance.contains("failed"))
     }
 
     // Plant: in `TransferOutcomePresentation.make`, call
     // `makeDestinationLines(…, cancelled: false)`.
-    @Test func cancelledBackupLinesSayCancelled() {
+    @Test func interruptedBackupLinesSayInterrupted() {
         let outcome = make(state: .cancelled, rows: partialRows)
         #expect(outcome.destinations.count == 2)
-        #expect(outcome.destinations.allSatisfy { $0.detail.hasPrefix("Cancelled") })
-        #expect(outcome.destinations.first?.detail == "Cancelled: 1 of 2 files verified before the stop")
+        #expect(outcome.destinations.allSatisfy { $0.detail.hasPrefix("Interrupted") })
+        #expect(outcome.destinations.first?.detail == "Interrupted: 1 of 2 files verified before the stop")
     }
 
     // Plant: in `makeDurationLabel`, return `"Completed in \(text)"` for every tone.
@@ -101,9 +104,9 @@ struct TransferOutcomePresentationTests {
     }
 
     // Plant: in `emptyFileListText`, drop the `isCancelled` branch.
-    @Test func emptyCancelledListSaysCancelled() {
+    @Test func emptyInterruptedListSaysInterrupted() {
         let outcome = make(state: .cancelled, rows: [])
-        #expect(outcome.emptyFileListText(issuesOnly: false).contains("cancelled"))
+        #expect(outcome.emptyFileListText(issuesOnly: false).contains("interrupted"))
     }
 
     // MARK: Evidence
@@ -128,7 +131,7 @@ struct TransferOutcomePresentationTests {
         let outcome = make(state: .completed(OperationCompletionInfo(success: false, message: "Not verified: Quick mode only compares file sizes.")), rows: rows)
         #expect(outcome.counts.verified == 0)
         #expect(outcome.bytesVerified == nil)
-        #expect(outcome.tone == .needsReview)
+        #expect(outcome.safetyState == .needsAttention)
         #expect(outcome.issueLines == ["1 file copied, not verified"])
     }
 
@@ -139,27 +142,177 @@ struct TransferOutcomePresentationTests {
         let failedRows = [row("A001.mov", .failed, backup: backupA)]
         let issues = OperationState.completed(OperationCompletionInfo(success: false, message: "1 file failed"))
         #expect(make(state: issues, rows: failedRows, canRetry: true).primaryAction == .retry)
-        #expect(make(state: issues, rows: failedRows, canRetry: false).primaryAction == .newTransfer)
+        let withoutRetry = make(state: issues, rows: failedRows, canRetry: false)
+        #expect(withoutRetry.primaryAction == .newTransfer)
+        #expect(withoutRetry.showsNewTransfer)
     }
 
     // Plant: `primaryAction: canRetry ? .retry : .newTransfer`.
-    @Test func verifiedAndCancelledLeadWithNewTransfer() {
+    @Test func verifiedLeadsWithNewTransferAndInterruptedLeadsWithRetry() {
         let done = make(state: .completed(OperationCompletionInfo(success: true, message: "All files copied and verified")), rows: cleanRows)
-        #expect(done.tone == .verified)
+        #expect(done.safetyState == .safeToErase)
         #expect(done.primaryAction == .newTransfer)
-        #expect(make(state: .cancelled, rows: partialRows).primaryAction == .newTransfer)
+        #expect(!done.showsBackupRowsInline)
+        #expect(make(state: .cancelled, rows: partialRows).primaryAction == .retry)
     }
 
-    // Plant: in `TransferOutcomePresentation.make`, set `newTransferNote: nil`.
-    @Test func newTransferSaysItKeepsTheBackups() {
+    @Test func newTransferHelpSaysItKeepsTheBackups() {
         let outcome = make(state: .cancelled, rows: partialRows)
-        #expect(outcome.newTransferNote == "Keeps the same 2 backups. Choose the next card.")
+        #expect(outcome.newTransferHelp == "Start again with the same backups")
     }
 
     // Plant: in `statusLabel(for:)`, return `status` for every case.
     @Test func rowStatusIsPlainWords() {
         #expect(TransferOutcomePresentation.statusLabel(for: ResultOutcome.copiedUnverified.statusText) == "Copied, not verified")
         #expect(TransferOutcomePresentation.statusLabel(for: ResultOutcome.verified.statusText) == "Verified")
+    }
+
+    @Test func verifiedBannerUsesSourceTotalsDriveNamesAlgorithmAndDuration() {
+        let outcome = make(
+            state: .completed(.init(success: true, message: "All files copied and verified")),
+            rows: cleanRows
+        )
+
+        #expect(outcome.verdict.detail == "1 file · 100 bytes verified on A and B · SHA-256 · 1m 15s")
+        #expect(outcome.destinations.map(\.title) == ["A › Backup", "B › Backup"])
+    }
+
+    @Test func singleCardCopySummaryCarriesItsOwnVerdict() {
+        let safe = make(
+            state: .completed(.init(success: true, message: "All files copied and verified")),
+            rows: cleanRows
+        )
+        let quickRows = [
+            row("A001.mov", .copiedUnverified, backup: backupA),
+            row("A001.mov", .copiedUnverified, backup: backupB),
+        ]
+        let quick = make(
+            state: .completed(.init(success: false, message: "All files copied", copiedNotVerified: true)),
+            rows: quickRows
+        )
+
+        #expect(safe.copySummary == "The card · 100 bytes · safe to erase · SHA-256 · A, B")
+        #expect(quick.copySummary == "The card · 100 bytes · copied, not verified (size check only) · A, B")
+    }
+
+    @Test func needsAttentionUsesNeutralFactualBackupRows() {
+        let failedRows = [
+            row("A001.mov", .verified, backup: backupA),
+            row("A001.mov", .failed, backup: backupB),
+        ]
+        let outcome = make(
+            state: .completed(.init(success: false, message: "1 file failed")),
+            rows: failedRows
+        )
+
+        #expect(outcome.safetyState == .needsAttention)
+        #expect(outcome.verdict.detail == "1 file failed on B")
+        #expect(outcome.destinations[0].detail == "Checksums matched for 1 of 1 files")
+        #expect(outcome.destinations[1].detail == "1 file failed")
+        #expect(outcome.showsBackupRowsInline)
+        #expect(outcome.primaryAction == .retry)
+        #expect(!outcome.showsNewTransfer)
+    }
+
+    @Test func quickHasNoRetryAndInterruptedKeepsRetryAndNewTransfer() {
+        let quickRows = [row("A001.mov", .copiedUnverified, backup: backupA)]
+        let quick = make(
+            state: .completed(.init(success: false, message: "All files copied", copiedNotVerified: true)),
+            rows: quickRows,
+            canRetry: true
+        )
+        let interrupted = make(state: .cancelled, rows: partialRows, canRetry: true)
+
+        #expect(!quick.canRetry)
+        #expect(quick.showsNewTransfer)
+        #expect(interrupted.canRetry)
+        #expect(interrupted.showsNewTransfer)
+        #expect(interrupted.primaryAction == .retry)
+        #expect(!quick.showsBackupRowsInline)
+        #expect(!interrupted.showsBackupRowsInline)
+    }
+
+    @Test func interruptedCopySummaryUsesMeasuredSourceTotalNotPartialRows() {
+        let measuredBytes: Int64 = 5_000_000
+        let outcome = make(
+            state: .cancelled,
+            rows: partialRows,
+            sourceFileCount: 25,
+            sourceBytes: measuredBytes
+        )
+        let measured = ByteCountFormatter.string(fromByteCount: measuredBytes, countStyle: .file)
+
+        #expect(outcome.copySummary.contains(measured))
+        #expect(!outcome.copySummary.contains("200 bytes"))
+    }
+
+    @Test func copySummaryOmitsUnknownSourceSize() {
+        let outcome = make(
+            state: .cancelled,
+            rows: partialRows,
+            sourceFileCount: nil,
+            sourceBytes: nil
+        )
+
+        #expect(outcome.copySummary == "The card · interrupted · A, B")
+    }
+
+    @Test func unknownCardFailureBannerUsesSentenceCorrectCardName() {
+        let outcome = make(
+            state: .failed,
+            rows: [],
+            canRetry: false,
+            completionReason: "The journal could not be saved"
+        )
+
+        #expect(outcome.verdict.detail == "The journal could not be saved. Do not erase the card.")
+        #expect(outcome.showsNewTransfer)
+        #expect(!outcome.showsBackupRowsInline)
+    }
+
+    @Test func copySummaryIsOneLineForEverySafetyState() {
+        for state in CardSafetyState.invariantSamples {
+            let summary = TransferOutcomePresentation.makeCopySummary(
+                safetyState: state,
+                cardName: "A001",
+                sourceBytes: 64_000_000_000,
+                destinations: ["Shuttle A", "Shuttle B"],
+                algorithm: "SHA-256",
+                reason: "1 file failed"
+            )
+            #expect(!summary.isEmpty)
+            #expect(!summary.contains("\n"))
+        }
+    }
+}
+
+@MainActor
+struct OutcomeFailureWithoutJournalTests {
+    @Test func failedBannerShowsTheJournalErrorWhenNoRecordExists() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("outcome-no-journal-\(UUID())", isDirectory: true)
+        let source = root.appendingPathComponent("Card", isDirectory: true)
+        let destination = root.appendingPathComponent("Backup", isDirectory: true)
+        let blockedParent = root.appendingPathComponent("blocked")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try Data("not a directory".utf8).write(to: blockedParent)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let journal = LocalTransferJournal(fileURL: blockedParent.appendingPathComponent("journal.json"))
+        let coordinator = SharedAppCoordinator(
+            platformManager: MacOSPlatformManager.shared,
+            transferJournal: journal
+        )
+        coordinator.sourceURL = source
+        coordinator.destinationURLs = [destination]
+
+        await coordinator.startOperation()
+
+        let message = try #require(coordinator.queueMessage)
+        #expect(coordinator.outcomeRecord == nil)
+        #expect(coordinator.operationState == .failed)
+        #expect(TransferOutcomePresentation.make(coordinator: coordinator).verdict.detail.contains(message))
     }
 }
 

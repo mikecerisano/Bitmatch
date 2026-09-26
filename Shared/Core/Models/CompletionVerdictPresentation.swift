@@ -21,39 +21,44 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
         // A real card name reads fine anywhere in a sentence; the generic
         // fallback needs "The card" to open a sentence and "the card"
         // everywhere else, or "Keep The card" reads as a typo.
-        let cardStart = cardName.isEmpty ? "The card" : cardName
         let card = cardName.isEmpty ? "the card" : cardName
-        switch verdict {
-        case .success:
+        let safetyState = CardSafetyState.make(
+            state: .completed(.init(success: verdict == .success, message: "")),
+            verdict: verdict
+        )
+        switch safetyState {
+        case .safeToErase:
             let backups = backupCount == 1 ? "1 backup" : "\(backupCount) backups"
             return Self(
-                title: "\(cardStart) is safe to erase",
+                title: safetyState.headline(cardName: cardName),
                 detail: "Copied to \(backups) and verified.",
-                symbol: "checkmark.circle.fill",
+                symbol: safetyState.symbol,
                 sourceGuidance: "Every file on every backup was read back and matched the card."
             )
         case .copiedNotVerified:
             return Self(
-                title: "\(cardStart) copied, not verified",
+                title: safetyState.headline(cardName: cardName),
                 detail: "Quick mode only compares file sizes, not what's inside the files.",
-                symbol: "doc.on.doc.fill",
+                symbol: safetyState.symbol,
                 sourceGuidance: "Keep \(card) until you run a verified copy. Quick mode can't confirm every file arrived intact."
             )
-        case .issues:
+        case .needsAttention:
             let files = issueCount == 1 ? "1 file" : "\(issueCount) files"
             return Self(
-                title: "\(cardStart) needs attention",
+                title: safetyState.headline(cardName: cardName),
                 detail: "\(files) had problems. Review them below.",
-                symbol: "exclamationmark.triangle.fill",
+                symbol: safetyState.symbol,
                 sourceGuidance: "Don't erase \(card) until every file below is resolved."
             )
         case .failed:
             return Self(
-                title: "Transfer failed",
+                title: safetyState.headline(cardName: cardName),
                 detail: "No files were confirmed copied and verified.",
-                symbol: "xmark.circle.fill",
+                symbol: safetyState.symbol,
                 sourceGuidance: "Keep \(card). Nothing here has been confirmed safe."
             )
+        case .waiting, .preparing, .copying, .verifying, .interrupted:
+            preconditionFailure("A completion verdict must produce a finish state")
         }
     }
 
@@ -70,10 +75,10 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
         // an issue state: label it plainly instead of "Review required".
         if state == .cancelled {
             return Self(
-                title: "Transfer cancelled",
-                detail: "Partial results below are retained. Start a new transfer when ready.",
-                symbol: "xmark.circle",
-                sourceGuidance: "Keep \(card) intact until a transfer completes."
+                title: CardSafetyState.interrupted.headline(cardName: cardName),
+                detail: "The transfer stopped before every backup was verified.",
+                symbol: CardSafetyState.interrupted.symbol,
+                sourceGuidance: "Do not erase \(card)."
             )
         }
         let verdict = CompletionVerdict.resolve(
@@ -89,7 +94,7 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
                 title: presentation.title,
                 detail: info.message,
                 symbol: presentation.symbol,
-                sourceGuidance: "Review the results below before treating \(card) as safe."
+                sourceGuidance: "Do not erase \(card) until the problems are resolved."
             )
         }
         return presentation

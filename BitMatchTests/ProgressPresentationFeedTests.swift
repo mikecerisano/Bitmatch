@@ -63,7 +63,7 @@ struct ProgressPresentationFeedTests {
 
         coordinator.operationState = .inProgress
         #expect(coordinator.progressPresentation.isTracking)
-        #expect(coordinator.progressPresentation.progressMessage == "Preparing transfer…")
+        #expect(coordinator.progressPresentation.progressMessage == "Preparing")
 
         coordinator.operationState = .cancelled
         #expect(!coordinator.progressPresentation.isTracking)

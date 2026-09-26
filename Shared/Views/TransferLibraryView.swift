@@ -28,7 +28,7 @@ struct TransferLibraryView: View {
     /// Search only makes sense once History has something to search, and it
     /// never grabs focus on its own — `.searchable` never autofocuses.
     private var searchIsAvailable: Bool {
-        showHistory && !journal.records.isEmpty
+        showHistory && tabCounts.history > 0
     }
 
     var body: some View {

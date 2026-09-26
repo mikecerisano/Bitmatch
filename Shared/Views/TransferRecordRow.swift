@@ -6,7 +6,7 @@ struct TransferRecordRow<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        let state = TransferLibraryPresentation.stateLabel(record.state, verificationMode: record.verificationMode)
+        let state = TransferLibraryPresentation.stateLabel(for: record)
         let detail = TransferLibraryPresentation.detailLine(destinationCount: record.destinations.count, fileCount: record.results.count)
         return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -28,12 +28,13 @@ struct TransferRecordRow<Trailing: View>: View {
     }
 
     private func statePill(_ state: TransferLibraryPresentation.StateLabel) -> some View {
-        Text(state.title)
+        Label(state.title, systemImage: state.systemImage)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(state.tone.color)
+            .foregroundStyle(state.tint.color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(state.tone.color.opacity(0.15), in: Capsule())
-            .accessibilityLabel(state.title)
+            .background(state.tint.color.opacity(0.15), in: Capsule())
+            .accessibilityLabel(state.accessibilityLabel)
+            .help(state.accessibilityLabel)
     }
 }

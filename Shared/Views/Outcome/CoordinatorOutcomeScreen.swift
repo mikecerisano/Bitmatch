@@ -20,10 +20,13 @@ extension TransferOutcomePresentation {
             errorCount: coordinator.errorCount,
             warningCount: coordinator.warningCount,
             duration: duration,
+            sourceFileCount: coordinator.sourceFolderInfo?.fileCount,
+            sourceBytes: coordinator.sourceFolderInfo?.totalSize,
             verificationMode: record?.verificationMode,
             canRetry: isFinished && record?.canRetry == true,
             canExport: isFinished,
-            sourceName: record?.title ?? coordinator.sourceURL?.lastPathComponent ?? ""
+            sourceName: record?.title ?? coordinator.sourceURL?.lastPathComponent ?? "",
+            completionReason: record?.summary ?? (coordinator.operationState == .failed ? coordinator.queueMessage : nil)
         )
     }
 }
@@ -62,7 +65,6 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
             notice: retryRequested ? coordinator.queueMessage : nil,
             isBusy: coordinator.isOperationInProgress,
             actions: actions(for: presentation),
-            notifier: coordinator.transferNotifier,
             autoEjectPreference: autoEjectPreference
         ) {
             projectEvidence
@@ -98,7 +100,9 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
         }
         var eject: (() async -> String?)?
         #if os(macOS)
-        if let sourceURL = coordinator.sourceURL, CardEjectService.isEjectable(sourceURL) {
+        if presentation.canEject,
+           let sourceURL = coordinator.sourceURL,
+           CardEjectService.isEjectable(sourceURL) {
             eject = { await CardEjectService.eject(sourceURL) }
         }
         #endif
@@ -110,6 +114,7 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
             },
             retry: retry,
             export: export,
+            copySummary: { TransferSummaryPasteboard.copy($0) },
             eject: eject
         )
     }

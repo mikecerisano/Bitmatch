@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import CryptoKit
 import XCTest
 @testable import BitMatch
@@ -6,6 +7,33 @@ import BitMatchEngine
 
 @MainActor
 final class CopyVerifyExecutorIntegrityTests: XCTestCase {
+    func testQuickCompletionPublishesOneFinalCopiedNotVerifiedState() async throws {
+        let copied = FileOperationResult(
+            sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            success: true,
+            error: nil,
+            fileSize: 10,
+            verificationResult: nil,
+            processingTime: 0
+        )
+        let harness = ExecutorHarness(
+            returnedResults: [copied],
+            emittedResults: [],
+            verificationMode: .quick
+        )
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.publishedTerminalStates.count, 1)
+        guard let terminalState = harness.publishedTerminalStates.first,
+              case .completed(let info) = terminalState else {
+            return XCTFail("Expected one completed state")
+        }
+        XCTAssertFalse(info.success)
+        XCTAssertTrue(info.copiedNotVerified)
+    }
+
     func testReturnedOperationFailureControlsCompletionWithoutPresentationCallback() async throws {
         let failure = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
@@ -363,9 +391,12 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
 private final class ExecutorHarness {
     private let executor: CopyVerifyExecutor
     private let config: CopyVerifyConfig
+    private let stateService: OperationStateService
+    private var cancellables: Set<AnyCancellable> = []
 
     private(set) var completedRows: [ResultRow] = []
     private(set) var terminalInfo: OperationCompletionInfo?
+    private(set) var publishedTerminalStates: [OperationState] = []
     var onAuthoritativeResults: (() -> Void)?
     var onPresentError: (() -> Void)? {
         get { platform.onPresentError }
@@ -394,11 +425,13 @@ private final class ExecutorHarness {
         )
         let platform = ExecutorPlatformManager(fileOperations: fileOperations)
         self.platform = platform
+        let stateService = OperationStateService()
+        self.stateService = stateService
         executor = CopyVerifyExecutor(
             platformManager: platform,
             timingService: OperationTimingService(),
             errorService: ErrorReportingService(),
-            stateService: OperationStateService(),
+            stateService: stateService,
             backgroundTaskService: IOSBackgroundTaskService.shared,
             sleepPreventer: sleepPreventer
         )
@@ -415,6 +448,14 @@ private final class ExecutorHarness {
             photographerReportFinalizer: lifecycleCompletion,
             generateASCMHL: generateASCMHL
         )
+        stateService.$currentState
+            .dropFirst()
+            .sink { [weak self] state in
+                if case .completed = state {
+                    self?.publishedTerminalStates.append(state)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func execute() async throws -> FileOperation? {
@@ -424,6 +465,7 @@ private final class ExecutorHarness {
                 onProgress: { _ in },
                 onResult: { _ in },
                 onStateChange: { [weak self] state in
+                    self?.stateService.adopt(state)
                     guard case .completed(let info) = state else { return }
                     self?.terminalInfo = info
                 },

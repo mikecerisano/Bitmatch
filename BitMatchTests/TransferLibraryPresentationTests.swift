@@ -14,18 +14,35 @@ struct TransferLibraryPresentationTests {
     /// Plant: in `TransferLibraryPresentation.stateLabel`, change the
     /// `.interrupted` label's `tone: .warning` to `tone: .verified`.
     @Test func interruptedIsNotGreen() {
-        let label = TransferLibraryPresentation.stateLabel(.interrupted, verificationMode: .standard)
-        #expect(label.tone != .verified)
-        #expect(label.tone == .warning)
+        let label = TransferLibraryPresentation.stateLabel(for: PresentationTestSupport.record(state: .interrupted))
+        #expect(label.tint != .green)
+        #expect(label.tint == .amber)
     }
 
-    /// Plant: in `TransferLibraryPresentation.stateLabel`, change
-    /// `case .completed where verificationMode == .quick:` to
-    /// `case .completed where verificationMode == .paranoid:`.
     @Test func completedQuickTransferIsNotGreen() {
-        let label = TransferLibraryPresentation.stateLabel(.completed, verificationMode: .quick)
-        #expect(label.tone != .verified)
-        #expect(label.title != "Verified")
+        var record = PresentationTestSupport.record(state: .completed, verificationMode: .quick)
+        record.results = [PresentationTestSupport.row(.copiedUnverified, destination: record.destinations[0].url)]
+        let label = TransferLibraryPresentation.stateLabel(for: record)
+        #expect(label.tint != .green)
+        #expect(label.title == "Copied, not verified")
+    }
+
+    @Test func journalQuickResultUsesCopiedNotVerifiedWords() {
+        var record = PresentationTestSupport.record(state: .issues, verificationMode: .quick)
+        record.results = [PresentationTestSupport.row(.copiedUnverified, destination: record.destinations[0].url)]
+
+        let label = TransferLibraryPresentation.stateLabel(for: record)
+        #expect(label.title == "Copied, not verified")
+        #expect(label.tint != .green)
+        #expect(label.accessibilityLabel == "Copied, not verified: size check only")
+    }
+
+    @Test func quickRecordCannotBeSafeEvenWhenRowsClaimVerified() {
+        var record = PresentationTestSupport.record(state: .completed, verificationMode: .quick)
+        record.results = [PresentationTestSupport.row(.verified, destination: record.destinations[0].url)]
+
+        #expect(TransferLibraryPresentation.safetyState(for: record) == .needsAttention)
+        #expect(TransferLibraryPresentation.stateLabel(for: record).tint != .green)
     }
 
     /// Only a completed, checksum-verified transfer is green.
@@ -33,18 +50,33 @@ struct TransferLibraryPresentationTests {
     /// `.issues` label's `tone: .warning` to `tone: .verified`.
     @Test func onlyCompletedIsGreen() {
         for state in allStates {
-            let label = TransferLibraryPresentation.stateLabel(state, verificationMode: .standard)
-            #expect((label.tone == .verified) == (state == .completed), "\(state)")
+            var record = PresentationTestSupport.record(state: state)
+            if state == .completed {
+                record.results = [PresentationTestSupport.row(.verified, destination: record.destinations[0].url)]
+            }
+            let label = TransferLibraryPresentation.stateLabel(for: record)
+            #expect((label.tint == .green) == (state == .completed), "\(state)")
         }
     }
 
-    /// Colour is never the only difference (accessibility audit M5).
-    /// Plant: in `TransferLibraryPresentation.stateLabel`, change the
-    /// `.interrupted` symbol to `"exclamationmark.triangle.fill"`.
-    @Test func everyStateHasItsOwnWordAndSymbol() {
-        let labels = allStates.map { TransferLibraryPresentation.stateLabel($0, verificationMode: .standard) }
-        #expect(Set(labels.map(\.title)).count == allStates.count)
-        #expect(Set(labels.map(\.systemImage)).count == allStates.count)
+    @Test func completedWithoutVerifiedEvidenceIsNotGreen() {
+        var record = PresentationTestSupport.record(state: .completed)
+        record.results = [PresentationTestSupport.row(.copiedUnverified)]
+        let label = TransferLibraryPresentation.stateLabel(for: record)
+        #expect(label.title == "Needs attention")
+        #expect(label.tint != .green)
+    }
+
+    /// Every pill supplies words and a symbol, so color is never the only cue.
+    @Test func everyStateHasWordsAndASymbol() {
+        let labels = allStates.map { state -> TransferLibraryPresentation.StateLabel in
+            var record = PresentationTestSupport.record(state: state)
+            if state == .completed {
+                record.results = [PresentationTestSupport.row(.verified, destination: record.destinations[0].url)]
+            }
+            return TransferLibraryPresentation.stateLabel(for: record)
+        }
+        #expect(labels.allSatisfy { !$0.title.isEmpty && !$0.systemImage.isEmpty })
     }
 
     // MARK: - Actions
@@ -109,16 +141,16 @@ struct TransferLibraryPresentationTests {
     // MARK: - Tab counts
 
     /// The Queue/History segmented control's counts (UI plan step: compact
-    /// rows). History always counts every record; Queue only the states that
-    /// show there.
-    /// Plant: in `tabCounts(_:)`, change `records.filter { $0.state.showsInQueue }.count`
-    /// to `records.count`.
+    /// rows). Queue contains only waiting and running work; History contains
+    /// every finished attempt.
     @Test func tabCountsSplitQueueFromHistory() {
         let states: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .cancelled]
         let records = states.map { PresentationTestSupport.record(state: $0) }
         let counts = TransferLibraryPresentation.tabCounts(records)
-        #expect(counts.history == 6)
-        #expect(counts.queue == 5) // every state but .completed shows in the queue
+        #expect(counts.history == 4)
+        #expect(counts.queue == 2)
+        #expect(TransferLibraryPresentation.isVisible(state: .issues, showHistory: true))
+        #expect(!TransferLibraryPresentation.isVisible(state: .issues, showHistory: false))
     }
 
     // MARK: - Recent transfers
@@ -163,14 +195,29 @@ struct TransferLibraryPresentationTests {
 
 /// Shared minimal fixtures for these tests.
 private enum PresentationTestSupport {
-    static func record(state: LocalTransferState, createdAt: Date = Date()) -> LocalTransferRecord {
+    static func row(_ outcome: ResultOutcome, destination: URL? = nil) -> ResultRow {
+        ResultRow(
+            path: "/Card/A001.mov",
+            status: outcome.statusText,
+            size: 10,
+            checksum: outcome == .verified ? "abc" : nil,
+            destination: "Backup",
+            destinationPath: destination?.appendingPathComponent("A001.mov").path
+        )
+    }
+
+    static func record(
+        state: LocalTransferState,
+        createdAt: Date = Date(),
+        verificationMode: VerificationMode = .standard
+    ) -> LocalTransferRecord {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try! LocalTransferResource(url: root)
         var record = LocalTransferRecord(
             id: UUID(), createdAt: createdAt, source: source, destinations: [source],
-            verificationMode: .standard, cameraSettings: CameraLabelSettings(),
+            verificationMode: verificationMode, cameraSettings: CameraLabelSettings(),
             reportSettings: ReportPrefs(), generateASCMHL: true, projectID: nil
         )
         record.state = state

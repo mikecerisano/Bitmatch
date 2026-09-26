@@ -35,9 +35,8 @@ final class PlatformVerdictParityTests: XCTestCase {
             // Step 4.7: the shared outcome screen shows the same thing for
             // both engines, and it is the green one. Destination IDs are the
             // run's temp paths, so backups compare by title and detail.
-            // Plant: in `OutcomeTone.make`, return `.needsReview` for `.success`.
             XCTAssertEqual(iOSShaped.outcome.verdict, mac.outcome.verdict)
-            XCTAssertEqual(iOSShaped.outcome.tone, mac.outcome.tone)
+            XCTAssertEqual(iOSShaped.outcome.safetyState, mac.outcome.safetyState)
             XCTAssertEqual(iOSShaped.outcome.guidance, mac.outcome.guidance)
             XCTAssertEqual(iOSShaped.outcome.issueLines, mac.outcome.issueLines)
             XCTAssertEqual(iOSShaped.outcome.counts, mac.outcome.counts)
@@ -45,7 +44,7 @@ final class PlatformVerdictParityTests: XCTestCase {
             XCTAssertEqual(iOSShaped.outcome.primaryAction, mac.outcome.primaryAction)
             XCTAssertEqual(iOSShaped.outcome.destinations.map { [$0.title, $0.detail] },
                            mac.outcome.destinations.map { [$0.title, $0.detail] })
-            XCTAssertEqual(mac.outcome.tone, .verified)
+            XCTAssertEqual(mac.outcome.safetyState, .safeToErase)
             XCTAssertTrue(mac.outcome.issueLines.isEmpty)
             XCTAssertEqual(iOSShapedManager.fakeFileSystem.totalActiveScopes, 0, "iOS-shaped scopes left open")
         }

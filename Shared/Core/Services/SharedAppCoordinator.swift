@@ -97,9 +97,8 @@ class SharedAppCoordinator: ObservableObject {
     let progressPresentation = ProgressPresentationModel()
     /// The "transfer finished" notification, off until turned on.
     let transferNotifier: TransferNotifier
-    /// The finish screen's "Eject the card automatically when it's safe to
-    /// erase" preference (Mac only; harmless but unused elsewhere). Off by
-    /// default: erasing is a decision the person makes, not the app.
+    /// The Mac setting for automatic eject after verified completion. Off by
+    /// default; the finish screen applies it but does not edit it.
     @Published var autoEjectWhenSafe: Bool {
         didSet { preferences.set(autoEjectWhenSafe, forKey: Self.autoEjectPreferenceKey) }
     }
@@ -365,7 +364,7 @@ class SharedAppCoordinator: ObservableObject {
         guard let notice = TransferFinishNotice.make(
             state: state,
             sourceName: sourceURL?.lastPathComponent ?? "",
-            backupCount: destinationURLs.count,
+            destinations: destinationURLs,
             issueCount: results.filter { !$0.isSuccessStatus }.count
         ) else { return }
         transferNotifier.post(notice)
@@ -404,7 +403,7 @@ class SharedAppCoordinator: ObservableObject {
                         presentation.startProgressTracking()
                     }
                     if presentation.progressMessage == "Ready" {
-                        presentation.setProgressMessage("Preparing transfer…")
+                        presentation.setProgressMessage("Preparing")
                     }
                 case .paused:
                     // Paused time is left out of speed and time remaining.

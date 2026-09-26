@@ -1,6 +1,117 @@
 import Foundation
 import BitMatchEngine
 
+enum CardSafetyTint: Equatable, Sendable {
+    case gray
+    case blue
+    case green
+    case amber
+    case red
+}
+
+/// One presentation state for a card everywhere BitMatch names its safety.
+/// Only `.safeToErase` can be green, claim verified safety, or permit Eject.
+enum CardSafetyState: Equatable, Sendable {
+    case waiting
+    case preparing
+    case copying(progress: Int?)
+    case verifying(progress: Int?)
+    case safeToErase
+    case copiedNotVerified
+    case needsAttention
+    case failed
+    case interrupted
+
+    static let invariantSamples: [Self] = [
+        .waiting, .preparing, .copying(progress: 42), .verifying(progress: 31),
+        .safeToErase, .copiedNotVerified, .needsAttention, .failed, .interrupted,
+    ]
+
+    var title: String {
+        switch self {
+        case .waiting: "Waiting"
+        case .preparing: "Preparing"
+        case .copying(let progress): Self.progressTitle("Copying", progress: progress)
+        case .verifying(let progress): Self.progressTitle("Verifying", progress: progress)
+        case .safeToErase: "Safe to erase"
+        case .copiedNotVerified: "Copied, not verified"
+        case .needsAttention: "Needs attention"
+        case .failed: "Failed"
+        case .interrupted: "Interrupted"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .waiting: "clock"
+        case .preparing: "hourglass"
+        case .copying: "doc.on.doc"
+        case .verifying: "checkmark.shield"
+        case .safeToErase: "checkmark.circle.fill"
+        case .copiedNotVerified: "doc.on.doc"
+        case .needsAttention: "exclamationmark.triangle.fill"
+        case .failed: "xmark.circle.fill"
+        case .interrupted: "pause.circle.fill"
+        }
+    }
+
+    var tint: CardSafetyTint {
+        switch self {
+        case .waiting: .gray
+        case .preparing, .copying, .verifying: .blue
+        case .safeToErase: .green
+        // Amber, like a Quick compare (THESIS decision, 2026-09-25); its
+        // symbol and words keep it apart from Needs attention.
+        case .copiedNotVerified, .needsAttention, .interrupted: .amber
+        case .failed: .red
+        }
+    }
+
+    var isSafe: Bool { self == .safeToErase }
+    var canEject: Bool { isSafe }
+    var claimsVerified: Bool { isSafe }
+    var isSuccessNotification: Bool { isSafe }
+
+    func headline(cardName: String) -> String {
+        let cardStart = cardName.isEmpty ? "The card" : cardName
+        let card = cardName.isEmpty ? "the card" : cardName
+        switch self {
+        case .waiting: return "\(cardStart) is waiting"
+        case .preparing: return "Preparing \(card)"
+        case .copying: return "Copying \(card)"
+        case .verifying: return "Verifying \(card)"
+        case .safeToErase: return "\(cardStart) is safe to erase"
+        case .copiedNotVerified: return "\(cardStart) copied, not verified"
+        case .needsAttention: return "\(cardStart) needs attention"
+        case .failed: return "Transfer failed"
+        case .interrupted: return "Transfer interrupted — \(card) is not safe to erase"
+        }
+    }
+
+    static func make(state: OperationState, verdict: CompletionVerdict, progress: Double? = nil) -> Self {
+        let percent = progress.map { Int((min(max($0, 0), 1) * 100).rounded(.down)) }
+        switch state {
+        case .idle, .notStarted: return .waiting
+        case .inProgress, .resuming: return .preparing
+        case .copying, .paused: return .copying(progress: percent)
+        case .verifying: return .verifying(progress: percent)
+        case .cancelled: return .interrupted
+        case .failed: return .failed
+        case .completed:
+            switch verdict {
+            case .success: return .safeToErase
+            case .copiedNotVerified: return .copiedNotVerified
+            case .issues: return .needsAttention
+            case .failed: return .failed
+            }
+        }
+    }
+
+    private static func progressTitle(_ title: String, progress: Int?) -> String {
+        progress.map { "\(title) \($0)%" } ?? title
+    }
+}
+
 struct ResultIntegritySummary {
     let successfulRows: [ResultRow]
     let issueRows: [ResultRow]
@@ -162,9 +273,13 @@ struct DestinationResultSummary: Identifiable {
     var needsAttention: Bool { rows.isEmpty || issueCount > 0 || unverifiedCount > 0 }
     var detail: String {
         guard !rows.isEmpty else { return "No files recorded" }
-        if issueCount > 0 { return "\(issueCount) of \(rows.count) files failed" }
-        if unverifiedCount > 0 { return "\(unverifiedCount) of \(rows.count) files not verified" }
-        return rows.count == 1 ? "1 file verified" : "\(rows.count) files verified"
+        if issueCount > 0 { return issueCount == 1 ? "1 file failed" : "\(issueCount) files failed" }
+        if unverifiedCount > 0 {
+            return unverifiedCount == rows.count
+                ? "Sizes matched for \(rows.count) \(rows.count == 1 ? "file" : "files"), not verified"
+                : "\(unverifiedCount) of \(rows.count) files not verified"
+        }
+        return "Checksums matched for \(rows.count) of \(rows.count) files"
     }
 
     static func make(rows: [ResultRow], destinations: [URL]) -> [Self] {

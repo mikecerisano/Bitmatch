@@ -268,14 +268,17 @@ final class CopyVerifyExecutor {
         )
         let succeeded = verdict.success
         let completionMessage = verdict.message
+        let completionInfo = OperationCompletionInfo(
+            success: succeeded,
+            message: completionMessage,
+            copiedNotVerified: verdict.copiedNotVerified
+        )
 
         timingService.completeOperation(success: succeeded, message: completionMessage)
         errorService.completeErrorTracking()
-        stateService.completeOperation(operationId: config.operationId, success: succeeded, message: completionMessage)
+        stateService.completeOperation(operationId: config.operationId, info: completionInfo)
 
-        callbacks.onStateChange(.completed(OperationCompletionInfo(
-            success: succeeded, message: completionMessage, copiedNotVerified: verdict.copiedNotVerified
-        )))
+        callbacks.onStateChange(.completed(completionInfo))
 
         // Clean up
         SharedLogger.info("CopyVerifyExecutor: operation completed", category: .transfer)

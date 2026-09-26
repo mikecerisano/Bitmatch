@@ -7,8 +7,7 @@ import BitMatchEngine
 /// `TransferOutcomePresentation.make` as the Mac, so a cancelled transfer
 /// reads as cancelled here too.
 struct OutcomePresentationIOSTests {
-    // Plant: in `OutcomeTone.make`, derive the tone from the verdict symbol, as
-    // the old Mac `completionTint` did (a cancelled run then reads `.failed`).
+    // An interrupted run remains amber even if it retained verified rows.
     @Test
     func cancelledToneIsCancelled() {
         let backup = URL(fileURLWithPath: "/private/var/mobile/Backup", isDirectory: true)
@@ -29,10 +28,11 @@ struct OutcomePresentationIOSTests {
             canRetry: true,
             canExport: true
         )
-        #expect(outcome.tone == .cancelled)
-        #expect(outcome.verdict.title == "Transfer cancelled")
+        #expect(outcome.safetyState == .interrupted)
+        #expect(outcome.verdict.title == "Transfer interrupted — the card is not safe to erase")
         #expect(outcome.issueLines.isEmpty)
         #expect(outcome.durationLabel == "Stopped after 30s")
-        #expect(outcome.primaryAction == .newTransfer)
+        #expect(outcome.primaryAction == .retry)
+        #expect(outcome.showsNewTransfer)
     }
 }
