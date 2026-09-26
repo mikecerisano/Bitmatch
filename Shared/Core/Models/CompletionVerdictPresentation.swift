@@ -30,7 +30,7 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
                 title: "\(cardStart) is safe to erase",
                 detail: "Copied to \(backups) and verified.",
                 symbol: "checkmark.circle.fill",
-                sourceGuidance: "Every file on every backup was checked byte for byte. There's nothing else to check before you erase it."
+                sourceGuidance: "Every file on every backup was read back and matched the card."
             )
         case .copiedNotVerified:
             return Self(
