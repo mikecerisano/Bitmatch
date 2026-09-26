@@ -145,7 +145,7 @@ public final class ChecksumEngine: ChecksumService, Sendable {
             closeFileHandle(destinationHandle, context: destinationURL.path)
         }
         
-        let chunkSize = 64 * 1024 // 64KB chunks
+        let chunkSize = 1024 * 1024 // 1 MB: cache-bypassing reads are ~5x slower at 64 KB
         var bytesProcessed: Int64 = 0
 
         while bytesProcessed < sourceInitial.size {
@@ -251,7 +251,7 @@ public final class ChecksumEngine: ChecksumService, Sendable {
         defer { closeFileHandle(fileHandle, context: fileURL.path) }
         
         var hasher = Insecure.MD5()
-        let chunkSize = 64 * 1024
+        let chunkSize = 1024 * 1024
         var bytesProcessed: Int64 = 0
 
         while bytesProcessed < initial.size {
@@ -294,7 +294,7 @@ public final class ChecksumEngine: ChecksumService, Sendable {
         defer { closeFileHandle(fileHandle, context: fileURL.path) }
         
         var hasher = SHA256()
-        let chunkSize = 64 * 1024 // 64KB chunks
+        let chunkSize = 1024 * 1024 // 1 MB: cache-bypassing reads are ~5x slower at 64 KB
         var bytesProcessed: Int64 = 0
 
         while bytesProcessed < initial.size {
@@ -340,7 +340,7 @@ public final class ChecksumEngine: ChecksumService, Sendable {
         defer { closeFileHandle(fileHandle, context: fileURL.path) }
 
         var hasher = Insecure.SHA1()
-        let chunkSize = 64 * 1024 // 64KB chunks
+        let chunkSize = 1024 * 1024 // 1 MB: cache-bypassing reads are ~5x slower at 64 KB
         var bytesProcessed: Int64 = 0
 
         while bytesProcessed < initial.size {
