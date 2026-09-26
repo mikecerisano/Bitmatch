@@ -1,9 +1,15 @@
 // HeaderTabsView.swift - Top navigation tabs component for iPad
 import SwiftUI
+import UIKit
 
 struct HeaderTabsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ObservedObject var coordinator: SharedAppCoordinator
     
+    private var usesWideTabs: Bool {
+        horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     var body: some View {
         topTabsSection
     }
@@ -20,14 +26,14 @@ struct HeaderTabsView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: appMode.systemImage)
-                            .font(.system(size: 11))
+                            .font(.system(size: usesWideTabs ? 15 : 11))
                         Text(appMode.shortTitle)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: usesWideTabs ? 15 : 12, weight: .medium))
                     }
                     .foregroundColor(coordinator.currentMode == appMode ? .white : .white.opacity(0.5))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .frame(minHeight: 44) // Minimum touch target height
+                    .frame(maxWidth: usesWideTabs ? .infinity : nil, minHeight: usesWideTabs ? 48 : 44)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
                             .fill(coordinator.currentMode == appMode ? Color.white.opacity(0.15) : Color.clear)
@@ -38,6 +44,8 @@ struct HeaderTabsView: View {
                 .accessibilityAddTraits(coordinator.currentMode == appMode ? .isSelected : [])
             }
         }
+        .controlSize(usesWideTabs ? .large : .regular)
+        .frame(maxWidth: usesWideTabs ? 640 : nil)
         // Decision C-2: no mode switch while anything runs.
         .disabled(coordinator.isModeSwitchLocked)
         .background(

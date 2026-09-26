@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+import UIKit
+#endif
 
 /// What the boxes can ask for. Picking opens the platform's picker (Mac:
 /// the open panel; iOS: the Files picker); what was picked then goes through
@@ -40,6 +43,19 @@ struct SetupLocationsView: View {
     @State private var isAddMoreTargeted = false
     @State private var targetedBackup: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
+    private var pickerMinimumHeight: CGFloat {
+        #if os(iOS)
+        if horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .pad {
+            return 240
+        }
+        #endif
+        return 120
+    }
 
     var body: some View {
         Group {
@@ -95,7 +111,8 @@ struct SetupLocationsView: View {
                     isTargeted: isSourceTargeted,
                     isHighlighted: presentation.highlightsSource,
                     isEnabled: presentation.canEdit,
-                    action: actions.pickSource
+                    action: actions.pickSource,
+                    minimumHeight: pickerMinimumHeight
                 )
                 .accessibilityLabel("Choose source")
                 .accessibilityHint("Opens a folder picker for the card or folder to copy")
@@ -178,7 +195,8 @@ struct SetupLocationsView: View {
                     isTargeted: isAddTargeted,
                     isHighlighted: presentation.highlightsBackups,
                     isEnabled: presentation.canEdit,
-                    action: actions.pickBackups
+                    action: actions.pickBackups,
+                    minimumHeight: pickerMinimumHeight
                 )
                 .accessibilityLabel("Add backup")
                 .accessibilityHint("Opens a folder picker for one or more backups")
@@ -328,6 +346,7 @@ struct SetupLocationPicker: View {
     let isHighlighted: Bool
     let isEnabled: Bool
     let action: () -> Void
+    var minimumHeight: CGFloat = 120
 
     var body: some View {
         Button(action: action) {
@@ -346,7 +365,7 @@ struct SetupLocationPicker: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 120)
+            .frame(maxWidth: .infinity, minHeight: minimumHeight)
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)

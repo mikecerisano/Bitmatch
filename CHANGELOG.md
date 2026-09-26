@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- iPad: Larger mode controls and source/backup pickers at regular widths, plus the three latest transfers below Copy & Verify setup with access to the Transfers sheet.
+
 - Compare Folders and Master Report now share Copy & Verify’s grouped location pickers and full-width action panels on Mac, iPad, and iPhone.
 
 - Mac: Queue cards from setup while keeping backups, run the queue from its compact strip, and queue connected cards during a one-time transfer.

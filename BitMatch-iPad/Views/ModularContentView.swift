@@ -92,7 +92,7 @@ extension ModularContentView {
             // progress and outcome inside CompareScreen, so it stays on the
             // mode view instead of the transfer progress/completion screens.
             if coordinator.currentMode == .compareFolders {
-                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation)
+                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation, showingTransfers: $showingTransfers)
             } else if coordinator.isOperationInProgress {
                 // OPERATION STATE: the shared progress screen, scrolled so
                 // many backups never clip in a short split view.
@@ -108,7 +108,7 @@ extension ModularContentView {
                     }
             } else {
                 // IDLE STATE: Show file selection interface
-                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation)
+                IdleStateView(coordinator: coordinator, navigationPresentation: navigationPresentation, showingTransfers: $showingTransfers)
                     .onAppear {
                         SharedLogger.debug("UI switched to IDLE view")
                     }
@@ -153,6 +153,8 @@ struct HeaderSectionView: View {
 struct IdleStateView: View {
     @ObservedObject var coordinator: SharedAppCoordinator
     let navigationPresentation: AdaptiveNavigationPresentation
+    @Binding var showingTransfers: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
         Group {
@@ -178,6 +180,14 @@ struct IdleStateView: View {
                 case .copyAndVerify:
                     CopyAndVerifyView(coordinator: coordinator)
                         .frame(maxWidth: 1_100)
+                    if horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .pad
+                        && !coordinator.isOperationInProgress && !coordinator.showsOutcomeSummary {
+                        RecentTransfersSection(journal: coordinator.transferJournal) {
+                            showingTransfers = true
+                        }
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: 1_100)
+                    }
                 case .compareFolders:
                     CompareFoldersView(coordinator: coordinator)
                         .frame(maxWidth: 1_100)
@@ -189,6 +199,33 @@ struct IdleStateView: View {
                 }
             }
             .padding(.bottom, 20)
+        }
+    }
+}
+
+private struct RecentTransfersSection: View {
+    @ObservedObject var journal: LocalTransferJournal
+    let showAll: () -> Void
+
+    var body: some View {
+        let records = TransferLibraryPresentation.recent(journal.records, limit: 3)
+        if !records.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Recent transfers")
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    Button("Show all", action: showAll)
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("Show all transfers")
+                }
+                ForEach(records) { record in
+                    TransferRecordRow(record: record) { EmptyView() }
+                }
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 }
