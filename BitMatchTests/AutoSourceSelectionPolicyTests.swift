@@ -3,8 +3,10 @@ import Testing
 import BitMatchEngine
 
 struct AutoSourceSelectionPolicyTests {
-    @Test func automaticSourceSelectionStartsDisabled() {
-        #expect(ReportPrefs().autoPopulateSource == false)
+    /// On by default (2026-09-26): it only fills an empty source with a
+    /// readable detected card and never starts a transfer.
+    @Test func automaticSourceSelectionStartsEnabled() {
+        #expect(ReportPrefs().autoPopulateSource == true)
     }
 
     @Test func inaccessibleCardIsNeverAutomaticallySelected() {
