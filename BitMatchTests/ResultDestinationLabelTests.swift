@@ -10,17 +10,17 @@ import Testing
 struct ResultDestinationLabelTests {
     private let root = URL(fileURLWithPath: "/Users/someone/Desktop/Card Backups")
 
-    /// Plant: in `CopyVerifyExecutor.destinationLabel`, return the old
+    /// Plant: in `TransferCompletion.destinationLabel`, return the old
     /// guess, `file.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent`.
     @Test func fileDeepInAFolderBackupIsLabelledWithTheBackupFolder() {
         let file = root.appendingPathComponent("A001/CLIP/C0001.MXF")
-        #expect(CopyVerifyExecutor.destinationLabel(for: file, roots: [root]) == "Card Backups")
+        #expect(TransferCompletion.destinationLabel(for: file, roots: [root]) == "Card Backups")
     }
 
     @Test func driveBackupIsLabelledWithTheDrive() {
         let drive = URL(fileURLWithPath: "/Volumes/SSD 1/Jobs/Smith")
         let file = drive.appendingPathComponent("A001/C0001.MXF")
-        #expect(CopyVerifyExecutor.destinationLabel(for: file, roots: [drive, root]) == "SSD 1")
+        #expect(TransferCompletion.destinationLabel(for: file, roots: [drive, root]) == "SSD 1")
     }
 
     /// `/var` is a symlink to `/private/var`; the same folder written both
@@ -28,7 +28,7 @@ struct ResultDestinationLabelTests {
     @Test func symlinkedSpellingStillMatchesItsBackup() {
         let written = URL(fileURLWithPath: "/var/folders/xx/T/dst/src/dir007/file0027.bin")
         let chosen = URL(fileURLWithPath: "/private/var/folders/xx/T/dst")
-        #expect(CopyVerifyExecutor.destinationLabel(for: written, roots: [chosen]) == "dst")
+        #expect(TransferCompletion.destinationLabel(for: written, roots: [chosen]) == "dst")
     }
 
     /// Plant: in `DestinationResultSummary.make`, compare `row.destinationPath`
