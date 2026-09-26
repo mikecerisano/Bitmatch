@@ -257,6 +257,10 @@ final class CopyVerifyExecutor {
         try checkCancellation()
         let verdict = TransferCompletion.verdict(
             rows: allResults,
+            sourceFiles: operation.sourceManifest,
+            destinations: config.destinationURLs,
+            source: config.sourceURL,
+            settings: config.cameraLabelSettings,
             mode: config.verificationMode,
             generateASCMHL: config.generateASCMHL,
             handoffIssues: handoffIssues,
@@ -292,6 +296,7 @@ final class CopyVerifyExecutor {
         guard config.generateASCMHL, config.verificationMode != .quick else { return [] }
         let plan = TransferCompletion.ascmhlPlan(
             results: operation.results,
+            sourceFiles: operation.sourceManifest,
             destinations: config.destinationURLs,
             source: config.sourceURL,
             settings: config.cameraLabelSettings

@@ -41,6 +41,175 @@ public enum TransferCompletion: Sendable {
 
     // MARK: - ASC MHL
 
+    private struct CoverageEntry: Sendable {
+        let source: URL
+        let destination: URL?
+    }
+
+    private struct DestinationCoverage: Sendable {
+        let destination: URL
+        let root: URL
+        let entryIndices: [Int]
+        let missingCount: Int
+        let duplicateCount: Int
+        let unexpectedCount: Int
+
+        var isExact: Bool {
+            missingCount == 0 && duplicateCount == 0 && unexpectedCount == 0
+        }
+    }
+
+    private struct CoverageAnalysis: Sendable {
+        let destinations: [DestinationCoverage]
+        let issues: [String]
+
+        var isExact: Bool {
+            !destinations.isEmpty && destinations.allSatisfy(\.isExact) && issues.isEmpty
+        }
+    }
+
+    private static func coverageAnalysis(
+        entries: [CoverageEntry],
+        sourceFiles: [URL]?,
+        destinations: [URL],
+        source: URL,
+        settings: CameraLabelSettings
+    ) -> CoverageAnalysis {
+        var destinationCoverage: [DestinationCoverage] = []
+        var issues: [String] = []
+        var assignedIndices = Set<Int>()
+        // Resolving touches the file system and a card can hold 100k files,
+        // so each folder is resolved once and each path once.
+        var folders = CanonicalFolders()
+        let expectedPaths = Set((sourceFiles ?? []).map { folders.canonicalPath($0) })
+        let canonicalSources = entries.map { folders.canonicalPath($0.source) }
+        let canonicalDestinations = entries.map { $0.destination.map { folders.canonicalPath($0) } }
+        // A file's place on a backup is the backup root plus its own path
+        // inside the card, so each result is checked against exactly that.
+        let sourcePath = canonicalPath(source)
+        let sourcePrefix = sourcePath.hasSuffix("/") ? sourcePath : sourcePath + "/"
+        func relativeToSource(_ path: String) -> String? {
+            path.hasPrefix(sourcePrefix) ? String(path.dropFirst(sourcePrefix.count)) : nil
+        }
+        let expectedRelativePaths = Set(expectedPaths.compactMap(relativeToSource))
+        var rootsByIndex: [Int: Int] = [:]
+
+        for destination in destinations {
+            let root: URL
+            do {
+                root = try SafetyValidator.resolvedDestinationRootChecked(
+                    source: source, destination: destination, settings: settings
+                )
+            } catch {
+                issues.append("\(destination.lastPathComponent): result coverage could not be checked — \(error.localizedDescription)")
+                continue
+            }
+            // Both sides are already comparable strings, so a prefix test on
+            // whole components ("/Volumes/T7/" never matches "/Volumes/T70")
+            // replaces isAncestor, which would resolve them again.
+            let rootPath = canonicalPath(root)
+            let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+            let indices = entries.indices.filter {
+                guard let destination = canonicalDestinations[$0] else { return false }
+                return destination.hasPrefix(rootPrefix)
+            }
+            assignedIndices.formUnion(indices)
+            for index in indices { rootsByIndex[index, default: 0] += 1 }
+            // A row counts for this backup only when its source is in the
+            // manifest and its copy sits at the matching path under the root.
+            var matchedCounts: [String: Int] = [:]
+            var unexpectedCount = 0
+            for index in indices {
+                guard let destinationPath = canonicalDestinations[index],
+                      expectedPaths.contains(canonicalSources[index]),
+                      let relativeSource = relativeToSource(canonicalSources[index]),
+                      String(destinationPath.dropFirst(rootPrefix.count)) == relativeSource else {
+                    unexpectedCount += 1
+                    continue
+                }
+                matchedCounts[relativeSource, default: 0] += 1
+            }
+            let missingCount = expectedRelativePaths.subtracting(matchedCounts.keys).count
+                + (expectedPaths.count - expectedRelativePaths.count)
+            let duplicateCount = matchedCounts.values.reduce(0) { $0 + max(0, $1 - 1) }
+            destinationCoverage.append(DestinationCoverage(
+                destination: destination,
+                root: root,
+                entryIndices: indices,
+                missingCount: missingCount,
+                duplicateCount: duplicateCount,
+                unexpectedCount: unexpectedCount
+            ))
+        }
+
+        if sourceFiles == nil {
+            issues.append("The source manifest is unavailable")
+        }
+        // Backups are never nested (setup refuses it); if two roots still
+        // claim the same result, the coverage cannot be trusted.
+        if rootsByIndex.values.contains(where: { $0 > 1 }) {
+            issues.append("Some results belong to more than one selected backup")
+        }
+        let unassignedCount = entries.indices.filter { !assignedIndices.contains($0) }.count
+        if unassignedCount > 0 {
+            issues.append(unassignedCount == 1
+                ? "1 result does not belong to a selected backup"
+                : "\(unassignedCount) results do not belong to a selected backup")
+        }
+        return CoverageAnalysis(destinations: destinationCoverage, issues: issues)
+    }
+
+    private static func canonicalPath(_ url: URL) -> String {
+        ResultPathMatch.comparablePath(url.standardizedFileURL.resolvingSymlinksInPath().path)
+    }
+
+    /// Resolves each folder once. Only the folder can hold a symlink here:
+    /// the card manifest refuses symlinked files and copies are written as
+    /// regular files, so the file name is appended as is.
+    private struct CanonicalFolders {
+        private var resolved: [String: String] = [:]
+
+        /// The folder's comparable form is cached too: making a path
+        /// comparable standardizes it, which checks the disk.
+        mutating func canonicalPath(_ url: URL) -> String {
+            let folder = url.deletingLastPathComponent().path
+            let comparableFolder: String
+            if let cached = resolved[folder] {
+                comparableFolder = cached
+            } else {
+                comparableFolder = ResultPathMatch.comparablePath(
+                    URL(fileURLWithPath: folder).standardizedFileURL.resolvingSymlinksInPath().path
+                )
+                resolved[folder] = comparableFolder
+            }
+            let name = url.lastPathComponent
+            return comparableFolder.hasSuffix("/") ? comparableFolder + name : comparableFolder + "/" + name
+        }
+    }
+
+    private static func coverageIssues(_ coverage: CoverageAnalysis) -> [String] {
+        var issues = coverage.issues
+        for item in coverage.destinations {
+            let name = destinationLabel(for: item.destination, roots: [item.destination])
+            if item.missingCount > 0 {
+                issues.append(item.missingCount == 1
+                    ? "\(name): 1 file has no result"
+                    : "\(name): \(item.missingCount) files have no result")
+            }
+            if item.duplicateCount > 0 {
+                issues.append(item.duplicateCount == 1
+                    ? "\(name): 1 file has duplicate results"
+                    : "\(name): \(item.duplicateCount) files have duplicate results")
+            }
+            if item.unexpectedCount > 0 {
+                issues.append(item.unexpectedCount == 1
+                    ? "\(name): 1 result is not in the source manifest"
+                    : "\(name): \(item.unexpectedCount) results are not in the source manifest")
+            }
+        }
+        return issues
+    }
+
     public struct ASCMHLJob: Sendable {
         public let root: URL
         public let files: [ASCMHLGenerator.VerifiedFile]
@@ -55,32 +224,27 @@ public enum TransferCompletion: Sendable {
     /// with SHA-256; each other backup gets an issue saying why not.
     public static func ascmhlPlan(
         results: [FileOperationResult],
+        sourceFiles: [URL]?,
         destinations: [URL],
         source: URL,
         settings: CameraLabelSettings
     ) -> (jobs: [ASCMHLJob], issues: [String]) {
-        let expectedPaths = Set(results.map { $0.sourceURL.standardizedFileURL.path })
+        let entries = results.map { CoverageEntry(source: $0.sourceURL, destination: $0.destinationURL) }
+        let coverage = coverageAnalysis(
+            entries: entries, sourceFiles: sourceFiles, destinations: destinations,
+            source: source, settings: settings
+        )
         var jobs: [ASCMHLJob] = []
-        var issues: [String] = []
-        for destination in destinations {
-            let root: URL
-            do {
-                root = try SafetyValidator.resolvedDestinationRootChecked(
-                    source: source, destination: destination, settings: settings
-                )
-            } catch {
-                issues.append("\(destination.lastPathComponent): ASC MHL not created — \(error.localizedDescription)")
-                continue
-            }
-            let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
-            let rows = results.filter { canonicalRoot.isAncestor(of: $0.destinationURL.standardizedFileURL.resolvingSymlinksInPath()) }
-            guard !expectedPaths.isEmpty, rows.count == expectedPaths.count,
-                  Set(rows.map { $0.sourceURL.standardizedFileURL.path }) == expectedPaths,
+        var issues = coverage.issues.map { "ASC MHL not created — \($0)" }
+        for item in coverage.destinations {
+            let rows = item.entryIndices.map { results[$0] }
+            guard sourceFiles != nil, item.isExact,
                   rows.allSatisfy({ $0.success && $0.verificationResult?.isValid == true && $0.verificationResult?.checksumType == .sha256 }) else {
-                issues.append("\(destination.lastPathComponent): ASC MHL not created because verification is incomplete")
+                issues.append("\(item.destination.lastPathComponent): ASC MHL not created because verification is incomplete")
                 continue
             }
-            jobs.append(ASCMHLJob(root: root, files: rows.map {
+            let canonicalRoot = item.root.standardizedFileURL.resolvingSymlinksInPath()
+            jobs.append(ASCMHLJob(root: item.root, files: rows.map {
                 ASCMHLGenerator.VerifiedFile(
                     relativePath: $0.destinationURL.standardizedFileURL.resolvingSymlinksInPath().relativePath(to: canonicalRoot),
                     size: $0.fileSize, expectedSHA256: $0.verificationResult?.sourceChecksum ?? ""
@@ -159,12 +323,29 @@ public enum TransferCompletion: Sendable {
     /// saved, and the project (if any) saved and locally safe (Promise 2).
     public static func verdict(
         rows: [ResultRow],
+        sourceFiles: [URL]?,
+        destinations: [URL],
+        source: URL,
+        settings: CameraLabelSettings,
         mode: VerificationMode,
         generateASCMHL: Bool,
         handoffIssues: [String],
         reportIssue: String?,
         project: ProjectGate
     ) -> Verdict {
+        let coverage = coverageAnalysis(
+            entries: rows.map {
+                CoverageEntry(
+                    source: URL(fileURLWithPath: $0.path),
+                    destination: $0.destinationPath.map { URL(fileURLWithPath: $0) }
+                )
+            },
+            sourceFiles: sourceFiles,
+            destinations: destinations,
+            source: source,
+            settings: settings
+        )
+        let incompleteCoverageIssues = coverageIssues(coverage)
         let issueCount = rows.filter { !$0.isSuccessStatus }.count
         let fileResultsSucceeded = !rows.isEmpty && issueCount == 0
         // Outside Quick, a row that was copied but not verified keeps the
@@ -180,9 +361,12 @@ public enum TransferCompletion: Sendable {
             fileResultsMessage = issueCount == 1 ? "1 file failed" : "\(issueCount) files failed"
         }
 
-        let everythingElseHeld = fileResultsSucceeded && project.permitsSuccess && handoffIssues.isEmpty && reportIssue == nil
+        let everythingElseHeld = fileResultsSucceeded && coverage.isExact && project.permitsSuccess && handoffIssues.isEmpty && reportIssue == nil
         let succeeded = everythingElseHeld && mode != .quick && everyRowVerified
         var completionMessage = fileResultsMessage
+        if !incompleteCoverageIssues.isEmpty {
+            completionMessage += "; " + incompleteCoverageIssues.joined(separator: "; ")
+        }
         if !project.didPersist {
             completionMessage += "; the project record was not saved"
         } else if project.locallySafe == false {

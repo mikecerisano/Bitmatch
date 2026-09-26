@@ -219,7 +219,9 @@ private final class StreamingFileOperations: FileOperationsService, @unchecked S
                 sourceURL: sourceURL.appendingPathComponent("\(index).ARW"),
                 // Under a folder, so each backup gets its own name ("primary",
                 // "secondary") from the executor's `driveName(for:)`.
-                destinationURL: destination.appendingPathComponent("DCIM/\(index).ARW"),
+                destinationURL: SafetyValidator.resolvedDestinationRoot(
+                    source: sourceURL, destination: destination, settings: settings
+                ).appendingPathComponent("DCIM/\(index).ARW"),
                 success: success, error: nil, fileSize: 8, verificationResult: nil, processingTime: 0
             )
         }
@@ -243,7 +245,9 @@ private final class StreamingFileOperations: FileOperationsService, @unchecked S
         }
         return FileOperation(
             sourceURL: sourceURL, destinationURLs: destinationURLs, startTime: Date(), endTime: Date(),
-            results: authoritative, verificationMode: verificationMode, settings: settings,
+            results: authoritative,
+            sourceManifest: (0..<files).map { sourceURL.appendingPathComponent("\($0).ARW") },
+            verificationMode: verificationMode, settings: settings,
             estimatedTotalBytes: estimatedTotalBytes
         )
     }

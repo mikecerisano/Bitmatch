@@ -708,6 +708,7 @@ public final class TransferPipeline: FileOperationsService, Sendable {
             startTime: operation.startTime,
             endTime: Date(),
             results: finalResults,
+            sourceManifest: sourceManifest.map(\.url),
             verificationMode: operation.verificationMode,
             settings: operation.settings,
             estimatedTotalBytes: operation.estimatedTotalBytes

@@ -10,7 +10,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
     func testQuickCompletionPublishesOneFinalCopiedNotVerifiedState() async throws {
         let copied = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: true,
             error: nil,
             fileSize: 10,
@@ -34,10 +34,27 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertTrue(info.copiedNotVerified)
     }
 
+    func testMissingSecondBackupResultDowngradesExecutorCompletion() async throws {
+        let harness = ExecutorHarness(
+            returnedResults: [verifiedResult()],
+            emittedResults: [],
+            destinationURLs: [
+                URL(fileURLWithPath: "/destination"),
+                URL(fileURLWithPath: "/backups/Shuttle B"),
+            ]
+        )
+
+        _ = try await harness.execute()
+
+        XCTAssertEqual(harness.terminalInfo?.success, false)
+        XCTAssertEqual(harness.terminalInfo?.copiedNotVerified, false)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("Shuttle B: 1 file has no result") == true)
+    }
+
     func testReturnedOperationFailureControlsCompletionWithoutPresentationCallback() async throws {
         let failure = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: false,
             error: NSError(domain: "test", code: 1),
             fileSize: 10,
@@ -56,7 +73,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
     func testLifecycleFailureDowngradesCompletionAndStillPublishesAuthoritativeRows() async throws {
         let success = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: true,
             error: nil,
             fileSize: 10,
@@ -86,7 +103,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
     func testUnsafePersistedPhotographerVerdictDowngradesCompletionWithoutDiscardingRows() async throws {
         let success = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: true,
             error: nil,
             fileSize: 10,
@@ -267,7 +284,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         let preventer = RecordingSleepPreventer()
         let failure = FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: false, error: NSError(domain: "test", code: 1), fileSize: 10,
             verificationResult: nil, processingTime: 0
         )
@@ -332,7 +349,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
     private func verifiedResult() -> FileOperationResult {
         FileOperationResult(
             sourceURL: URL(fileURLWithPath: "/source/clip.mov"),
-            destinationURL: URL(fileURLWithPath: "/destination/clip.mov"),
+            destinationURL: URL(fileURLWithPath: "/destination/source/clip.mov"),
             success: true, error: nil, fileSize: 10,
             verificationResult: VerificationResult(sourceChecksum: "checksum", destinationChecksum: "checksum",
                 matches: true, checksumType: .sha256, processingTime: 0, fileSize: 10),
@@ -355,7 +372,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
             try bytes.write(to: destination.appendingPathComponent("Reports"))
         }
         let result = FileOperationResult(sourceURL: source.appendingPathComponent("clip.mov"),
-            destinationURL: destination.appendingPathComponent("clip.mov"),
+            destinationURL: destination.appendingPathComponent("card/clip.mov"),
             success: true, error: nil, fileSize: Int64(bytes.count),
             verificationResult: VerificationResult(sourceChecksum: "report", destinationChecksum: "report",
                 matches: true, checksumType: .sha256, processingTime: 0, fileSize: Int64(bytes.count)),
@@ -507,12 +524,16 @@ private final class ExecutorFileOperationsService: FileOperationsService {
             await onFileResult?(result)
         }
         if let thrownError { throw thrownError }
+        let sourceManifest = returnedResults.reduce(into: [URL]()) { files, result in
+            if !files.contains(result.sourceURL) { files.append(result.sourceURL) }
+        }
         return FileOperation(
             sourceURL: sourceURL,
             destinationURLs: destinationURLs,
             startTime: Date(),
             endTime: Date(),
             results: returnedResults,
+            sourceManifest: sourceManifest,
             verificationMode: verificationMode,
             settings: settings,
             estimatedTotalBytes: estimatedTotalBytes

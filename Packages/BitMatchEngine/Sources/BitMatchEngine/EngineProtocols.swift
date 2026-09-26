@@ -55,6 +55,9 @@ public struct FileOperation: Sendable {
     public let startTime: Date
     public var endTime: Date?
     public let results: [FileOperationResult]
+    /// The fail-closed source manifest used by this run. Completion is never
+    /// successful when this authoritative coverage is unavailable.
+    public let sourceManifest: [URL]?
     public let verificationMode: VerificationMode
     public let settings: CameraLabelSettings
     public let estimatedTotalBytes: Int64? // For improved ETA calculation
@@ -64,12 +67,13 @@ public struct FileOperation: Sendable {
         return endTime.timeIntervalSince(startTime)
     }
 
-    public init(sourceURL: URL, destinationURLs: [URL], startTime: Date, endTime: Date?, results: [FileOperationResult], verificationMode: VerificationMode, settings: CameraLabelSettings, estimatedTotalBytes: Int64?) {
+    public init(sourceURL: URL, destinationURLs: [URL], startTime: Date, endTime: Date?, results: [FileOperationResult], sourceManifest: [URL]? = nil, verificationMode: VerificationMode, settings: CameraLabelSettings, estimatedTotalBytes: Int64?) {
         self.sourceURL = sourceURL
         self.destinationURLs = destinationURLs
         self.startTime = startTime
         self.endTime = endTime
         self.results = results
+        self.sourceManifest = sourceManifest
         self.verificationMode = verificationMode
         self.settings = settings
         self.estimatedTotalBytes = estimatedTotalBytes
