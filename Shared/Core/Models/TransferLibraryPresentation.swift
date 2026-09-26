@@ -92,6 +92,20 @@ enum TransferLibraryPresentation {
         }
     }
 
+    /// The counts shown on the Queue/History segmented control.
+    static func tabCounts(_ records: [LocalTransferRecord]) -> (queue: Int, history: Int) {
+        let queue = records.filter { $0.state.showsInQueue }.count
+        return (queue, records.count)
+    }
+
+    /// The row's secondary line, next to the date: how many backups and how
+    /// many files this transfer covers. Singular/plural for both nouns.
+    static func detailLine(destinationCount: Int, fileCount: Int) -> String {
+        let backups = destinationCount == 1 ? "1 backup" : "\(destinationCount) backups"
+        let files = fileCount == 1 ? "1 file" : "\(fileCount) files"
+        return "\(backups) · \(files)"
+    }
+
     // MARK: - Banner
 
     /// How many transfers the banner on every platform asks the user to

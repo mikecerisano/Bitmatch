@@ -105,4 +105,45 @@ struct TransferLibraryPresentationTests {
         #expect(count == 0)
         #expect(TransferLibraryPresentation.bannerTitle(needsAttentionCount: count) == nil)
     }
+
+    // MARK: - Tab counts
+
+    /// The Queue/History segmented control's counts (UI plan step: compact
+    /// rows). History always counts every record; Queue only the states that
+    /// show there.
+    /// Plant: in `tabCounts(_:)`, change `records.filter { $0.state.showsInQueue }.count`
+    /// to `records.count`.
+    @Test func tabCountsSplitQueueFromHistory() {
+        let states: [LocalTransferState] = [.queued, .running, .interrupted, .completed, .issues, .cancelled]
+        let records = states.map { PresentationTestSupport.record(state: $0) }
+        let counts = TransferLibraryPresentation.tabCounts(records)
+        #expect(counts.history == 6)
+        #expect(counts.queue == 5) // every state but .completed shows in the queue
+    }
+
+    // MARK: - Detail line
+
+    /// Plant: in `detailLine(destinationCount:fileCount:)`, change
+    /// `destinationCount == 1 ? "1 backup" : "\(destinationCount) backups"` to
+    /// always return `"\(destinationCount) backups"`.
+    @Test func detailLineSingularizesOneBackupAndOneFile() {
+        #expect(TransferLibraryPresentation.detailLine(destinationCount: 1, fileCount: 1) == "1 backup · 1 file")
+        #expect(TransferLibraryPresentation.detailLine(destinationCount: 2, fileCount: 128) == "2 backups · 128 files")
+    }
+}
+
+/// Shared minimal fixtures for these tests.
+private enum PresentationTestSupport {
+    static func record(state: LocalTransferState) -> LocalTransferRecord {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try! FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = try! LocalTransferResource(url: root)
+        var record = LocalTransferRecord(
+            id: UUID(), createdAt: Date(), source: source, destinations: [source],
+            verificationMode: .standard, cameraSettings: CameraLabelSettings(),
+            reportSettings: ReportPrefs(), generateASCMHL: true, projectID: nil
+        )
+        record.state = state
+        return record
+    }
 }

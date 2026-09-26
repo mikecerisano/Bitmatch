@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Transfers: the sheet is redesigned as a compact, native-looking list (Mac, iPad, iPhone) — one row per transfer with a colored status pill, a trailing "..." menu and swipe/context actions in place of stacks of buttons, a Queue/History segmented control with counts, plain empty states, and search that only appears for History (once it has records) and never grabs focus. Every existing action (retry, retry without ASC MHL, reconnect, export, remove from queue, per-file details) is still reachable.
 - New app icon: twelve segments turning blue to green around a check. Mac: the Dock icon shows transfer progress (segments light up, percent in the middle), then the verdict: a green check when every file on every backup verified, amber when something needs a look, red when it failed. It stays until the next transfer.
 - Setup: project fields show clear examples ("e.g. Day 3") instead of names that looked filled in, missing fields are listed in one line ("Still needed: client, job name and camera."), and the mode is called Copy & Verify on Mac, iPad and iPhone.
 - Wording: Transfer results now read plainly instead of repeating engine language ("Operation completed successfully; contents have not been checksum verified." is now "All files copied. Not verified: Quick mode only compares file sizes."). Queue and history summaries no longer say the same thing twice. "File results" wording throughout the outcome screen and per-backup summaries is now just "files".

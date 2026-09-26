@@ -15,178 +15,242 @@ struct TransferLibraryView: View {
     @State private var showExport = false
     @State private var reauthorizeRecord: LocalTransferRecord?
     @State private var exportType = UTType.json
+    @State private var expandedIDs: Set<UUID> = []
 
     private var visibleRecords: [LocalTransferRecord] {
-        TransferLibraryPresentation.visibleRecords(journal.records, showHistory: showHistory, search: search)
+        TransferLibraryPresentation.visibleRecords(journal.records, showHistory: showHistory, search: showHistory ? search : "")
+    }
+
+    private var tabCounts: (queue: Int, history: Int) {
+        TransferLibraryPresentation.tabCounts(journal.records)
+    }
+
+    /// Search only makes sense once History has something to search, and it
+    /// never grabs focus on its own — `.searchable` never autofocuses.
+    private var searchIsAvailable: Bool {
+        showHistory && !journal.records.isEmpty
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Picker("Transfers", selection: $showHistory) {
-                        Text("Queue").tag(false)
-                        Text("History").tag(true)
-                    }.pickerStyle(.segmented)
-                    TextField("Search cards, jobs, or backups", text: $search)
-                        .textFieldStyle(.roundedBorder)
-                    if let message = coordinator.queueMessage ?? journal.persistenceError ?? errorMessage {
-                        Label(message, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                    }
-                    if !showHistory {
-                        HStack {
-                            Button("Add transfer", systemImage: "plus") { showAddTransfer = true }
-                            Spacer()
-                            if coordinator.queueIsRunning {
-                                Button("Stop after current") { coordinator.stopQueueAfterCurrentTransfer() }
-                            } else {
-                                Button("Run queue", systemImage: "play.fill") { coordinator.startQueue() }
-                                    .disabled(journal.persistenceError != nil || !journal.records.contains { $0.state == .queued && $0.projectID == nil })
-                            }
-                        }
-                        Text("Queued transfers keep their own folders and settings. The queue stops when a transfer needs attention.")
-                            .font(.callout).foregroundStyle(.secondary)
-                        #if os(iOS)
-                        Text("Keep BitMatch open. If iOS interrupts a transfer, reconnect the original folders and retry here.")
-                            .font(.callout).foregroundStyle(.secondary)
-                        #endif
-                    }
-                    if visibleRecords.isEmpty {
-                        ContentUnavailableView(showHistory ? "No transfer history" : "No queued transfers",
-                                               systemImage: "tray", description: Text("Completed and interrupted transfers stay here for review."))
-                    }
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(visibleRecords) { record in recordView(record) }
-                    }
-                }.padding()
-            }
-            .navigationTitle("Transfers")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .sheet(isPresented: $showAddTransfer) { AddQueuedTransferView(coordinator: coordinator) }
-            .sheet(item: $reauthorizeRecord) { record in
-                ReauthorizeLocationsView(coordinator: coordinator, journal: journal, recordID: record.id)
-            }
-            .fileExporter(isPresented: $showExport, document: exportDocument, contentType: exportType,
-                          defaultFilename: "BitMatch-transfer") { result in
-                if case .failure(let error) = result { errorMessage = error.localizedDescription }
-            }
+            listContent
+                .navigationTitle("Transfers")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar { toolbarContent }
+                .modifier(OptionalSearchable(isActive: searchIsAvailable, text: $search))
+                .sheet(isPresented: $showAddTransfer) { AddQueuedTransferView(coordinator: coordinator) }
+                .sheet(item: $reauthorizeRecord) { record in
+                    ReauthorizeLocationsView(coordinator: coordinator, journal: journal, recordID: record.id)
+                }
+                .fileExporter(isPresented: $showExport, document: exportDocument, contentType: exportType,
+                              defaultFilename: "BitMatch-transfer") { result in
+                    if case .failure(let error) = result { errorMessage = error.localizedDescription }
+                }
         }
         #if os(macOS)
-        .frame(minWidth: 520, idealWidth: 700, minHeight: 480, idealHeight: 650)
+        .frame(minWidth: 560, idealWidth: 700, minHeight: 480, idealHeight: 650)
         #endif
     }
 
-    private func recordView(_ record: LocalTransferRecord) -> some View {
-        let state = TransferLibraryPresentation.stateLabel(record.state, verificationMode: record.verificationMode)
-        let actions = TransferLibraryPresentation.actions(for: record)
-        return VStack(alignment: .leading, spacing: 8) {
-            // One VoiceOver stop for the card's facts; the buttons stay separate.
+    @ViewBuilder
+    private var listContent: some View {
+        VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(record.title).font(.headline).textSelection(.enabled)
-                        Spacer()
-                        stateLabel(state)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(record.title).font(.headline).textSelection(.enabled)
-                        stateLabel(state)
-                    }
+                Picker("Transfers", selection: $showHistory) {
+                    Text("Queue (\(tabCounts.queue))").tag(false)
+                    Text("History (\(tabCounts.history))").tag(true)
                 }
-                Text(record.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
-                Text(record.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
-                Text(record.destinations.map { $0.url.lastPathComponent }.joined(separator: " · "))
-                    .font(.callout).foregroundStyle(.secondary)
-                Text("\(record.verificationMode.rawValue) · \(record.results.count) reported \(record.results.count == 1 ? "file" : "files")")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .accessibilityElement(children: .combine)
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    recordButtons(record, actions: actions)
-                    Spacer()
-                    exportMenu(record, actions: actions)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    recordButtons(record, actions: actions)
-                    exportMenu(record, actions: actions)
-                }
-            }
-            if actions.showsProjectReviewNote {
-                Text("Review this card in its project before preparing another ingest.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Source: \(record.source.url.path)").textSelection(.enabled)
-                    ForEach(record.destinations.indices, id: \.self) { index in
-                        Text("Backup: \(record.destinations[index].url.path)").textSelection(.enabled)
-                    }
-                    if actions.retryWithoutASCMHL {
-                        Button("Retry without ASC MHL") {
-                            coordinator.retryTransfer(record.id, generateASCMHL: false)
-                        }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                if let message = coordinator.queueMessage ?? journal.persistenceError ?? errorMessage {
+                    Label(message, systemImage: "exclamationmark.triangle")
                         .font(.callout)
-                        .modifier(TouchTarget())
-                        Text("Rechecks copies and retries unfinished work. Existing ASC MHL histories are preserved; this attempt won’t create new ones.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    ForEach(record.results.prefix(100)) { row in
-                        VStack(alignment: .leading) {
-                            Text(row.fileName)
-                            Text("\(row.destination ?? "Backup"): \(row.status)").foregroundStyle(.secondary)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                    if record.results.count > 100 { Text("Showing the first 100 files. Export includes every result.") }
-                }.font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-            } label: {
-                Text("Details").modifier(TouchTarget())
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !showHistory {
+                    Text("Queued transfers keep their own folders and settings. The queue stops when a transfer needs attention.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #if os(iOS)
+                    Text("Keep BitMatch open. If iOS interrupts a transfer, reconnect the original folders and retry here.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    #endif
+                }
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            if visibleRecords.isEmpty {
+                ContentUnavailableView(
+                    showHistory ? "No transfers yet" : "Queue is empty",
+                    systemImage: showHistory ? "clock" : "tray",
+                    description: Text(showHistory
+                        ? "Finished transfers show up here."
+                        : "Add a transfer to get started.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(visibleRecords) { record in rowView(record) }
+                }
+                #if os(macOS)
+                .listStyle(.inset)
+                #else
+                .listStyle(.plain)
+                #endif
             }
         }
-        .padding(14)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func stateLabel(_ state: TransferLibraryPresentation.StateLabel) -> some View {
-        Label(state.title, systemImage: state.systemImage)
-            .font(.subheadline)
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if !showHistory {
+            ToolbarItem {
+                Button("Add Transfer", systemImage: "plus") { showAddTransfer = true }
+            }
+            ToolbarItem {
+                if coordinator.queueIsRunning {
+                    Button("Stop After Current") { coordinator.stopQueueAfterCurrentTransfer() }
+                } else {
+                    Button("Run Queue", systemImage: "play.fill") { coordinator.startQueue() }
+                        .disabled(journal.persistenceError != nil || !journal.records.contains { $0.state == .queued && $0.projectID == nil })
+                }
+            }
+        }
+        ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+    }
+
+    private func rowView(_ record: LocalTransferRecord) -> some View {
+        let state = TransferLibraryPresentation.stateLabel(record.state, verificationMode: record.verificationMode)
+        let actions = TransferLibraryPresentation.actions(for: record)
+        let detail = TransferLibraryPresentation.detailLine(destinationCount: record.destinations.count, fileCount: record.results.count)
+        return DisclosureGroup(isExpanded: expandedBinding(record.id)) {
+            detailsView(record, actions: actions)
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(record.title)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    (Text(record.createdAt, style: .date) + Text(" · \(detail)"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                statePill(state)
+                Menu {
+                    menuItems(record, actions: actions)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .modifier(TouchTarget())
+                .accessibilityLabel("More actions for \(record.title)")
+            }
+            .padding(.vertical, 4)
+        }
+        .contextMenu { menuItems(record, actions: actions) }
+        #if os(iOS)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if actions.removeFromQueue {
+                Button("Remove", role: .destructive) {
+                    do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
+                    catch { errorMessage = error.localizedDescription }
+                }
+            }
+            if actions.retry {
+                Button("Retry") { coordinator.retryTransfer(record.id) }.tint(.blue)
+            }
+        }
+        #endif
+    }
+
+    private func expandedBinding(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { expandedIDs.contains(id) },
+            set: { isExpanded in
+                if isExpanded { expandedIDs.insert(id) } else { expandedIDs.remove(id) }
+            }
+        )
+    }
+
+    private func statePill(_ state: TransferLibraryPresentation.StateLabel) -> some View {
+        Text(state.title)
+            .font(.caption.weight(.semibold))
             .foregroundStyle(state.tone.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(state.tone.color.opacity(0.15), in: Capsule())
+            .accessibilityLabel(state.title)
     }
 
     @ViewBuilder
-    private func recordButtons(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
-        if actions.removeFromQueue {
-            Button("Remove from queue", role: .destructive) {
-                do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
-                catch { errorMessage = error.localizedDescription }
-            }
-            .modifier(TouchTarget())
-        }
+    private func menuItems(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
         if actions.retry {
             Button("Retry") { coordinator.retryTransfer(record.id) }
-                .modifier(TouchTarget())
+        }
+        if actions.retryWithoutASCMHL {
+            Button("Retry without ASC MHL") { coordinator.retryTransfer(record.id, generateASCMHL: false) }
         }
         if actions.reconnect {
             Button("Reconnect…") { reauthorizeRecord = record }
-                .modifier(TouchTarget())
         }
-    }
-
-    @ViewBuilder
-    private func exportMenu(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
         if actions.export {
             Menu("Export") {
                 Button("JSON report") { export(record, asCSV: false) }
                 Button("CSV results") { export(record, asCSV: true) }
             }
-            .modifier(TouchTarget())
         }
+        if actions.removeFromQueue {
+            Divider()
+            Button("Remove from queue", role: .destructive) {
+                do { try journal.cancel(id: record.id, summary: "Removed from queue before copying.") }
+                catch { errorMessage = error.localizedDescription }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func detailsView(_ record: LocalTransferRecord, actions: TransferLibraryPresentation.Actions) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(record.summary).fixedSize(horizontal: false, vertical: true)
+            if actions.showsProjectReviewNote {
+                Text("Review this card in its project before preparing another ingest.")
+                    .foregroundStyle(.secondary)
+            }
+            Text("Source: \(record.source.url.path)").textSelection(.enabled)
+            ForEach(record.destinations.indices, id: \.self) { index in
+                Text("Backup: \(record.destinations[index].url.path)").textSelection(.enabled)
+            }
+            if actions.retryWithoutASCMHL {
+                Button("Retry without ASC MHL") {
+                    coordinator.retryTransfer(record.id, generateASCMHL: false)
+                }
+                .modifier(TouchTarget())
+                Text("Rechecks copies and retries unfinished work. Existing ASC MHL histories are preserved; this attempt won’t create new ones.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(record.results.prefix(100)) { row in
+                VStack(alignment: .leading) {
+                    Text(row.fileName)
+                    Text("\(row.destination ?? "Backup"): \(row.status)").foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            if record.results.count > 100 { Text("Showing the first 100 files. Export includes every result.") }
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     private func export(_ record: LocalTransferRecord, asCSV: Bool) {
@@ -195,6 +259,21 @@ struct TransferLibraryView: View {
             exportType = asCSV ? .commaSeparatedText : .json
             showExport = true
         } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+/// Attaches `.searchable` only when it makes sense, so the field never
+/// appears empty over an empty Queue and never grabs focus on its own.
+private struct OptionalSearchable: ViewModifier {
+    let isActive: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.searchable(text: $text, prompt: "Search cards, jobs, or backups")
+        } else {
+            content
+        }
     }
 }
 
