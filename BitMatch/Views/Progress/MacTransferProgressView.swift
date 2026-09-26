@@ -12,6 +12,7 @@ import SwiftUI
 /// Needs `MacRemoteBackupController` as an environment object
 /// (`macCompanions`, applied at the window root).
 struct MacTransferProgressView: View {
+    @EnvironmentObject private var volumeAccess: MacVolumeAccessModel
     private let coordinator: SharedAppCoordinator
     @ObservedObject private var jobs: PhotographerJobViewModel
     @Binding private var confirmingCancel: Bool
@@ -26,6 +27,7 @@ struct MacTransferProgressView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             CoordinatorProgressScreen(coordinator: coordinator, confirmingCancel: $confirmingCancel)
+            MacQueueNextCards(coordinator: coordinator, monitor: volumeAccess.volumeMonitor)
             if let job = jobs.dashboardJob, !job.cardIngests.isEmpty {
                 PhotographerSessionDashboard(
                     viewModel: jobs,

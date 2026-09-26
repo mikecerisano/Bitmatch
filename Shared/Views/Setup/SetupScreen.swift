@@ -7,6 +7,7 @@ import BitMatchEngine
 struct SetupActions {
     var chooseWorkflow: (TransferWorkflowPresentation) -> Void
     var start: () -> Void
+    var enqueue: (() -> Void)? = nil
 }
 
 /// What the locations slot needs from the screen: how wide it is, and which
@@ -270,18 +271,25 @@ struct SetupScreen<Locations: View, Problems: View, ProjectSetup: View, LabelCon
     private var startArea: some View {
         let start = presentation.start
         return VStack(alignment: .leading, spacing: 8) {
-            Button(action: actions.start) {
-                Label(start.title, systemImage: start.symbol)
-                    .frame(maxWidth: .infinity, minHeight: 32)
+            HStack(spacing: 8) {
+                Button(action: actions.start) {
+                    Label(start.title, systemImage: start.symbol)
+                        .frame(maxWidth: .infinity, minHeight: 32)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                // Grey while waiting on a step or a problem: a button that
+                // cannot be pressed should not look pressable.
+                .tint(start.canStart ? Color.accentColor : Color.gray)
+                .disabled(!start.canStart)
+                .accessibilityLabel(start.title)
+                .accessibilityHint(start.accessibilityHint)
+                if let enqueue = actions.enqueue {
+                    Button("Add to queue", action: enqueue)
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            // Grey while waiting on a step or a problem: a button that
-            // cannot be pressed should not look pressable.
-            .tint(start.canStart ? Color.accentColor : Color.gray)
-            .disabled(!start.canStart)
-            .accessibilityLabel(start.title)
-            .accessibilityHint(start.accessibilityHint)
             if let blocker = start.blocker {
                 Text(blocker)
                     .font(.footnote)

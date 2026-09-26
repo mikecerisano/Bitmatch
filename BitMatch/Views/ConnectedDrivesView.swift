@@ -97,3 +97,27 @@ struct MacConnectedDrives: View {
         if !refusals.isEmpty { platform.showRefusals(refusals) }
     }
 }
+
+@MainActor
+struct MacQueueNextCards: View {
+    @ObservedObject var coordinator: SharedAppCoordinator
+    @ObservedObject var monitor: VolumeMonitorService
+
+    var body: some View {
+        let rows = coordinator.queueCandidates(volumes: monitor.connectedVolumes)
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(rows) { row in
+                    Button("Queue \(row.displayName) next") {
+                        do { try coordinator.enqueueNext(source: row.url) }
+                        catch { Task { await coordinator.showError(error) } }
+                    }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+}

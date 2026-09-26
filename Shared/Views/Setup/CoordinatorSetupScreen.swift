@@ -99,7 +99,20 @@ struct CoordinatorSetupScreen<Locations: View, Problems: View, ProjectSetup: Vie
                 // The one Start: the same rule as ⌘R, including S-2.
                 coordinator.switchMode(to: .copyAndVerify)
                 Task { await coordinator.startCurrentMode() }
-            }
+            },
+            enqueue: enqueueAction
         )
+    }
+
+    private var enqueueAction: (() -> Void)? {
+        #if os(macOS)
+        if coordinator.canEnqueueSelection {
+            return {
+                do { try coordinator.enqueueSelection() }
+                catch { Task { await coordinator.showError(error) } }
+            }
+        }
+        #endif
+        return nil
     }
 }

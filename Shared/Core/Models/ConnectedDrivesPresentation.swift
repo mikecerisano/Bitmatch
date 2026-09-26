@@ -64,6 +64,15 @@ nonisolated enum ConnectedDrivesPresentation {
         }
     }
 
+    /// Inputs are resolved by the caller; this decision never reads the disk.
+    static func queueCandidates(
+        volumes: [Volume], sourceURL: URL, destinationURLs: [URL], queuedSourceURLs: [URL]
+    ) -> [Row] {
+        make(volumes: volumes, sourceURL: sourceURL, destinationURLs: destinationURLs).filter { row in
+            row.state == .none && !queuedSourceURLs.contains { contains($0, in: row.url) }
+        }
+    }
+
     private static func contains(_ selection: URL?, in volume: URL) -> Bool {
         guard let selection else { return false }
         let path = volume.standardizedFileURL.path

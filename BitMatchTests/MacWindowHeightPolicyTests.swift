@@ -43,6 +43,24 @@ struct MacWindowHeightPolicyTests {
         #expect(three > one + 150)
     }
 
+    @Test func setupGrowsWhenQueueStripAppears() throws {
+        let empty = Policy.Setup(hasSource: true, backups: 1, showsProblemBanner: false,
+                                 optionsExpanded: false, showsProjectSetup: false)
+        var queued = empty
+        queued.showsQueueStrip = true
+        for width in [CGFloat(580), 680, 1100] {
+            let before = try #require(Policy.contentHeight(for: .setup(empty), windowWidth: width))
+            let after = try #require(Policy.contentHeight(for: .setup(queued), windowWidth: width))
+            #expect(after == before + 56)
+        }
+    }
+
+    @Test func progressMakesRoomForQueueNextCards() throws {
+        let before = try #require(Policy.contentHeight(for: .progress(backups: 1), windowWidth: 680))
+        let after = try #require(Policy.contentHeight(for: .progress(backups: 1, queueCandidates: 2), windowWidth: 680))
+        #expect(after == before + 68)
+    }
+
     @Test func setupMakesRoomForConnectedDrives() {
         let empty = Policy.Setup(hasSource: false, backups: 0, showsProblemBanner: false,
                                  optionsExpanded: false, showsProjectSetup: false)

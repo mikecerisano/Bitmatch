@@ -13,6 +13,21 @@ struct ConnectedDrivesPresentationTests {
         )
     }
 
+    @Test func queueCandidatesExcludeActiveBackupAndQueuedVolumes() {
+        let rows = Presentation.queueCandidates(
+            volumes: [volume("Card"), volume("Backup"), volume("Waiting"), volume("Waiting 2"),
+                      volume("Next", camera: "Sony"), volume("Recovery")],
+            sourceURL: URL(fileURLWithPath: "/Volumes/Card/DCIM"),
+            destinationURLs: [URL(fileURLWithPath: "/Volumes/Backup/Shoot")],
+            queuedSourceURLs: [URL(fileURLWithPath: "/Volumes/Waiting/DCIM")]
+        )
+        #expect(rows.map(\.displayName) == ["Next", "Waiting 2"])
+        #expect(Presentation.queueCandidates(
+            volumes: [volume("Card")], sourceURL: URL(fileURLWithPath: "/Volumes/Card"),
+            destinationURLs: [], queuedSourceURLs: []
+        ).isEmpty)
+    }
+
     @Test func hidesBootSystemHiddenAndAppImageVolumes() {
         var hidden = volume("Hidden")
         hidden.isHidden = true

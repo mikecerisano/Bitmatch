@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Mac: Queue cards from setup while keeping backups, run the queue from its compact strip, and queue connected cards during a one-time transfer.
+
 - Mac: Copy & Verify setup shows connected cards and drives with capacity, selection status, and one-click card and backup actions.
 
 - Transfers: the sheet is redesigned as a compact, native-looking list (Mac, iPad, iPhone) — one row per transfer with a colored status pill, a trailing "..." menu and swipe/context actions in place of stacks of buttons, a Queue/History segmented control with counts, plain empty states, and search that only appears for History (once it has records) and never grabs focus. Every existing action (retry, retry without ASC MHL, reconnect, export, remove from queue, per-file details) is still reachable.

@@ -33,7 +33,7 @@ enum WindowPresentationPolicy {
 enum MacWindowHeightPolicy {
     enum Screen: Equatable {
         case setup(Setup)
-        case progress(backups: Int)
+        case progress(backups: Int, queueCandidates: Int = 0)
         case outcome(backups: Int, needsAttention: Bool)
         case compare(advancedExpanded: Bool)
         case masterReport
@@ -47,6 +47,7 @@ enum MacWindowHeightPolicy {
         var showsProblemBanner: Bool
         var optionsExpanded: Bool
         var connectedDrives: Int = 0
+        var showsQueueStrip = false
         var showsProjectSetup: Bool
     }
 
@@ -72,8 +73,9 @@ enum MacWindowHeightPolicy {
         switch screen {
         case .setup(let setup):
             return setupHeight(setup, windowWidth: windowWidth)
-        case .progress(let backups):
+        case .progress(let backups, let queueCandidates):
             return progressHeight(backups: backups, windowWidth: windowWidth)
+                + (queueCandidates > 0 ? 20 + CGFloat(queueCandidates) * 28 - 8 : 0)
         case .outcome(let backups, let needsAttention):
             return outcomeHeight(backups: backups, needsAttention: needsAttention, windowWidth: windowWidth)
         case .compare(let advancedExpanded):
@@ -117,7 +119,8 @@ enum MacWindowHeightPolicy {
         // chosen (it wraps to two lines when stacked).
         let start: CGFloat = 58 + (setup.hasSource && setup.backups > 0 ? (sideBySide ? 24 : 40) : 0)
         let drives: CGFloat = 12 + 24 + 16 + 8 + (setup.connectedDrives == 0 ? 14 : CGFloat(setup.connectedDrives) * 40 + CGFloat(setup.connectedDrives - 1) * 8)
-        return setupChrome + title + locations + drives + workflow + banner + advanced + start + 4 * gap
+        let queue: CGFloat = setup.showsQueueStrip ? 44 + 12 : 0
+        return queue + setupChrome + title + locations + drives + workflow + banner + advanced + start + 4 * gap
     }
 
     // MARK: Progress

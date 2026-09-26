@@ -522,16 +522,8 @@ private struct AddQueuedTransferView: View {
     private func enqueue() {
         guard let source else { return }
         do {
-            let settings = CameraLabelSettings()
-            if let refusal = destinations.lazy.compactMap({
-                BackupTargetPolicy.refusal(for: $0, origin: .userChoice, source: source)
-            }).first {
-                throw FileOperationError.unsafeOperation(refusal)
-            }
-            try SafetyValidator.validateResolvedDestinationRoots(source: source, destinations: destinations, settings: settings)
-            try coordinator.transferJournal.enqueue(sourceURL: source, destinationURLs: destinations,
-                verificationMode: mode, cameraSettings: settings, reportSettings: coordinator.reportSettings,
-                generateASCMHL: generateASCMHL)
+            try coordinator.enqueue(source: source, destinations: destinations,
+                verificationMode: mode, generateASCMHL: generateASCMHL)
             dismiss()
         } catch { errorMessage = error.localizedDescription }
     }

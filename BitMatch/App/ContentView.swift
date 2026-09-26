@@ -56,7 +56,10 @@ struct MacMainView: View {
             // The same choice as `mainContentSwitch`: after a compare, Copy
             // shows Setup, never the compare's outcome.
             if coordinator.isOperationInProgress && !coordinator.lastOperationWasCompare {
-                return .progress(backups: coordinator.destinationURLs.count)
+                return .progress(
+                    backups: coordinator.destinationURLs.count,
+                    queueCandidates: coordinator.queueCandidates(volumes: volumeMonitor.connectedVolumes).count
+                )
             }
             switch coordinator.lastOperationWasCompare ? CompletionState.idle : coordinator.completionState {
             case .idle, .inProgress:
@@ -72,6 +75,7 @@ struct MacMainView: View {
                     showsProblemBanner: showsProblemBanner,
                     optionsExpanded: transferOptionsExpanded,
                     connectedDrives: volumeMonitor.connectedVolumes.count,
+                    showsQueueStrip: coordinator.queuedCardCount > 0,
                     showsProjectSetup: setup.showsProjectSetup
                 ))
             default:

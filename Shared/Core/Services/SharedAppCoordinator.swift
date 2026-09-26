@@ -566,6 +566,74 @@ class SharedAppCoordinator: ObservableObject {
 
     // MARK: - Operation Control
 
+    var queuedCardCount: Int {
+        transferJournal.records.filter { $0.state == .queued && $0.projectID == nil }.count
+    }
+
+    var canEnqueueSelection: Bool {
+        sourceURL != nil && !destinationURLs.isEmpty && !isOperationInProgress
+            && !usesProjectWorkflow && !photographerJobViewModel.hasPreparedIngestAwaitingStart
+    }
+
+    /// One validation and bookmark path for setup, the sheet and connected cards.
+    @discardableResult
+    func enqueue(
+        source: URL, destinations: [URL],
+        verificationMode: VerificationMode? = nil,
+        generateASCMHL: Bool? = nil
+    ) throws -> UUID {
+        let scopedURLs = ([source] + destinations).filter { $0.startAccessingSecurityScopedResource() }
+        defer { scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
+        let settings = cameraLabelSettings
+        if let refusal = destinations.lazy.compactMap({
+            BackupTargetPolicy.refusal(for: $0, origin: .userChoice, source: source)
+        }).first {
+            throw FileOperationError.unsafeOperation(refusal)
+        }
+        try SafetyValidator.validateResolvedDestinationRoots(source: source, destinations: destinations, settings: settings)
+        return try transferJournal.enqueue(
+            sourceURL: source, destinationURLs: destinations,
+            verificationMode: verificationMode ?? self.verificationMode,
+            cameraSettings: settings, reportSettings: reportSettings,
+            generateASCMHL: generateASCMHL ?? self.generateASCMHL
+        )
+    }
+
+    func enqueueSelection() throws {
+        guard canEnqueueSelection, let sourceURL else {
+            throw FileOperationError.unsafeOperation("Choose a source and backups for a one-time transfer first.")
+        }
+        try enqueue(source: sourceURL, destinations: destinationURLs)
+        self.sourceURL = nil
+    }
+
+    var runningOneTimeTransfer: LocalTransferRecord? {
+        guard isOperationInProgress, let record = outcomeRecord,
+              record.state == .running, record.projectID == nil,
+              !usesProjectWorkflow else { return nil }
+        return record
+    }
+
+    func queueCandidates(volumes: [ConnectedDrivesPresentation.Volume]) -> [ConnectedDrivesPresentation.Row] {
+        guard let record = runningOneTimeTransfer else { return [] }
+        return ConnectedDrivesPresentation.queueCandidates(
+            volumes: volumes,
+            sourceURL: record.source.url.standardizedFileURL.resolvingSymlinksInPath(),
+            destinationURLs: record.destinations.map { $0.url.standardizedFileURL.resolvingSymlinksInPath() },
+            queuedSourceURLs: transferJournal.records.filter { $0.state == .queued }
+                .map { $0.source.url.standardizedFileURL.resolvingSymlinksInPath() }
+        )
+    }
+
+    func enqueueNext(source: URL) throws {
+        guard let record = runningOneTimeTransfer else {
+            throw FileOperationError.unsafeOperation("A one-time transfer must be running to queue the next card.")
+        }
+        try enqueue(source: source, destinations: record.destinations.map(\.url))
+        // startQueue waits for executeOperation to unwind before advancing.
+        startQueue()
+    }
+
     func startQueue() {
         guard !(isOperationInProgress && currentMode == .compareFolders) else {
             queueIsRunning = false
