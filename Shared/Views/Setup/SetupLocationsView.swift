@@ -64,9 +64,7 @@ struct SetupLocationsView: View {
         }
         .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.primary.opacity(0.03))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.08)))
+            SetupLocationsPanelBackground()
         )
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isSourceTargeted)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isAddTargeted)
@@ -88,7 +86,7 @@ struct SetupLocationsView: View {
             if let source = presentation.source {
                 selectedSource(source)
             } else {
-                emptyBox(
+                SetupLocationPicker(
                     symbol: "sdcard",
                     title: "Choose source…",
                     detail: drops == nil
@@ -96,6 +94,7 @@ struct SetupLocationsView: View {
                         : "The card or folder to copy, or drag it here",
                     isTargeted: isSourceTargeted,
                     isHighlighted: presentation.highlightsSource,
+                    isEnabled: presentation.canEdit,
                     action: actions.pickSource
                 )
                 .accessibilityLabel("Choose source")
@@ -145,12 +144,7 @@ struct SetupLocationsView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.accentColor.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(isSourceTargeted ? Color.accentColor : Color.accentColor.opacity(0.3), lineWidth: isSourceTargeted ? 2 : 1)
-                )
+            SetupSelectedLocationBackground(isTargeted: isSourceTargeted)
         )
         .help(source.path)
     }
@@ -175,7 +169,7 @@ struct SetupLocationsView: View {
                 }
             }
             if presentation.backups.isEmpty {
-                emptyBox(
+                SetupLocationPicker(
                     symbol: "externaldrive.badge.plus",
                     title: "Add backup…",
                     detail: drops == nil
@@ -183,6 +177,7 @@ struct SetupLocationsView: View {
                         : "A folder on each backup drive, or drag them here",
                     isTargeted: isAddTargeted,
                     isHighlighted: presentation.highlightsBackups,
+                    isEnabled: presentation.canEdit,
                     action: actions.pickBackups
                 )
                 .accessibilityLabel("Add backup")
@@ -291,51 +286,6 @@ struct SetupLocationsView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    /// An empty box is one big button, so the whole box is the touch target.
-    private func emptyBox(
-        symbol: String,
-        title: String,
-        detail: String,
-        isTargeted: Bool,
-        isHighlighted: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: symbol)
-                    .font(.title2)
-                    .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 120)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .disabled(!presentation.canEdit)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.primary.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(
-                            isTargeted ? Color.accentColor : Color.primary.opacity(0.15),
-                            style: StrokeStyle(lineWidth: isTargeted ? 2 : 1, dash: isTargeted ? [] : [6, 4])
-                        )
-                )
-        )
-        // A drop in progress already shows its own outline.
-        .nextStepHighlight(isHighlighted && !isTargeted, cornerRadius: 10)
-    }
-
     private func removeButton(label: String, hint: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "xmark.circle.fill")
@@ -366,5 +316,74 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+/// The shared empty location box; its entire area opens the picker.
+struct SetupLocationPicker: View {
+    let symbol: String
+    let title: String
+    let detail: String
+    let isTargeted: Bool
+    let isHighlighted: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.title2)
+                    .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 120)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.primary.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(
+                            isTargeted ? Color.accentColor : Color.primary.opacity(0.15),
+                            style: StrokeStyle(lineWidth: isTargeted ? 2 : 1, dash: isTargeted ? [] : [6, 4])
+                        )
+                )
+        )
+        // A drop in progress already shows its own outline.
+        .nextStepHighlight(isHighlighted && !isTargeted, cornerRadius: 10)
+    }
+}
+
+struct SetupSelectedLocationBackground: View {
+    var isTargeted = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(Color.accentColor.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isTargeted ? Color.accentColor : Color.accentColor.opacity(0.3), lineWidth: isTargeted ? 2 : 1)
+            )
+    }
+}
+
+struct SetupLocationsPanelBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14)
+            .fill(Color.primary.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.08)))
     }
 }

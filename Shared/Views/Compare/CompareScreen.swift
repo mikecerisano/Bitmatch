@@ -91,6 +91,7 @@ struct CompareScreen: View {
             CompareFolderSlotView(
                 side: "Left folder",
                 role: "The one you trust",
+                detail: "The folder you trust",
                 slot: presentation.left,
                 isEditable: presentation.allowsEditing,
                 isNextStep: presentation.nextStep == .chooseLeft,
@@ -98,9 +99,17 @@ struct CompareScreen: View {
                 clear: actions.clearLeft,
                 drop: actions.dropLeft
             )
+            if layout != .compact {
+                Image(systemName: "arrow.right")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 34)
+                    .accessibilityHidden(true)
+            }
             CompareFolderSlotView(
                 side: "Right folder",
                 role: "Checked against the left",
+                detail: "The copy to check",
                 slot: presentation.right,
                 isEditable: presentation.allowsEditing,
                 isNextStep: presentation.nextStep == .chooseRight,
@@ -109,6 +118,8 @@ struct CompareScreen: View {
                 drop: actions.dropRight
             )
         }
+        .padding(14)
+        .background(SetupLocationsPanelBackground())
     }
 
     // MARK: Controls
@@ -116,28 +127,24 @@ struct CompareScreen: View {
     @ViewBuilder
     private var controls: some View {
         if !presentation.isRunning {
-            VStack(alignment: .leading, spacing: 12) {
-                // The same collapsed Advanced section as Setup. Its label
-                // already names a non-default mode, so there is no separate
-                // "Checks:" line.
-                TransferOptionsSection(
-                    isExpanded: $advancedExpanded,
-                    verificationMode: $verificationMode
-                )
+            TransferOptionsSection(
+                isExpanded: $advancedExpanded,
+                verificationMode: $verificationMode
+            )
+            .padding(12)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
 
-                // Only a real problem gets a line. A missing folder is shown
-                // by the highlighted box and the button title instead.
+            VStack(alignment: .leading, spacing: 8) {
+                compareButton
                 if let message = presentation.blockMessage {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
                         .foregroundStyle(Color.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                compareButton
             }
-            .padding(14)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+            .padding(12)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
@@ -147,7 +154,7 @@ struct CompareScreen: View {
                 presentation.actionTitle,
                 systemImage: presentation.nextStep != nil ? "arrow.up" : "arrow.left.arrow.right"
             )
-            .frame(maxWidth: layout == .compact ? .infinity : nil, minHeight: 32)
+            .frame(maxWidth: .infinity, minHeight: 32)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
@@ -155,7 +162,6 @@ struct CompareScreen: View {
         // that cannot be pressed should not look pressable.
         .tint(presentation.readiness.canStart ? Color.accentColor : Color.gray)
         .disabled(!presentation.readiness.canStart)
-        .frame(maxWidth: .infinity, alignment: layout == .compact ? .leading : .trailing)
     }
 
     // MARK: Phase
@@ -192,12 +198,11 @@ struct CompareScreen: View {
 
 // MARK: - Folder slot
 
-/// One folder box, drawn like the Copy screen's source box: a dashed empty
-/// box with a picker button (and a drop hint where drop is offered), or a
-/// green-edged box showing the chosen folder with a clear button.
+/// One folder slot using the Copy screen's empty and chosen styles.
 private struct CompareFolderSlotView: View {
     let side: String
     let role: String
+    let detail: String
     let slot: CompareFolderSlot
     let isEditable: Bool
     let isNextStep: Bool
@@ -206,12 +211,14 @@ private struct CompareFolderSlotView: View {
     let drop: ((URL) -> Void)?
 
     @State private var isTargeted = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(side)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
                     .accessibilityAddTraits(.isHeader)
                 Text(role)
                     .font(.caption)
@@ -229,54 +236,31 @@ private struct CompareFolderSlotView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isTargeted)
     }
 
     private var emptyBox: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "folder.badge.plus")
-                .font(.title2)
-                .foregroundStyle(isTargeted ? Color.green : Color.secondary)
-                .accessibilityHidden(true)
-            if drop != nil && isEditable {
-                Text("Drag the \(side.lowercased()) here")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(isTargeted ? Color.green : Color.secondary)
-                Text("or")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            Button("Choose Folder…", action: pick)
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(!isEditable)
-                .accessibilityLabel("Choose \(side.lowercased())")
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 130)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(
-                            isTargeted ? Color.green.opacity(0.6) : Color.primary.opacity(0.15),
-                            style: StrokeStyle(lineWidth: isTargeted ? 2 : 1, dash: isTargeted ? [] : [6, 4])
-                        )
-                )
+        SetupLocationPicker(
+            symbol: "folder.badge.plus",
+            title: "Choose \(side.lowercased())…",
+            detail: drop == nil ? "\(detail), from Files" : "\(detail), or drag it here",
+            isTargeted: isTargeted,
+            isHighlighted: isNextStep,
+            isEnabled: isEditable,
+            action: pick
         )
-        .nextStepHighlight(isNextStep && !isTargeted)
-        .animation(.easeInOut(duration: 0.2), value: isTargeted)
+        .accessibilityLabel("Choose \(side.lowercased())…")
     }
 
     private func chosenBox(name: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "folder.fill")
                 .font(.body)
-                .foregroundStyle(Color.green)
+                .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.body.weight(.semibold))
+                    .font(.headline)
                     .lineLimit(2)
                 if let path = slot.path {
                     Text(path)
@@ -292,7 +276,7 @@ private struct CompareFolderSlotView: View {
             if isEditable {
                 Button(action: clear) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Color.red.opacity(0.7))
+                        .foregroundStyle(.secondary)
                         .frame(minWidth: Self.clearTarget, minHeight: Self.clearTarget)
                         .contentShape(Rectangle())
                 }
@@ -303,15 +287,7 @@ private struct CompareFolderSlotView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(isTargeted ? 0.08 : 0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(
-                            Color.green.opacity(isTargeted ? 0.6 : 0.3),
-                            lineWidth: isTargeted ? 2 : 1
-                        )
-                )
+            SetupSelectedLocationBackground(isTargeted: isTargeted)
         )
     }
 

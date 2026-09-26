@@ -15,7 +15,7 @@ struct MasterReportView: View {
 
     static var platform: MasterReportPlatform {
         MasterReportPlatform(
-            chooseLocationTitle: "Choose Drive or Folder…",
+            chooseLocationTitle: MasterReportPresentation.locationTitle,
             locationHint: "Pick the backup drive, card reader or folder in Files. BitMatch can read only the location you pick.",
             scanningHint: "Keep BitMatch open until the scan finishes. iOS pauses it in the background.",
             deliverVerb: "Share",

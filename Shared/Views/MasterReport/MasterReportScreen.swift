@@ -5,7 +5,7 @@ import BitMatchEngine
 /// What only the platform can do for the Master Report: choose a folder,
 /// and save or share the finished report.
 struct MasterReportPlatform {
-    /// The picker button's title, e.g. "Choose Drive or Folder…".
+    /// The picker button's title, e.g. "Choose drive or folder…".
     var chooseLocationTitle: String
     /// One line under the location box on how choosing works here.
     var locationHint: String
@@ -46,7 +46,7 @@ struct MasterReportScreen: View {
 
     var body: some View {
         Group {
-            if layout == .sidebar {
+            if layout == .sidebar && model.phase != .idle {
                 HStack(alignment: .top, spacing: 20) {
                     VStack(alignment: .leading, spacing: 16) {
                         header
@@ -129,6 +129,10 @@ struct MasterReportScreen: View {
 
     private var locationAndDay: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Drive or folder")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
             Group {
                 if let location = model.location {
                     chosenLocation(location)
@@ -143,7 +147,7 @@ struct MasterReportScreen: View {
                     in: ...Date(),
                     displayedComponents: .date
                 )
-                .fixedSize()
+                .datePickerStyle(.compact)
                 .disabled(model.isScanning || model.isGenerating)
                 if !model.isToday {
                     Button("Today") { model.day = Date() }
@@ -158,45 +162,31 @@ struct MasterReportScreen: View {
                 .foregroundStyle(.secondary)
         }
         .padding(14)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+        .background(SetupLocationsPanelBackground())
     }
 
     private var emptyLocation: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "externaldrive.badge.plus")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Button(platform.chooseLocationTitle, action: chooseLocation)
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            Text(platform.locationHint)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 120)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.primary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                )
+        SetupLocationPicker(
+            symbol: "externaldrive.badge.plus",
+            title: platform.chooseLocationTitle,
+            detail: MasterReportPresentation.locationDetail,
+            isTargeted: false,
+            isHighlighted: presentation.nextStep == .chooseLocation,
+            isEnabled: true,
+            action: chooseLocation
         )
-        .nextStepHighlight(presentation.nextStep == .chooseLocation)
+        .accessibilityLabel(platform.chooseLocationTitle)
+        .accessibilityHint(platform.locationHint)
     }
 
     private func chosenLocation(_ url: URL) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "externaldrive.fill")
-                .foregroundStyle(Color.green)
+                .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent)
-                    .font(.body.weight(.semibold))
+                    .font(.headline)
                     .lineLimit(2)
                 Text(url.path)
                     .font(.caption)
@@ -214,9 +204,7 @@ struct MasterReportScreen: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.05))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.green.opacity(0.3), lineWidth: 1))
+            SetupSelectedLocationBackground()
         )
     }
 
@@ -407,14 +395,14 @@ struct MasterReportScreen: View {
     // MARK: Action
 
     private var actionArea: some View {
-        VStack(alignment: layout == .compact ? .leading : .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             generationStatus
             Button(action: generate) {
                 Label(
                     presentation.actionTitle,
                     systemImage: presentation.nextStep == .chooseLocation ? "arrow.up" : "doc.richtext"
                 )
-                .frame(maxWidth: layout == .compact ? .infinity : nil, minHeight: 32)
+                .frame(maxWidth: .infinity, minHeight: 32)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -422,7 +410,8 @@ struct MasterReportScreen: View {
             .tint(presentation.canGenerate ? Color.accentColor : Color.gray)
             .disabled(!presentation.canGenerate)
         }
-        .frame(maxWidth: .infinity, alignment: layout == .compact ? .leading : .trailing)
+        .padding(12)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// Success appears only after the platform wrote or shared the report;

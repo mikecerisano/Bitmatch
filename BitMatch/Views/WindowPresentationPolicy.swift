@@ -79,16 +79,20 @@ enum MacWindowHeightPolicy {
         case .outcome(let backups, let needsAttention):
             return outcomeHeight(backups: backups, needsAttention: needsAttention, windowWidth: windowWidth)
         case .compare(let advancedExpanded):
-            // Unchanged: title 60, the two folder boxes 170, checks and the
-            // Compare button 170, on the old 200 pt base. Results scroll.
-            return 200 + 60 + 170 + 170 + (advancedExpanded ? 150 : 0)
+            let compact = AdaptiveNavigationPolicy.presentation(for: windowWidth - 40) == .compact
+            // Folder labels and roles (40), then each 120 pt picker, inside
+            // the padded panel. Compact widths stack the two slots.
+            let locations: CGFloat = 28 + (compact ? 2 * 160 + 12 : 160)
+            let title: CGFloat = compact ? 60 : 42
+            let advanced: CGFloat = 68 + (advancedExpanded ? 150 : 0)
+            let start: CGFloat = 58
+            return chrome + title + locations + advanced + start + 3 * gap
         case .masterReport:
-            // The report model lives inside the shared screen, so one height
-            // serves every phase: the tallest state without results ("No
-            // reports" at 580 pt: title 80, drive and day 222, notice 108,
-            // button 34, gaps 48, chrome 104 = 596) fits with a little room;
-            // found transfers scroll below the totals.
-            return 620
+            // Setup: wrapped header, drive label and picker, Day row and
+            // hint, then the padded action button. Scan results scroll.
+            let title: CGFloat = windowWidth < 680 ? 80 : 60
+            let locations: CGFloat = 28 + 16 + 120 + 44 + 16 + 3 * 12
+            return chrome + title + locations + 58 + 2 * gap
         }
     }
 

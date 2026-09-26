@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Compare Folders and Master Report now share Copy & Verify’s grouped location pickers and full-width action panels on Mac, iPad, and iPhone.
+
 - Mac: Queue cards from setup while keeping backups, run the queue from its compact strip, and queue connected cards during a one-time transfer.
 
 - Mac: Copy & Verify setup shows connected cards and drives with capacity, selection status, and one-click card and backup actions.

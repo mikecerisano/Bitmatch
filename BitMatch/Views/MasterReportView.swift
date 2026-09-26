@@ -15,7 +15,7 @@ struct MasterReportView: View {
 
     static var platform: MasterReportPlatform {
         MasterReportPlatform(
-            chooseLocationTitle: "Choose Drive or Folder…",
+            chooseLocationTitle: MasterReportPresentation.locationTitle,
             locationHint: "Choose the backup drive, or a folder on it, that holds the day's BitMatch reports.",
             scanningHint: nil,
             deliverVerb: "Save",

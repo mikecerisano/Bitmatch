@@ -71,6 +71,22 @@ struct MacWindowHeightPolicyTests {
         #expect(after > before + 100)
     }
 
+    @Test func compareMakesRoomForStackedFoldersAndAdvanced() throws {
+        let narrow = try #require(Policy.contentHeight(for: .compare(advancedExpanded: false), windowWidth: 580))
+        let standard = try #require(Policy.contentHeight(for: .compare(advancedExpanded: false), windowWidth: 680))
+        let expanded = try #require(Policy.contentHeight(for: .compare(advancedExpanded: true), windowWidth: 680))
+        #expect(narrow > standard + 150)
+        #expect(expanded == standard + 150)
+    }
+
+    @Test func masterReportSetupFitsWithoutReservingEmptyResultsSpace() throws {
+        let narrow = try #require(Policy.contentHeight(for: .masterReport, windowWidth: 580))
+        let standard = try #require(Policy.contentHeight(for: .masterReport, windowWidth: 680))
+        #expect(narrow > standard)
+        #expect(narrow < 620)
+        #expect(Policy.idealHeight(for: .masterReport, windowWidth: 680, available: 2000) == WindowPresentationPolicy.minimumHeight)
+    }
+
     /// No screen asks for less than the window's minimum or more than the
     /// screen allows.
     /// Plant: in `MacWindowHeightPolicy.idealHeight`, return `content`
