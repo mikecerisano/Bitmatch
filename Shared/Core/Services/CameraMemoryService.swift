@@ -4,7 +4,9 @@ import ImageIO
 import AVFoundation
 
 // MARK: - Camera Memory Service
-final class CameraMemoryService {
+/// `@unchecked Sendable`: its only mutable state, `memory`, is read and
+/// written under `memoryLock` (the load in `init` runs before sharing).
+final class CameraMemoryService: @unchecked Sendable {
     static let shared = CameraMemoryService()
     private let userDefaults = UserDefaults.standard
     private let memoryKey = "CameraMemory"

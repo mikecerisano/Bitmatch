@@ -28,7 +28,7 @@ final class ComparisonCoordinator {
         left: URL,
         right: URL,
         verificationMode: VerificationMode,
-        onProgress: @escaping @MainActor (OperationProgress) -> Void
+        onProgress: @escaping @MainActor @Sendable (OperationProgress) -> Void
     ) async throws -> CompareStats {
         cancellationRequested = false
         let comparer = FolderComparer(

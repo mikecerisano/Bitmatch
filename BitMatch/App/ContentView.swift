@@ -335,7 +335,7 @@ struct MacMainView: View {
     /// dashboard and its SFTP actions in the evidence slot.
     @ViewBuilder
     private var completionView: some View {
-        CoordinatorOutcomeScreen(coordinator: coordinator) {
+        CoordinatorOutcomeScreen(coordinator: coordinator, projectEvidence: {
             if let job = coordinator.photographerJobViewModel.dashboardJob,
                CompletionEvidencePresentation.shouldShowProjectMedia(
                 hasDashboardJob: true,
@@ -349,7 +349,7 @@ struct MacMainView: View {
                     cancelRemoteBackup: remoteBackups.cancelRemoteBackup
                 )
             }
-        }
+        })
         .padding(.top, 16)
         .transition(.asymmetric(
             insertion: .scale(scale: 0.95).combined(with: .opacity),

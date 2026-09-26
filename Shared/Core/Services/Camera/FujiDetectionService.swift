@@ -2,7 +2,7 @@
 import Foundation
 
 /// Specialized service for detecting Fujifilm cameras via RAF files and metadata
-final class FujiDetectionService {
+final class FujiDetectionService: Sendable {
     static let shared = FujiDetectionService()
     private init() {}
     

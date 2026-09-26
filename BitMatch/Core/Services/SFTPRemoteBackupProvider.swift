@@ -66,7 +66,7 @@ actor SFTPRemoteBackupProvider: RemoteBackupProvider {
         self.credential = credential
         self.knownHostsURL = knownHostsURL ?? Self.profileKnownHostsURL(profileID: profile.id)
         self.confirmUnknownHost = confirmUnknownHost
-        self.run = run ?? SFTPRemoteBackupProvider.runProcess
+        self.run = run ?? { try await SFTPRemoteBackupProvider.runProcess($0) }
     }
 
     func preflight(profile requested: RemoteDestinationProfile, credential supplied: RemoteCredential) async throws -> RemoteProviderCapabilities {

@@ -2,7 +2,7 @@
 import Foundation
 
 /// Reads the Sony model from MEDIAPRO.XML. The brand itself comes from CardLayoutClassifier.
-final class SonyDetectionService {
+final class SonyDetectionService: Sendable {
     static let shared = SonyDetectionService()
     private init() {}
     

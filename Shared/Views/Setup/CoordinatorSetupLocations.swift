@@ -220,7 +220,7 @@ struct CoordinatorSetupLocations: View {
 /// Reads file URLs from dropped items, then calls back on the main actor
 /// with those it could read, in drop order. Not actor-isolated: the item
 /// providers call back on their own queues.
-private func loadDroppedURLs(_ providers: [NSItemProvider], completion: @escaping @MainActor ([URL]) -> Void) {
+private func loadDroppedURLs(_ providers: [NSItemProvider], completion: @escaping @MainActor @Sendable ([URL]) -> Void) {
     let group = DispatchGroup()
     let loaded = DroppedURLs()
     for (offset, provider) in providers.enumerated() {

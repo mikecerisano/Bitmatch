@@ -17,7 +17,7 @@ struct RemoteBackupDestinationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-            Toggle(isOn: Binding(get: { isEnabled }, set: setEnabled)) {
+            Toggle(isOn: Binding(get: { isEnabled }, set: { setEnabled($0) })) {
                 HStack(spacing: DesignSystem.Spacing.sm) {
                     Image(systemName: "icloud.and.arrow.up")
                         .foregroundColor(DesignSystem.Colors.textSecondary)
@@ -40,7 +40,7 @@ struct RemoteBackupDestinationView: View {
                     Button("Manage destinations") { showingDestinations = true }
                         .font(DesignSystem.Typography.caption)
                 } else {
-                    Picker("Destination", selection: Binding(get: { configuration?.destinationProfileID }, set: remoteBackups.selectRemoteProfile)) {
+                    Picker("Destination", selection: Binding(get: { configuration?.destinationProfileID }, set: { remoteBackups.selectRemoteProfile($0) })) {
                         Text("Select saved destination").tag(UUID?.none)
                         ForEach(viewModel.remoteProfiles) { profile in
                             Text(profile.name).tag(Optional(profile.id))

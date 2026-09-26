@@ -2,7 +2,7 @@
 import Foundation
 
 /// Service for detecting cameras via generic XML metadata files
-final class XMLMetadataDetectionService {
+final class XMLMetadataDetectionService: Sendable {
     static let shared = XMLMetadataDetectionService()
     private init() {}
 

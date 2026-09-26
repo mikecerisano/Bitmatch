@@ -3,7 +3,7 @@ import Foundation
 #if os(macOS)
 import AppKit
 
-class MacOSPlatformManager: PlatformManager {
+final class MacOSPlatformManager: PlatformManager, Sendable {
     static let shared = MacOSPlatformManager()
     
     // MARK: - Service Instances

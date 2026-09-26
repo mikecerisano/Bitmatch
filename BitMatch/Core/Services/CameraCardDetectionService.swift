@@ -61,7 +61,7 @@ final class CameraCardDetectionService: ObservableObject {
         await CameraStructureDetector.detectCameraType(at: $0)
     }
 
-    private static func defaultVolumeList() -> [URL] {
+    nonisolated private static func defaultVolumeList() -> [URL] {
         // Camera cards mount under /Volumes on macOS; the boot volume
         // itself is never a card, so skip it.
         let volumes = FileManager.default.mountedVolumeURLs(

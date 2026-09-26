@@ -9,7 +9,7 @@ import Foundation
 /// a DCIM card. It no longer treats DCIM + MISC as Canon or MISC as GoPro
 /// (audit finding D), and it matches whole path components, so a folder
 /// named CARRIE is not ARRI.
-final class FolderStructureDetectionService {
+final class FolderStructureDetectionService: Sendable {
     static let shared = FolderStructureDetectionService()
     private init() {}
 

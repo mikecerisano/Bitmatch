@@ -2,7 +2,7 @@
 import Foundation
 
 /// Specialized service for detecting Panasonic cameras via metadata and folder structure
-final class PanasonicDetectionService {
+final class PanasonicDetectionService: Sendable {
     static let shared = PanasonicDetectionService()
     private init() {}
     

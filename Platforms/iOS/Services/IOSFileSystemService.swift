@@ -165,6 +165,7 @@ final class IOSFileSystemService: NSObject, FileSystemService, @unchecked Sendab
     }
 }
 
+@MainActor
 private func topViewController(from root: UIViewController) -> UIViewController {
     var current = root
     while let presented = current.presentedViewController {

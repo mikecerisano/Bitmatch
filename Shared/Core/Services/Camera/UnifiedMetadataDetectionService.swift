@@ -2,7 +2,7 @@
 import Foundation
 
 /// Unified service for detecting cameras via video and media file metadata
-final class UnifiedMetadataDetectionService {
+final class UnifiedMetadataDetectionService: Sendable {
     static let shared = UnifiedMetadataDetectionService()
     private init() {}
     

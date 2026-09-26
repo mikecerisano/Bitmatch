@@ -35,7 +35,7 @@ class GlobalErrorHandler: ObservableObject {
 }
 
 enum AppError: LocalizedError {
-    case fileOperation(String, recovery: String? = nil, retry: (() -> Void)? = nil)
+    case fileOperation(String, recovery: String? = nil, retry: (@MainActor @Sendable () -> Void)? = nil)
     case networkError(String, recovery: String? = nil)
     case invalidData(String, recovery: String? = nil)
     case insufficientStorage(String, recovery: String? = nil)
@@ -64,7 +64,7 @@ enum AppError: LocalizedError {
         }
     }
 
-    var retryAction: (() -> Void)? {
+    var retryAction: (@MainActor @Sendable () -> Void)? {
         switch self {
         case .fileOperation(_, _, let retry): return retry
         default: return nil

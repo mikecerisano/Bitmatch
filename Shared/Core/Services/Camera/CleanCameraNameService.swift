@@ -2,7 +2,7 @@
 import Foundation
 
 /// Service for converting full camera names to clean folder-friendly labels
-final class CleanCameraNameService {
+final class CleanCameraNameService: Sendable {
     static let shared = CleanCameraNameService()
     private init() {}
     

@@ -2,7 +2,7 @@
 import Foundation
 
 /// Main orchestrator for camera detection using hierarchical detection methods
-final class CameraDetectionOrchestrator {
+final class CameraDetectionOrchestrator: Sendable {
     static let shared = CameraDetectionOrchestrator()
     private init() {}
     

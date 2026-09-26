@@ -82,9 +82,9 @@ final class PhotographerJobViewModel: ObservableObject {
     init(
         store: any PhotographerJobStore,
         now: @escaping () -> Date = Date.init,
-        preliminaryAnalyzer: @escaping PreliminaryAnalyzer = PhotographerCardAnalyzer.preliminaryAnalysis,
-        confirmedAnalyzer: @escaping ConfirmedAnalyzer = PhotographerCardAnalyzer.confirmedFingerprint,
-        entryEnumerator: @escaping EntryEnumerator = CardSource.enumerateRegularFiles,
+        preliminaryAnalyzer: @escaping PreliminaryAnalyzer = { try PhotographerCardAnalyzer.preliminaryAnalysis(entries: $0) },
+        confirmedAnalyzer: @escaping ConfirmedAnalyzer = { try PhotographerCardAnalyzer.confirmedFingerprint(results: $0) },
+        entryEnumerator: @escaping EntryEnumerator = { try CardSource.enumerateRegularFiles(base: $0) },
         remoteBackupCoordinator: (any ProjectRemoteCoordinator)? = nil,
         workflowDefaults: UserDefaults = .standard
     ) {

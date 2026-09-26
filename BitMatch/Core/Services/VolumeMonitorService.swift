@@ -750,7 +750,7 @@ final class VolumeMonitorService: ObservableObject {
 
 private extension VolumeMonitorService {
     func vlog(_ message: @autoclosure () -> String) {
-        if DevModeManager.shared.verboseLogs {
+        if DevModeManager.verboseLogsFlag.load(ordering: .relaxed) {
             SharedLogger.debug(message(), category: .transfer)
         }
     }

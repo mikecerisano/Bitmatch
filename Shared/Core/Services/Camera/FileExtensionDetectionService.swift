@@ -2,7 +2,7 @@
 import Foundation
 
 /// Service for detecting cameras based on file extension patterns
-final class FileExtensionDetectionService {
+final class FileExtensionDetectionService: Sendable {
     static let shared = FileExtensionDetectionService()
     private init() {}
     

@@ -2,7 +2,7 @@
 import Foundation
 import UIKit
 
-class IOSPlatformManager: PlatformManager {
+final class IOSPlatformManager: PlatformManager, Sendable {
     static let shared = IOSPlatformManager()
     
     // MARK: - Service Instances

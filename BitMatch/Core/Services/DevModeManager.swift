@@ -4,8 +4,10 @@ import Foundation
 import Combine
 import SwiftUI
 import AppKit
+import Synchronization
 
 #if DEBUG
+@MainActor
 final class DevModeManager: ObservableObject {
     static let shared = DevModeManager()
 
@@ -20,7 +22,11 @@ final class DevModeManager: ObservableObject {
     }
 
     // Controls whether verbose dev logs are printed from subsystems (e.g., volume scanning)
-    @Published var verboseLogs: Bool = false
+    @Published var verboseLogs: Bool = false {
+        didSet { Self.verboseLogsFlag.store(verboseLogs, ordering: .relaxed) }
+    }
+    /// `verboseLogs` for code off the main actor (volume detection).
+    nonisolated static let verboseLogsFlag = Atomic<Bool>(false)
 
     /// A stress test is creating its files or running. The Developer menu
     /// greys its Stress Test items meanwhile.
@@ -260,13 +266,13 @@ final class DevModeManager: ObservableObject {
 
     private final class RunFlag { var value = false }
 
-    private static func estimatedBytes(_ preset: StressPreset) -> Int64 {
+    nonisolated private static func estimatedBytes(_ preset: StressPreset) -> Int64 {
         let shape = datasetShape(preset)
         return Int64(shape.dirCount * shape.filesPerDir * shape.smallSize + shape.largeFiles * shape.largeSize)
     }
 
     /// Roughly 8 MB, 100 MB and 300 MB.
-    private static func datasetShape(
+    nonisolated private static func datasetShape(
         _ preset: StressPreset
     ) -> (dirCount: Int, filesPerDir: Int, smallSize: Int, largeFiles: Int, largeSize: Int) {
         let small = 4 * 1024
@@ -280,7 +286,7 @@ final class DevModeManager: ObservableObject {
 
     /// Creates the source with its files and the empty backup. Throws on the
     /// first write that fails, so a half-written card is never copied.
-    private static func writeDataset(_ preset: StressPreset, source: URL, backup: URL) throws {
+    nonisolated private static func writeDataset(_ preset: StressPreset, source: URL, backup: URL) throws {
         let shape = datasetShape(preset)
         let fm = FileManager.default
         try fm.createDirectory(at: source, withIntermediateDirectories: true)
@@ -362,10 +368,15 @@ final class DevModeManager: ObservableObject {
 }
 #else
 // Release stub: DevModeManager is a no-op in release builds
+@MainActor
 class DevModeManager: ObservableObject {
     static let shared = DevModeManager()
     @Published var isDevModeEnabled: Bool = false
-    @Published var verboseLogs: Bool = false
+    @Published var verboseLogs: Bool = false {
+        didSet { Self.verboseLogsFlag.store(verboseLogs, ordering: .relaxed) }
+    }
+    /// `verboseLogs` for code off the main actor (volume detection).
+    nonisolated static let verboseLogsFlag = Atomic<Bool>(false)
     private init() {}
 }
 #endif

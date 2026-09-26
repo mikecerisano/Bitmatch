@@ -2,7 +2,7 @@
 import Foundation
 import AVFoundation
 
-class SharedCameraDetectionService: CameraDetectionService {
+final class SharedCameraDetectionService: CameraDetectionService, Sendable {
     
     func detectCamera(from folderURL: URL) async -> CameraDetectionResult {
         let startTime = Date()

@@ -12,7 +12,7 @@ protocol FileSystemService: FileAccess {
 }
 
 // MARK: - Camera Detection Service Protocol
-protocol CameraDetectionService {
+protocol CameraDetectionService: Sendable {
     func detectCamera(from folderURL: URL) async -> CameraDetectionResult
     func analyzeFolderStructure(at url: URL) async throws -> [String: Any]
     func extractVideoMetadata(from fileURL: URL) async throws -> [String: Any]
@@ -20,7 +20,7 @@ protocol CameraDetectionService {
 }
 
 // MARK: - Platform Manager Protocol
-protocol PlatformManager {
+protocol PlatformManager: Sendable {
     nonisolated var fileSystem: FileSystemService { get }
     nonisolated var checksum: ChecksumService { get }
     nonisolated var fileOperations: FileOperationsService { get }

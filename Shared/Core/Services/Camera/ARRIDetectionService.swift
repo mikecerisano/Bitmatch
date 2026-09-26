@@ -2,7 +2,7 @@
 import Foundation
 
 /// Specialized service for detecting ARRI cameras via ALE files and metadata
-final class ARRIDetectionService {
+final class ARRIDetectionService: Sendable {
     static let shared = ARRIDetectionService()
     private init() {}
     

@@ -2,7 +2,7 @@
 import Foundation
 
 /// Specialized service for detecting Canon cameras via metadata and folder structure
-final class CanonDetectionService {
+final class CanonDetectionService: Sendable {
     static let shared = CanonDetectionService()
     private init() {}
     

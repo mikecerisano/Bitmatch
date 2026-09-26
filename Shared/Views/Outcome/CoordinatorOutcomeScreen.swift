@@ -91,7 +91,11 @@ struct CoordinatorOutcomeScreen<ProjectEvidence: View>: View {
 }
 
 extension CoordinatorOutcomeScreen where ProjectEvidence == EmptyView {
-    init(coordinator: SharedAppCoordinator, onNewTransfer: @escaping () -> Void = {}) {
-        self.init(coordinator: coordinator, onNewTransfer: onNewTransfer) { EmptyView() }
+    /// No project evidence (iPad and iPhone). Takes no closure, so a
+    /// trailing closure can only ever be `projectEvidence`: with an
+    /// `onNewTransfer` here too, the Mac's dashboard closure bound to it and
+    /// the dashboard was silently dropped.
+    init(coordinator: SharedAppCoordinator) {
+        self.init(coordinator: coordinator, projectEvidence: { EmptyView() })
     }
 }

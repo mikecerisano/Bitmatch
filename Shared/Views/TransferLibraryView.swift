@@ -246,7 +246,7 @@ private struct ReauthorizeLocationsView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                if let record {
+                if record != nil {
                     Section("Locations") {
                         ForEach(locations, id: \.index) { location in
                             HStack {

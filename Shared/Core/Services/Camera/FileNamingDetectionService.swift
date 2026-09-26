@@ -2,7 +2,7 @@
 import Foundation
 
 /// Service for detecting cameras based on file naming patterns
-final class FileNamingDetectionService {
+final class FileNamingDetectionService: Sendable {
     static let shared = FileNamingDetectionService()
     private init() {}
     
