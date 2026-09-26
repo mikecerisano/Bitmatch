@@ -4,15 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- iPad: Larger mode controls and source/backup pickers at regular widths, plus the three latest transfers below Copy & Verify setup with access to the Transfers sheet.
+## [0.2.0] - 2026-09-26
 
+A redesign release. BitMatch now tells you, in plain words, when a card is safe to erase, and shows it on the Dock while you work. The Mac main screen lists your connected cards and drives and lets you queue card after card. Settings, the Transfers list, Compare, Master Report and the iPad layout were rebuilt to match, reports paginate cleanly, and the copy and verify engine is now one Swift 6 package shared by every platform.
+
+- iPad: Larger mode controls and source/backup pickers at regular widths, plus the three latest transfers below Copy & Verify setup with access to the Transfers sheet.
 - Compare Folders and Master Report now share Copy & Verify’s grouped location pickers and full-width action panels on Mac, iPad, and iPhone.
 - Reports: PDF pages keep file rows together, repeat column headers, and show page numbers while rendering one page at a time on Mac, iPad, and iPhone.
-
 - Mac: Queue cards from setup while keeping backups, run the queue from its compact strip, and queue connected cards during a one-time transfer.
-
 - Mac: Copy & Verify setup shows connected cards and drives with capacity, selection status, and one-click card and backup actions.
-
 - Transfers: the sheet is redesigned as a compact, native-looking list (Mac, iPad, iPhone) — one row per transfer with a colored status pill, a trailing "..." menu and swipe/context actions in place of stacks of buttons, a Queue/History segmented control with counts, plain empty states, and search that only appears for History (once it has records) and never grabs focus. Every existing action (retry, retry without ASC MHL, reconnect, export, remove from queue, per-file details) is still reachable.
 - Finish screen: a big, unmistakable verdict (green "is safe to erase" only when every file on every backup was checksum verified; blue "copied, not verified" for Quick mode; amber "needs attention" for issues; red "Transfer failed"), plain-language safety guidance in place of the old jargon lines, a prominent Eject button on Mac when the source is a removable card (secondary with a caution line for anything short of fully verified, never shown on iPad/iPhone), an optional "eject automatically when it's safe to erase" preference (Mac only, off by default, and gated the same way as the button), and a small "Notify me when a transfer ends" toggle that requests notification permission when turned on.
 - New app icon: twelve segments turning blue to green around a check. Mac: the Dock icon shows transfer progress (segments light up, percent in the middle), then the verdict: a green check when every file on every backup verified, amber when something needs a look, red when it failed. It stays until the next transfer.
@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file.
 - Reports: The PDF starts at the top of page 1. Before, most reports began low on the first page under a blank gap (Mac too, since the PDF was added).
 - Mac: The menu bar has one View menu (the mode shortcuts ⌘1–⌘3 are in it) and File is back in its usual place, first after the app menu.
 - Setup: The project type picker lists Video / DIT first, then Photography, then General, and BitMatch remembers the last type you chose (with its folder layout) for the next project and the next launch.
+- Safety: a clean Quick compare (sizes only) is no longer recorded as a success, so it can never turn the Dock tile green; outside Quick, the engine reports success only when every file was verified, so a copied-but-unverified file keeps the Dock tile and the finish notification from saying the card is safe. A Quick transfer that copied everything now says "copied, not verified" (it read as "needs attention"), and only when nothing else failed.
+- Camera detection: an ARRI ALEXA Mini LF card whose ALE file writes the model in mixed case ("ALEXA Mini LF") is named Alexa Mini LF, not Alexa LF.
 
 ## [0.1.7] - 2026-09-25
 
