@@ -28,6 +28,25 @@ struct ConnectedDrivesPresentationTests {
         ).isEmpty)
     }
 
+    /// Only cards are offered as the next card: a camera card, or removable
+    /// media (a card in a reader). A fixed backup SSD or an internal drive
+    /// never is. Plant: in `queueCandidates`, drop `cardURLs.contains(row.url)`.
+    @Test func queueCandidatesAreOnlyCards() {
+        var ssd = volume("Spare SSD")
+        ssd.isRemovable = false
+        var internalDisk = volume("Scratch")
+        internalDisk.isRemovable = false
+        internalDisk.isInternal = true
+        var cameraOnFixedReader = volume("A002", camera: "ARRI")
+        cameraOnFixedReader.isRemovable = false
+        let rows = Presentation.queueCandidates(
+            volumes: [volume("Card"), ssd, internalDisk, cameraOnFixedReader, volume("Untitled SD")],
+            sourceURL: URL(fileURLWithPath: "/Volumes/Card"),
+            destinationURLs: [], queuedSourceURLs: []
+        )
+        #expect(rows.map(\.displayName) == ["A002", "Untitled SD"])
+    }
+
     @Test func hidesBootSystemHiddenAndAppImageVolumes() {
         var hidden = volume("Hidden")
         hidden.isHidden = true

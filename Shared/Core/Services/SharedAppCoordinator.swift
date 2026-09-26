@@ -580,7 +580,8 @@ class SharedAppCoordinator: ObservableObject {
     func enqueue(
         source: URL, destinations: [URL],
         verificationMode: VerificationMode? = nil,
-        generateASCMHL: Bool? = nil
+        generateASCMHL: Bool? = nil,
+        reportSettings: ReportPrefs? = nil
     ) throws -> UUID {
         let scopedURLs = ([source] + destinations).filter { $0.startAccessingSecurityScopedResource() }
         defer { scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
@@ -594,7 +595,7 @@ class SharedAppCoordinator: ObservableObject {
         return try transferJournal.enqueue(
             sourceURL: source, destinationURLs: destinations,
             verificationMode: verificationMode ?? self.verificationMode,
-            cameraSettings: settings, reportSettings: reportSettings,
+            cameraSettings: settings, reportSettings: reportSettings ?? self.reportSettings,
             generateASCMHL: generateASCMHL ?? self.generateASCMHL
         )
     }
@@ -629,7 +630,14 @@ class SharedAppCoordinator: ObservableObject {
         guard let record = runningOneTimeTransfer else {
             throw FileOperationError.unsafeOperation("A one-time transfer must be running to queue the next card.")
         }
-        try enqueue(source: source, destinations: record.destinations.map(\.url))
+        // The next card gets the running transfer's own settings, not
+        // whatever the setup screen or Preferences hold now.
+        try enqueue(
+            source: source, destinations: record.destinations.map(\.url),
+            verificationMode: record.verificationMode,
+            generateASCMHL: record.generateASCMHL,
+            reportSettings: record.reportSettings
+        )
         // startQueue waits for executeOperation to unwind before advancing.
         startQueue()
     }

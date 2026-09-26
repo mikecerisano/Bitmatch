@@ -127,12 +127,18 @@ struct MainScreenQueueTests {
         defer { Task { await operations.gate.release() } }
         let started = await waitUntil { await operations.gate.starts.count == 1 }
         #expect(started)
-        // A changed setup selection must not redirect the next card's backups.
+        // A changed setup selection must not redirect the next card's backups
+        // or change its settings: it gets the running transfer's own.
         coordinator.destinationURLs = [folders.secondary]
+        coordinator.verificationMode = .quick
+        coordinator.generateASCMHL = true
         try Data("next card".utf8).write(to: folders.secondary.appendingPathComponent("B.ARW"))
         try coordinator.enqueueNext(source: folders.secondary)
         #expect(coordinator.queueIsRunning)
-        #expect(coordinator.transferJournal.records.first?.destinations.map(\.url) == [folders.primary])
+        let queued = coordinator.transferJournal.records.first { $0.state == .queued }
+        #expect(queued?.destinations.map(\.url) == [folders.primary])
+        #expect(queued?.verificationMode == .standard)
+        #expect(queued?.generateASCMHL == false)
         for _ in 0..<10 { await Task.yield() }
         #expect(await operations.gate.starts.count == 1)
         await operations.gate.release()

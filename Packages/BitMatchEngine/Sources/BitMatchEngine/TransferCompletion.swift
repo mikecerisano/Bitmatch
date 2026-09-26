@@ -167,17 +167,21 @@ public enum TransferCompletion: Sendable {
     ) -> Verdict {
         let issueCount = rows.filter { !$0.isSuccessStatus }.count
         let fileResultsSucceeded = !rows.isEmpty && issueCount == 0
+        // Outside Quick, a row that was copied but not verified keeps the
+        // run from success here too, not only in the app's own verdict: the
+        // Dock tile and the finish notification read this success.
+        let everyRowVerified = rows.allSatisfy(\.isVerifiedStatus)
         let fileResultsMessage: String
         if rows.isEmpty {
             fileResultsMessage = "No files were copied"
         } else if fileResultsSucceeded {
-            fileResultsMessage = mode == .quick ? "All files copied" : "All files copied and verified"
+            fileResultsMessage = mode == .quick || !everyRowVerified ? "All files copied" : "All files copied and verified"
         } else {
             fileResultsMessage = issueCount == 1 ? "1 file failed" : "\(issueCount) files failed"
         }
 
         let everythingElseHeld = fileResultsSucceeded && project.permitsSuccess && handoffIssues.isEmpty && reportIssue == nil
-        let succeeded = everythingElseHeld && mode != .quick
+        let succeeded = everythingElseHeld && mode != .quick && everyRowVerified
         var completionMessage = fileResultsMessage
         if !project.didPersist {
             completionMessage += "; the project record was not saved"

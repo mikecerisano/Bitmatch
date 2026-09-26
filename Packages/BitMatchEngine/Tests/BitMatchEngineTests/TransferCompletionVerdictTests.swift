@@ -49,6 +49,16 @@ struct TransferCompletionVerdictTests {
         #expect(!verdict([verified]).copiedNotVerified)
     }
 
+    /// Promise 2 in the engine: outside Quick, a copied-but-unverified row
+    /// is never a success, so nothing reading `success` can show green.
+    /// Plant: in `TransferCompletion.verdict`, drop `&& everyRowVerified`.
+    @Test func unverifiedRowOutsideQuickIsNotSuccess() {
+        let result = verdict([verified, copied])
+        #expect(!result.success)
+        #expect(!result.copiedNotVerified)
+        #expect(result.message == "All files copied")
+    }
+
     @Test func anyIssueOrNoFilesIsNotSuccess() {
         #expect(verdict([verified, failed]) == .init(success: false, message: "1 file failed"))
         #expect(verdict([]) == .init(success: false, message: "No files were copied"))

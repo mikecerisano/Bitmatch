@@ -389,8 +389,11 @@ nonisolated enum VolumeAnalysis {
         guard !isDevelopmentOrSimulatorVolume(url, facts: facts),
               let values = try? url.resourceValues(forKeys: [
                 .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
-                .volumeIsRemovableKey, .volumeIsInternalKey, .volumeIsReadOnlyKey, .isHiddenKey
-              ]) else { return nil }
+                .volumeIsRemovableKey, .volumeIsInternalKey, .volumeIsReadOnlyKey, .isHiddenKey,
+                .volumeIsRootFileSystemKey
+              ]),
+              // The boot volume, whatever it is named.
+              values.volumeIsRootFileSystem != true else { return nil }
         let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
         let name = values.volumeName ?? url.lastPathComponent
         // The distribution image contains the app at its root. Do not offer

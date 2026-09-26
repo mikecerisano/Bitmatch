@@ -24,7 +24,10 @@ enum CardEjectService {
     static func eject(_ url: URL) async -> String? {
         await Task.detached(priority: .userInitiated) {
             do {
-                try NSWorkspace.shared.unmountAndEjectDevice(at: url)
+                // The source may be a folder on the card (DCIM); eject
+                // needs the volume itself.
+                let volume = (try? url.resourceValues(forKeys: [.volumeURLKey]))?.volume ?? url
+                try NSWorkspace.shared.unmountAndEjectDevice(at: volume)
                 return nil
             } catch {
                 return error.localizedDescription

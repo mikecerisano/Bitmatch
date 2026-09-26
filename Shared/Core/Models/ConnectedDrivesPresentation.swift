@@ -6,8 +6,8 @@ nonisolated enum ConnectedDrivesPresentation {
         let url: URL
         let totalBytes: Int64
         let freeBytes: Int64
-        let isRemovable: Bool
-        let isInternal: Bool
+        var isRemovable: Bool
+        var isInternal: Bool
         var cameraName: String? = nil
         var isHidden = false
         var isAppDiskImage = false
@@ -68,8 +68,12 @@ nonisolated enum ConnectedDrivesPresentation {
     static func queueCandidates(
         volumes: [Volume], sourceURL: URL, destinationURLs: [URL], queuedSourceURLs: [URL]
     ) -> [Row] {
-        make(volumes: volumes, sourceURL: sourceURL, destinationURLs: destinationURLs).filter { row in
-            row.state == .none && !queuedSourceURLs.contains { contains($0, in: row.url) }
+        // Only cards: a detected camera card, or removable media such as a
+        // card in a reader. A backup SSD is never offered as the next card.
+        let cardURLs = Set(volumes.filter { $0.cameraName != nil || ($0.isRemovable && !$0.isInternal) }.map(\.url))
+        return make(volumes: volumes, sourceURL: sourceURL, destinationURLs: destinationURLs).filter { row in
+            cardURLs.contains(row.url) && row.state == .none
+                && !queuedSourceURLs.contains { contains($0, in: row.url) }
         }
     }
 
