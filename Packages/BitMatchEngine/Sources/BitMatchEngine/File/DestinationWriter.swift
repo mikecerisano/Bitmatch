@@ -85,11 +85,41 @@ public final class PinnedDestinationDirectory: @unchecked Sendable {
         return false
     }
 
+    /// The copy is written with the system cache off, so the pages are not
+    /// left in memory: the verify pass then has to read the backup drive, not
+    /// RAM (measured: with the cache on, a just-written file is 100% resident
+    /// and "verifying" it never touches the drive). A drive that refuses this
+    /// fails the file rather than verifying from memory.
     public static func createTemporaryFile(named name: String, relativeTo parentFD: Int32) throws -> Int32 {
         let flags = O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC
         let fd = name.withCString { openat(parentFD, $0, flags, 0o600) }
         guard fd >= 0 else { throw posixError("Unable to create temporary destination file") }
+        guard fcntl(fd, F_NOCACHE, 1) != -1 else {
+            let error = posixError("This drive would not let BitMatch bypass the system cache, so the copy could not be checked on the drive itself")
+            _ = Darwin.close(fd)
+            removeItem(named: name, relativeTo: parentFD)
+            throw error
+        }
         return fd
+    }
+
+    /// Pushes the file's data and metadata to the medium, not only to the
+    /// drive's volatile cache (`F_FULLFSYNC`; plain `fsync` does not on
+    /// macOS). A file system that does not implement the full flush at all
+    /// (ENOTSUP) keeps the `fsync`; any other failure fails the file.
+    public static func flushToMedium(_ fd: Int32) throws {
+        guard fsync(fd) == 0 else { throw posixError("Unable to write the copy to the drive") }
+        if fcntl(fd, F_FULLFSYNC) == -1 {
+            guard errno == ENOTSUP || errno == EOPNOTSUPP else {
+                throw posixError("Unable to flush the copy to the drive")
+            }
+        }
+    }
+
+    /// Makes a just-published name durable: the directory entry itself is
+    /// flushed, so a power cut cannot lose the file's name after "verified".
+    public static func synchronizeDirectory(_ parentFD: Int32) throws {
+        guard fsync(parentFD) == 0 else { throw posixError("Unable to save the backup folder on the drive") }
     }
 
     public static func removeItem(named name: String, relativeTo parentFD: Int32) {
@@ -302,6 +332,12 @@ public final class PinnedDestinationFile: @unchecked Sendable {
             _ = Darwin.close(readerFD)
             throw DestinationWriter.existingDestinationConflictError("Pinned destination file changed before reading")
         }
+        // Verification reads the drive, not pages another reader cached.
+        guard fcntl(readerFD, F_NOCACHE, 1) != -1 else {
+            let message = "This drive would not let BitMatch bypass the system cache, so the copy could not be checked on the drive itself: " + String(cString: strerror(errno))
+            _ = Darwin.close(readerFD)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: message])
+        }
         return FileHandle(fileDescriptor: readerFD, closeOnDealloc: true)
     }
 
@@ -478,16 +514,6 @@ public final class DestinationWriter {
                 try destinationHandle.write(contentsOf: data)
             }
         }
-        #if compiler(>=5.7)
-        if #available(iOS 16.0, macOS 13.0, *) {
-            try destinationHandle.synchronize()
-        } else {
-            destinationHandle.synchronizeFile()
-        }
-        #else
-        destinationHandle.synchronizeFile()
-        #endif
-
         var temporaryInfo = stat()
         guard fstat(temporaryFD, &temporaryInfo) == 0,
               Int64(temporaryInfo.st_size) == sourceSize else {
@@ -510,10 +536,13 @@ public final class DestinationWriter {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "Unable to preserve destination modification date"])
             }
         }
+        // Flushed after the timestamps so they are durable too.
+        try PinnedDestinationDirectory.flushToMedium(temporaryFD)
         try destinationHandle.close()
         destinationClosed = true
         try PinnedDestinationDirectory.publishTemporaryFile(named: temporaryName, as: filename, relativeTo: parentFD)
         published = true
+        try PinnedDestinationDirectory.synchronizeDirectory(parentFD)
     }
     #endif
 
