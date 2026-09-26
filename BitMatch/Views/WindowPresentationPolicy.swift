@@ -46,6 +46,7 @@ enum MacWindowHeightPolicy {
         /// "Analyzing" one, so the window does not bounce while a scan runs).
         var showsProblemBanner: Bool
         var optionsExpanded: Bool
+        var connectedDrives: Int = 0
         var showsProjectSetup: Bool
     }
 
@@ -115,7 +116,8 @@ enum MacWindowHeightPolicy {
         // Start (34 + 24 padding), plus the line under it once both are
         // chosen (it wraps to two lines when stacked).
         let start: CGFloat = 58 + (setup.hasSource && setup.backups > 0 ? (sideBySide ? 24 : 40) : 0)
-        return setupChrome + title + locations + workflow + banner + advanced + start + 4 * gap
+        let drives: CGFloat = 12 + 24 + 16 + 8 + (setup.connectedDrives == 0 ? 14 : CGFloat(setup.connectedDrives) * 40 + CGFloat(setup.connectedDrives - 1) * 8)
+        return setupChrome + title + locations + drives + workflow + banner + advanced + start + 4 * gap
     }
 
     // MARK: Progress

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Mac: Copy & Verify setup shows connected cards and drives with capacity, selection status, and one-click card and backup actions.
+
 - Transfers: the sheet is redesigned as a compact, native-looking list (Mac, iPad, iPhone) — one row per transfer with a colored status pill, a trailing "..." menu and swipe/context actions in place of stacks of buttons, a Queue/History segmented control with counts, plain empty states, and search that only appears for History (once it has records) and never grabs focus. Every existing action (retry, retry without ASC MHL, reconnect, export, remove from queue, per-file details) is still reachable.
 - Finish screen: a big, unmistakable verdict (green "is safe to erase" only when every file on every backup was checksum verified; blue "copied, not verified" for Quick mode; amber "needs attention" for issues; red "Transfer failed"), plain-language safety guidance in place of the old jargon lines, a prominent Eject button on Mac when the source is a removable card (secondary with a caution line for anything short of fully verified, never shown on iPad/iPhone), an optional "eject automatically when it's safe to erase" preference (Mac only, off by default, and gated the same way as the button), and a small "Notify me when a transfer ends" toggle that requests notification permission when turned on.
 - New app icon: twelve segments turning blue to green around a check. Mac: the Dock icon shows transfer progress (segments light up, percent in the middle), then the verdict: a green check when every file on every backup verified, amber when something needs a look, red when it failed. It stays until the next transfer.

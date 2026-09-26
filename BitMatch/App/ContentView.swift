@@ -25,6 +25,7 @@ struct MacMainView: View {
     let environment: MacAppEnvironment
     @ObservedObject var coordinator: SharedAppCoordinator
     @ObservedObject var remoteBackups: MacRemoteBackupController
+    @ObservedObject private var volumeMonitor = VolumeMonitorService.shared
     @ObservedObject private var errorHandler = GlobalErrorHandler.shared
     @State private var showingTransfers = false
     @State private var showOnlyIssues = false
@@ -70,6 +71,7 @@ struct MacMainView: View {
                     backups: coordinator.destinationURLs.count,
                     showsProblemBanner: showsProblemBanner,
                     optionsExpanded: transferOptionsExpanded,
+                    connectedDrives: volumeMonitor.connectedVolumes.count,
                     showsProjectSetup: setup.showsProjectSetup
                 ))
             default:

@@ -17,6 +17,7 @@ final class VolumeMonitorService: ObservableObject {
     static let shared = VolumeMonitorService()
     
     // Published properties for UI updates
+    @Published private(set) var connectedVolumes: [ConnectedDrivesPresentation.Volume] = []
     @Published var availableCameraCards: [DetectedVolume] = []
     @Published var availableBackupDrives: [DetectedVolume] = []
     
@@ -220,6 +221,7 @@ final class VolumeMonitorService: ObservableObject {
     private func handleDiskDisappeared(_ disk: DADisk) {
         guard let devicePath = DiskFacts(disk: disk)?.devicePath else { return }
         removeDetectedVolume(devicePath: devicePath)
+        checkForVolumeChanges()
     }
     
     /// An unmounted disk BitMatch must not mount: a system-named volume, or
@@ -247,7 +249,9 @@ final class VolumeMonitorService: ObservableObject {
         Task.detached(priority: .utility) { [weak self] in
             for volumeURL in volumes {
                 Self.vlog("🔬 Analyzing volume at: \(volumeURL.path)")
-                if let detected = VolumeAnalysis.analyzeVolume(at: volumeURL, facts: facts) {
+                let connected = VolumeAnalysis.connectedVolume(at: volumeURL, facts: facts)
+                if let connected { await self?.updateConnectedVolume(connected) }
+                if let detected = VolumeAnalysis.analyzeVolume(at: volumeURL, facts: facts, cameraInfo: connected?.cameraName) {
                     Self.vlog("✅ Volume detected as \(detected.type): \(detected.displayName)")
                     await self?.addDetectedVolume(detected)
                 } else {
@@ -263,7 +267,9 @@ final class VolumeMonitorService: ObservableObject {
     private func checkForVolumeChanges() {
         vlog("🔍 Checking for volume changes...")
         guard let currentVolumes = Self.mountedVolumes() else { return }
-        let currentVolumePaths = Set(currentVolumes.map { $0.path })
+        let currentVolumePaths = Set(currentVolumes.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+
+        connectedVolumes.removeAll { !currentVolumePaths.contains($0.url.path) }
 
         // Remove cards and drives that are gone.
         for card in availableCameraCards where !currentVolumePaths.contains(card.url.path) {
@@ -277,7 +283,10 @@ final class VolumeMonitorService: ObservableObject {
 
         // Analyze only volumes not already known (read here, on the main
         // actor, where the lists change).
-        let knownPaths = Set((availableCameraCards + availableBackupDrives).map { $0.url.path })
+        // A volume counts as known once either list has it, so a card the
+        // drive list hides is not analyzed again on every change.
+        let knownPaths = Set(connectedVolumes.map { $0.url.path })
+            .union((availableCameraCards + availableBackupDrives).map { $0.url.path })
         let newVolumes = currentVolumes.filter { !knownPaths.contains($0.path) }
         for volumeURL in newVolumes {
             vlog("🔍 New volume detected: \(volumeURL.lastPathComponent)")
@@ -306,6 +315,15 @@ final class VolumeMonitorService: ObservableObject {
     
     // MARK: - Volume Management
     
+    private func updateConnectedVolume(_ volume: ConnectedDrivesPresentation.Volume) {
+        guard Self.mountedVolumes()?.contains(where: { $0.standardizedFileURL.resolvingSymlinksInPath() == volume.url }) == true else { return }
+        if let index = connectedVolumes.firstIndex(where: { $0.url == volume.url }) {
+            connectedVolumes[index] = volume
+        } else {
+            connectedVolumes.append(volume)
+        }
+    }
+
     private func addDetectedVolume(_ volume: DetectedVolume) {
         switch volume.type {
         case .cameraCard:
@@ -367,7 +385,32 @@ nonisolated enum VolumeAnalysis {
         VolumeMonitorService.vlog(message())
     }
 
-        static func analyzeVolume(at url: URL, facts: DiskFacts?) -> DetectedVolume? {
+    static func connectedVolume(at url: URL, facts: DiskFacts?) -> ConnectedDrivesPresentation.Volume? {
+        guard !isDevelopmentOrSimulatorVolume(url, facts: facts),
+              let values = try? url.resourceValues(forKeys: [
+                .volumeNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+                .volumeIsRemovableKey, .volumeIsInternalKey, .volumeIsReadOnlyKey, .isHiddenKey
+              ]) else { return nil }
+        let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
+        let name = values.volumeName ?? url.lastPathComponent
+        // The distribution image contains the app at its root. Do not offer
+        // that read-only installer as a card or backup.
+        let isAppImage = values.volumeIsReadOnly == true
+            && FileManager.default.fileExists(atPath: url.appendingPathComponent("BitMatch.app").path)
+        var volume = ConnectedDrivesPresentation.Volume(
+            name: name, url: canonical,
+            totalBytes: Int64(values.volumeTotalCapacity ?? 0),
+            freeBytes: Int64(values.volumeAvailableCapacity ?? 0),
+            isRemovable: facts?.isRemovable ?? values.volumeIsRemovable ?? false,
+            isInternal: facts?.isInternal ?? values.volumeIsInternal ?? false,
+            isHidden: values.isHidden ?? false, isAppDiskImage: isAppImage
+        )
+        guard ConnectedDrivesPresentation.isVisible(volume) else { return nil }
+        volume.cameraName = CameraDetectionOrchestrator.shared.detectCamera(at: url)
+        return volume
+    }
+
+        static func analyzeVolume(at url: URL, facts: DiskFacts?, cameraInfo: String?) -> DetectedVolume? {
             let fileManager = FileManager.default
             
             vlog("🔍 Analyzing volume: \(url.path)")
@@ -423,7 +466,6 @@ nonisolated enum VolumeAnalysis {
             
             // Determine volume type using size-first classification, then camera
             vlog("📷 Checking for camera...")
-            let cameraInfo = CameraDetectionOrchestrator.shared.detectCamera(at: url)
             if let cameraInfo = cameraInfo { vlog("✅ Camera detected: \(cameraInfo)") } else { vlog("❌ No camera detected") }
 
             // Size-first classification

@@ -43,6 +43,16 @@ struct MacWindowHeightPolicyTests {
         #expect(three > one + 150)
     }
 
+    @Test func setupMakesRoomForConnectedDrives() {
+        let empty = Policy.Setup(hasSource: false, backups: 0, showsProblemBanner: false,
+                                 optionsExpanded: false, showsProjectSetup: false)
+        var connected = empty
+        connected.connectedDrives = 3
+        let before = Policy.idealHeight(for: .setup(empty), windowWidth: 680, available: 2000)
+        let after = Policy.idealHeight(for: .setup(connected), windowWidth: 680, available: 2000)
+        #expect(after > before + 100)
+    }
+
     /// No screen asks for less than the window's minimum or more than the
     /// screen allows.
     /// Plant: in `MacWindowHeightPolicy.idealHeight`, return `content`

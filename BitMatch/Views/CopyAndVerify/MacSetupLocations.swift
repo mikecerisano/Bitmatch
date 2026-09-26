@@ -16,24 +16,28 @@ struct MacSetupLocations: View {
 
     var body: some View {
         let volumeAccess = self.volumeAccess
-        CoordinatorSetupLocations(
-            coordinator: coordinator,
-            context: context,
-            platform: SetupLocationsPlatform(
-                pickSource: { Self.chooseFolders(multiple: false, prompt: "Choose Source").first },
-                pickBackups: { Self.chooseFolders(multiple: true, prompt: "Add Backup") },
-                addBackup: { volumeAccess.addDestination($0) },
-                removeBackup: { volumeAccess.removeDestination($0) },
-                freeSpace: { volumeAccess.formattedAvailableSpace(for: $0) },
-                showRefusals: { reasons in
-                    NotificationCenter.default.post(
-                        name: .dropRejected,
-                        object: nil,
-                        userInfo: ["reason": reasons.joined(separator: "\n")]
-                    )
-                },
-                acceptsDrops: true
-            )
+        VStack(spacing: 12) {
+            CoordinatorSetupLocations(coordinator: coordinator, context: context, platform: platform)
+            MacConnectedDrives(monitor: volumeAccess.volumeMonitor, coordinator: coordinator, platform: platform)
+        }
+    }
+
+    private var platform: SetupLocationsPlatform {
+        let volumeAccess = self.volumeAccess
+        return SetupLocationsPlatform(
+            pickSource: { Self.chooseFolders(multiple: false, prompt: "Choose Source").first },
+            pickBackups: { Self.chooseFolders(multiple: true, prompt: "Add Backup") },
+            addBackup: { volumeAccess.addDestination($0) },
+            removeBackup: { volumeAccess.removeDestination($0) },
+            freeSpace: { volumeAccess.formattedAvailableSpace(for: $0) },
+            showRefusals: { reasons in
+                NotificationCenter.default.post(
+                    name: .dropRejected,
+                    object: nil,
+                    userInfo: ["reason": reasons.joined(separator: "\n")]
+                )
+            },
+            acceptsDrops: true
         )
     }
 
