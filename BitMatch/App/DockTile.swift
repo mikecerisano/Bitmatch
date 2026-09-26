@@ -77,79 +77,158 @@ final class DockTileController {
     }
 }
 
-/// Drawn in the app icon's own look: the dark rounded tile, with the ring
-/// in the icon's blue-to-green line.
-struct DockTileView: View {
-    let state: DockTileState
+/// The BitMatch mark: twelve segments (bits) around a center. The app icon
+/// is every segment lit, blue turning to green, around a check; the Dock
+/// tile reuses it, lighting segments as a transfer runs.
+struct SegmentRing: View {
+    enum Style: Equatable { case progress, verified, warning, failure, paused }
 
-    private static let blue = Color(red: 0.34, green: 0.62, blue: 1.0)
-    private static let green = Color(red: 0.35, green: 0.86, blue: 0.55)
-    private static let amber = Color(red: 1.0, green: 0.68, blue: 0.25)
-    private static let red = Color(red: 1.0, green: 0.38, blue: 0.34)
+    /// 0...12 segments lit.
+    let lit: Int
+    let style: Style
+    /// Ring thickness as a share of its diameter.
+    var thickness: CGFloat = 0.115
+
+    static let blue = Color(red: 0.30, green: 0.58, blue: 1.0)
+    static let green = Color(red: 0.30, green: 0.88, blue: 0.56)
+    static let amber = Color(red: 1.0, green: 0.68, blue: 0.25)
+    static let red = Color(red: 1.0, green: 0.38, blue: 0.34)
 
     var body: some View {
         GeometryReader { geometry in
             let side = min(geometry.size.width, geometry.size.height)
-            let tile = side * 0.82
+            let width = side * thickness
             ZStack {
-                RoundedRectangle(cornerRadius: tile * 0.225, style: .continuous)
-                    .fill(LinearGradient(
-                        colors: [Color(white: 0.19), Color(white: 0.09)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
+                ForEach(0..<12, id: \.self) { index in
+                    Circle()
+                        .trim(from: Double(index) / 12 + 0.013, to: Double(index + 1) / 12 - 0.013)
+                        .stroke(color(for: index), style: StrokeStyle(lineWidth: width, lineCap: .butt))
+                        .rotationEffect(.degrees(-90))
+                        .shadow(color: index < lit ? color(for: index).opacity(0.5) : .clear, radius: width * 0.3)
+                }
+                .padding(width / 2)
+            }
+            .frame(width: side, height: side)
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+
+    private func color(for index: Int) -> Color {
+        guard index < lit else { return Color.white.opacity(0.09) }
+        switch style {
+        case .progress:
+            // Blue at the start, green by the end: copy turning to verified.
+            let t = Double(index) / 11
+            return Color(
+                red: 0.30,
+                green: 0.58 + (0.88 - 0.58) * t,
+                blue: 1.0 + (0.56 - 1.0) * t
+            )
+        case .verified: return Self.green
+        case .warning: return Self.amber
+        case .failure: return Self.red
+        case .paused: return Color.white.opacity(0.42)
+        }
+    }
+}
+
+/// The dark rounded tile the icon and the Dock tile sit on.
+struct IconTile: View {
+    /// true: full bleed (iOS, where the system rounds the corners).
+    var fullBleed = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            let tile = fullBleed ? side : side * 0.805
+            let shape = RoundedRectangle(cornerRadius: fullBleed ? 0 : tile * 0.225, style: .continuous)
+            ZStack {
+                shape
+                    .fill(LinearGradient(colors: [Color(white: 0.21), Color(white: 0.07)],
+                                         startPoint: .top, endPoint: .bottom))
                     .overlay(
-                        RoundedRectangle(cornerRadius: tile * 0.225, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: side * 0.008)
+                        // A soft sheen across the top half.
+                        shape.fill(LinearGradient(colors: [Color.white.opacity(0.07), .clear],
+                                                  startPoint: .top, endPoint: .center))
                     )
+                    .overlay(shape.strokeBorder(Color.white.opacity(fullBleed ? 0 : 0.10), lineWidth: side * 0.006))
                     .frame(width: tile, height: tile)
-                    .shadow(color: .black.opacity(0.35), radius: side * 0.02, y: side * 0.012)
-                ring(diameter: tile * 0.72, width: tile * 0.075)
-                center(size: tile)
+                    .shadow(color: .black.opacity(fullBleed ? 0 : 0.45), radius: side * 0.024, y: side * 0.014)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
+
+/// The app icon's artwork.
+struct AppIconArt: View {
+    var fullBleed = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            let content = fullBleed ? side * 0.84 : side * 0.805
+            ZStack {
+                IconTile(fullBleed: fullBleed)
+                SegmentRing(lit: 12, style: .progress)
+                    .frame(width: content * 0.68, height: content * 0.68)
+                Image(systemName: "checkmark")
+                    .font(.system(size: content * 0.27, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.35), radius: side * 0.01, y: side * 0.006)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
+
+/// The Dock tile: the app icon's tile and ring, with the percent in the
+/// middle while a transfer runs and the verdict when it ends.
+struct DockTileView: View {
+    let state: DockTileState
+
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            let content = side * 0.805
+            ZStack {
+                IconTile()
+                SegmentRing(lit: lit, style: ringStyle)
+                    .frame(width: content * 0.68, height: content * 0.68)
+                center(size: content)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 
     @ViewBuilder
-    private func ring(diameter: CGFloat, width: CGFloat) -> some View {
-        ZStack {
-            Circle().stroke(Color.white.opacity(0.1), lineWidth: width)
-            Circle()
-                .trim(from: 0, to: ringFraction)
-                .stroke(ringStyle, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .frame(width: diameter, height: diameter)
-    }
-
-    @ViewBuilder
     private func center(size: CGFloat) -> some View {
         switch state {
         case .running(let percent), .paused(let percent):
-            VStack(spacing: size * 0.005) {
+            VStack(spacing: 0) {
                 Text("\(percent)")
-                    .font(.system(size: size * (percent == 100 ? 0.25 : 0.3), weight: .bold, design: .rounded))
+                    .font(.system(size: size * (percent == 100 ? 0.21 : 0.26), weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white)
                 Text(isPaused ? "PAUSED" : "%")
-                    .font(.system(size: size * 0.09, weight: .semibold, design: .rounded))
+                    .font(.system(size: size * 0.075, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.6))
             }
         case .verified:
-            Image(systemName: "checkmark")
-                .font(.system(size: size * 0.3, weight: .heavy))
-                .foregroundStyle(Self.green)
+            symbol("checkmark", SegmentRing.green, size: size)
         case .needsReview:
-            Image(systemName: "exclamationmark")
-                .font(.system(size: size * 0.32, weight: .heavy))
-                .foregroundStyle(Self.amber)
+            symbol("exclamationmark", SegmentRing.amber, size: size)
         case .failed:
-            Image(systemName: "xmark")
-                .font(.system(size: size * 0.28, weight: .heavy))
-                .foregroundStyle(Self.red)
+            symbol("xmark", SegmentRing.red, size: size)
         case .appIcon:
             EmptyView()
         }
+    }
+
+    private func symbol(_ name: String, _ color: Color, size: CGFloat) -> some View {
+        Image(systemName: name)
+            .font(.system(size: size * 0.26, weight: .heavy))
+            .foregroundStyle(color)
     }
 
     private var isPaused: Bool {
@@ -157,22 +236,24 @@ struct DockTileView: View {
         return false
     }
 
-    private var ringFraction: CGFloat {
+    /// Segments lit: the percent rounded down to twelfths, at least one
+    /// once anything has copied.
+    private var lit: Int {
         switch state {
-        case .running(let percent), .paused(let percent): CGFloat(percent) / 100
-        case .verified, .needsReview, .failed: 1
+        case .running(let percent), .paused(let percent):
+            percent <= 0 ? 0 : max(1, percent * 12 / 100)
+        case .verified, .needsReview, .failed: 12
         case .appIcon: 0
         }
     }
 
-    private var ringStyle: AnyShapeStyle {
+    private var ringStyle: SegmentRing.Style {
         switch state {
-        case .running, .appIcon:
-            AnyShapeStyle(AngularGradient(colors: [Self.blue, Self.green, Self.blue], center: .center))
-        case .paused: AnyShapeStyle(Color.white.opacity(0.45))
-        case .verified: AnyShapeStyle(Self.green)
-        case .needsReview: AnyShapeStyle(Self.amber)
-        case .failed: AnyShapeStyle(Self.red)
+        case .running, .appIcon: .progress
+        case .paused: .paused
+        case .verified: .verified
+        case .needsReview: .warning
+        case .failed: .failure
         }
     }
 }
