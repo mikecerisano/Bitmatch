@@ -21,12 +21,12 @@ final class ResultPresentationTests: XCTestCase {
         let summary = DestinationResultSummary.make(rows: [row], destinations: [URL(fileURLWithPath: "/Backup")])[0]
         XCTAssertTrue(summary.needsAttention)
         XCTAssertEqual(summary.unverifiedCount, 1)
-        XCTAssertTrue(summary.detail.contains("unverified"))
+        XCTAssertTrue(summary.detail.contains("not verified"))
     }
 
     func testDestinationWithoutEvidenceDoesNotClaimSuccess() {
         let summary = DestinationResultSummary.make(rows: [], destinations: [URL(fileURLWithPath: "/Backup")])[0]
-        XCTAssertEqual(summary.detail, "No file results recorded")
+        XCTAssertEqual(summary.detail, "No files recorded")
     }
 
     func testDestinationMatchingRequiresAPathBoundary() {

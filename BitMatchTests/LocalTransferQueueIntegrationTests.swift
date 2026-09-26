@@ -100,8 +100,8 @@ final class LocalTransferQueueIntegrationTests: XCTestCase {
         let record = try XCTUnwrap(journal.records.first { $0.id == id })
         XCTAssertEqual(record.state, .issues)
         XCTAssertTrue(record.results.first?.isSuccessStatus == true)
-        XCTAssertTrue(record.summary.contains("Operation completed successfully"))
-        XCTAssertTrue(record.summary.contains("report export failed"))
+        XCTAssertTrue(record.summary.contains("All files copied and verified"))
+        XCTAssertTrue(record.summary.contains("the report could not be saved"))
         XCTAssertFalse(coordinator.queueIsRunning)
     }
 

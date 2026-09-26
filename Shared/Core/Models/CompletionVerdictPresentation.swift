@@ -12,7 +12,7 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
         case .success:
             return Self(
                 title: "Transfer complete",
-                detail: "Every reported file has a verified result.",
+                detail: "Every file was copied and verified.",
                 symbol: "checkmark.circle.fill",
                 sourceGuidance: "Review the results for every destination before clearing source media."
             )
@@ -26,7 +26,7 @@ struct CompletionVerdictPresentation: Equatable, Sendable {
         case .failed:
             return Self(
                 title: "Transfer failed",
-                detail: "No safe completion verdict was recorded.",
+                detail: "No files were confirmed copied and verified.",
                 symbol: "xmark.circle.fill",
                 sourceGuidance: "Keep source media intact and review the transfer evidence."
             )

@@ -26,25 +26,25 @@ struct TransferCompletionVerdictTests {
     }
 
     @Test func everyFileVerifiedIsSuccess() {
-        #expect(verdict([verified, verified]) == .init(success: true, message: "Operation completed successfully"))
-        #expect(verdict([verified], mhl: true) == .init(success: true, message: "Operation completed successfully; ASC MHL handoff records saved"))
+        #expect(verdict([verified, verified]) == .init(success: true, message: "All files copied and verified"))
+        #expect(verdict([verified], mhl: true) == .init(success: true, message: "All files copied and verified; ASC MHL handoff records saved"))
     }
 
     /// Plant: in `TransferCompletion.verdict`, drop `mode != .quick`.
     @Test func quickIsNeverSuccess() {
-        #expect(verdict([copied], mode: .quick) == .init(success: false, message: "Operation completed successfully; contents have not been checksum verified."))
+        #expect(verdict([copied], mode: .quick) == .init(success: false, message: "All files copied. Not verified: Quick mode only compares file sizes."))
     }
 
     @Test func anyIssueOrNoFilesIsNotSuccess() {
-        #expect(verdict([verified, failed]) == .init(success: false, message: "Operation completed with 1 issue"))
-        #expect(verdict([]) == .init(success: false, message: "No files were verified"))
+        #expect(verdict([verified, failed]) == .init(success: false, message: "1 file failed"))
+        #expect(verdict([]) == .init(success: false, message: "No files were copied"))
     }
 
     @Test func handoffReportAndProjectFailuresAreNotSuccess() {
-        #expect(verdict([verified], mhl: true, handoff: ["SSD: ASC MHL — disk full"]) == .init(success: false, message: "Operation completed successfully; SSD: ASC MHL — disk full"))
-        #expect(verdict([verified], report: "disk full") == .init(success: false, message: "Operation completed successfully; report export failed: disk full"))
-        #expect(verdict([verified], project: .init(didPersist: false, locallySafe: nil)) == .init(success: false, message: "Operation completed successfully; photographer lifecycle finalization failed"))
-        #expect(verdict([verified], project: .init(didPersist: true, locallySafe: false)) == .init(success: false, message: "Operation completed successfully; photographer verification is incomplete"))
+        #expect(verdict([verified], mhl: true, handoff: ["SSD: ASC MHL — disk full"]) == .init(success: false, message: "All files copied and verified; SSD: ASC MHL — disk full"))
+        #expect(verdict([verified], report: "disk full") == .init(success: false, message: "All files copied and verified; the report could not be saved: disk full"))
+        #expect(verdict([verified], project: .init(didPersist: false, locallySafe: nil)) == .init(success: false, message: "All files copied and verified; the project record was not saved"))
+        #expect(verdict([verified], project: .init(didPersist: true, locallySafe: false)) == .init(success: false, message: "All files copied and verified; the project could not be confirmed safe locally"))
         #expect(verdict([verified], project: .init(didPersist: true, locallySafe: true)).success)
     }
 }

@@ -85,13 +85,13 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertEqual(harness.completedRows.count, 1)
         XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
         XCTAssertEqual(harness.terminalInfo?.success, false)
-        XCTAssertTrue(harness.terminalInfo?.message.contains("photographer verification is incomplete") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("the project could not be confirmed safe locally") == true)
     }
     func testEmptyAuthoritativeResultsCannotCompleteSuccessfully() async throws {
         let harness = ExecutorHarness(returnedResults: [], emittedResults: [])
         _ = try await harness.execute()
         XCTAssertEqual(harness.terminalInfo?.success, false)
-        XCTAssertEqual(harness.terminalInfo?.message, "No files were verified")
+        XCTAssertEqual(harness.terminalInfo?.message, "No files were copied")
     }
 
     func testFailedRequestedReportDowngradesCompletionButKeepsVerifiedRows() async throws {
@@ -102,8 +102,8 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         XCTAssertEqual(harness.completedRows.count, 1)
         XCTAssertTrue(harness.completedRows[0].isSuccessStatus)
         XCTAssertEqual(harness.terminalInfo?.success, false)
-        XCTAssertTrue(harness.terminalInfo?.message.contains("Operation completed successfully") == true)
-        XCTAssertTrue(harness.terminalInfo?.message.contains("report export failed") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("All files copied and verified") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("the report could not be saved") == true)
     }
 
     func testSuccessfulRequestedReportKeepsSuccessfulCompletion() async throws {
@@ -172,8 +172,8 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
             sourceURL: fixture.source, destinationURLs: [fixture.destination], verificationMode: .quick, generateASCMHL: true)
         _ = try await harness.execute()
         XCTAssertEqual(harness.terminalInfo?.success, false)
-        XCTAssertTrue(harness.terminalInfo?.message.contains("1 issue") == true)
-        XCTAssertTrue(harness.terminalInfo?.message.lowercased().contains("not been checksum verified") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.contains("1 file failed") == true)
+        XCTAssertTrue(harness.terminalInfo?.message.lowercased().contains("quick mode only compares file sizes") == true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.history.path))
     }
 

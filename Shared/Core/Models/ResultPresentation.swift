@@ -146,10 +146,10 @@ struct DestinationResultSummary: Identifiable {
     var unverifiedCount: Int { rows.filter { $0.isSuccessStatus && ($0.checksum?.isEmpty != false || $0.status.contains("Copied")) }.count }
     var needsAttention: Bool { rows.isEmpty || issueCount > 0 || unverifiedCount > 0 }
     var detail: String {
-        guard !rows.isEmpty else { return "No file results recorded" }
-        if issueCount > 0 { return "\(issueCount) of \(rows.count) reported results need attention" }
-        if unverifiedCount > 0 { return "\(unverifiedCount) of \(rows.count) file results are unverified" }
-        return rows.count == 1 ? "1 verified file result" : "\(rows.count) verified file results"
+        guard !rows.isEmpty else { return "No files recorded" }
+        if issueCount > 0 { return "\(issueCount) of \(rows.count) files failed" }
+        if unverifiedCount > 0 { return "\(unverifiedCount) of \(rows.count) files not verified" }
+        return rows.count == 1 ? "1 file verified" : "\(rows.count) files verified"
     }
 
     static func make(rows: [ResultRow], destinations: [URL]) -> [Self] {

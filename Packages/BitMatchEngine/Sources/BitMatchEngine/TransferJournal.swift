@@ -369,8 +369,17 @@ public final class TransferJournal: Sendable {
             guard record.state == .running else { throw LocalTransferJournalError.invalidState }
             record.results = results
             record.state = hadIssues || results.isEmpty || results.contains(where: { !$0.isSuccessStatus }) ? .issues : .completed
-            record.summary = record.verificationMode == .quick ? "Copied without checksum verification. " + summary : summary
-            if record.verificationMode == .quick { record.state = .issues }
+            // A Quick-mode record must always say its contents were not
+            // verified, whatever `summary` says. In the normal flow `summary`
+            // already carries that note (see `TransferCompletion.verdict`),
+            // so only add it once, never twice.
+            if record.verificationMode == .quick {
+                let note = TransferCompletion.quickModeNote
+                record.summary = summary.contains(note) ? summary : "\(summary) \(note)"
+                record.state = .issues
+            } else {
+                record.summary = summary
+            }
             record.endedAt = Date()
         }
     }

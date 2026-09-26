@@ -75,13 +75,13 @@ struct TransferOutcomePresentation: Equatable, Sendable {
     let tone: OutcomeTone
     /// The one sentence about the source card. Exactly one source of truth.
     let guidance: String
-    /// "N file results need attention", errors, warnings. Empty when the
+    /// "N files failed", errors, warnings. Empty when the
     /// transfer was cancelled or verified.
     let issueLines: [String]
     /// "Completed in …", or "Stopped after …" for a cancelled transfer.
     let durationLabel: String?
     let counts: OutcomeFileCounts
-    /// Bytes of verified file results, summed over every backup. Nil when
+    /// Bytes of verified files, summed over every backup. Nil when
     /// nothing was verified; never the source folder size.
     let bytesVerified: Int64?
     let verificationModeLabel: String?
@@ -192,15 +192,15 @@ struct TransferOutcomePresentation: Equatable, Sendable {
     func emptyFileListText(issuesOnly: Bool) -> String {
         if rowCount == 0 {
             return isCancelled
-                ? "No file results were recorded before the transfer was cancelled."
-                : "No file results were recorded."
+                ? "No files were recorded before the transfer was cancelled."
+                : "No files were recorded."
         }
-        return issuesOnly ? "No issues found." : "No file results to show."
+        return issuesOnly ? "No issues found." : "No files to show."
     }
 
     var truncationNote: String? {
         rowsTruncated
-            ? "Showing \(Self.fileListLimit.formatted()) of \(rowCount.formatted()) file results. Export a report for the full record."
+            ? "Showing \(Self.fileListLimit.formatted()) of \(rowCount.formatted()) files. Export a report for the full record."
             : nil
     }
 
@@ -216,13 +216,13 @@ struct TransferOutcomePresentation: Equatable, Sendable {
         var lines: [String] = []
         if counts.needsAttention > 0 {
             lines.append(counts.needsAttention == 1
-                ? "1 file result needs attention"
-                : "\(counts.needsAttention) file results need attention")
+                ? "1 file failed"
+                : "\(counts.needsAttention) files failed")
         }
         if counts.copiedNotVerified > 0 {
             lines.append(counts.copiedNotVerified == 1
-                ? "1 file result copied, not verified"
-                : "\(counts.copiedNotVerified) file results copied, not verified")
+                ? "1 file copied, not verified"
+                : "\(counts.copiedNotVerified) files copied, not verified")
         }
         if errorCount > 0 {
             lines.append(errorCount == 1 ? "1 reported error" : "\(errorCount) reported errors")
@@ -266,8 +266,8 @@ struct TransferOutcomePresentation: Equatable, Sendable {
             }
             let verified = summary.rows.filter(Self.isVerified).count
             let detail = summary.rows.isEmpty
-                ? "Cancelled before any file results were recorded"
-                : "Cancelled: \(verified) of \(summary.rows.count) file results verified before the stop"
+                ? "Cancelled before any files were recorded"
+                : "Cancelled: \(verified) of \(summary.rows.count) files verified before the stop"
             return OutcomeDestinationLine(id: summary.id, title: summary.title, detail: detail, needsAttention: true)
         }
     }

@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Wording: Transfer results now read plainly instead of repeating engine language ("Operation completed successfully; contents have not been checksum verified." is now "All files copied. Not verified: Quick mode only compares file sizes."). Queue and history summaries no longer say the same thing twice. "File results" wording throughout the outcome screen and per-backup summaries is now just "files".
 - Mac: Project transfers show the project dashboard (with off-site backup actions) on the completion screen again; the shared Outcome screen had silently dropped it.
 - Engine: copy, verify, compare, evidence and the safety rules are one Swift package (`Packages/BitMatchEngine`), built with Swift 6 strict concurrency, as are both apps. Pausing a transfer pauses only that transfer (it used to hold a Compare or another run's checksum reads too), verification can no longer outlive a finished or cancelled run, and the iPhone Live Activity shows the same time left as the progress screen.
 - Copy & Verify: free space is checked by one rule everywhere, the measured source plus 1 GB, which is what Setup shows. The engine no longer runs a second check against the progress estimate, which could refuse a transfer that fit.

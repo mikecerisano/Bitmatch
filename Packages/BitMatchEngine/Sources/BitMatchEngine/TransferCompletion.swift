@@ -133,6 +133,11 @@ public enum TransferCompletion: Sendable {
         public var permitsSuccess: Bool { didPersist && (locallySafe ?? true) }
     }
 
+    /// What every Quick-mode message says, wherever it appears (verdict text
+    /// or the journal's own safety net in `TransferJournal.finish`). One
+    /// spelling, so the two never say it twice or say it differently.
+    public static let quickModeNote = "Not verified: Quick mode only compares file sizes."
+
     public struct Verdict: Equatable, Sendable {
         public let success: Bool
         public let message: String
@@ -156,18 +161,21 @@ public enum TransferCompletion: Sendable {
     ) -> Verdict {
         let issueCount = rows.filter { !$0.isSuccessStatus }.count
         let fileResultsSucceeded = !rows.isEmpty && issueCount == 0
-        let fileResultsMessage = rows.isEmpty ? "No files were verified" : fileResultsSucceeded ?
-            "Operation completed successfully" :
-            "Operation completed with \(issueCount) issue\(issueCount == 1 ? "" : "s")"
+        let fileResultsMessage: String
+        if rows.isEmpty {
+            fileResultsMessage = "No files were copied"
+        } else if fileResultsSucceeded {
+            fileResultsMessage = mode == .quick ? "All files copied" : "All files copied and verified"
+        } else {
+            fileResultsMessage = issueCount == 1 ? "1 file failed" : "\(issueCount) files failed"
+        }
 
         let succeeded = fileResultsSucceeded && project.permitsSuccess && handoffIssues.isEmpty && mode != .quick && reportIssue == nil
-        var completionMessage: String
+        var completionMessage = fileResultsMessage
         if !project.didPersist {
-            completionMessage = "\(fileResultsMessage); photographer lifecycle finalization failed"
+            completionMessage += "; the project record was not saved"
         } else if project.locallySafe == false {
-            completionMessage = "\(fileResultsMessage); photographer verification is incomplete"
-        } else {
-            completionMessage = fileResultsMessage
+            completionMessage += "; the project could not be confirmed safe locally"
         }
         if !handoffIssues.isEmpty {
             completionMessage += "; " + handoffIssues.joined(separator: "; ")
@@ -175,10 +183,10 @@ public enum TransferCompletion: Sendable {
             completionMessage += "; ASC MHL handoff records saved"
         }
         if mode == .quick {
-            completionMessage += "; contents have not been checksum verified."
+            completionMessage += ". \(quickModeNote)"
         }
         if let reportIssue {
-            completionMessage += "; report export failed: \(reportIssue)"
+            completionMessage += "; the report could not be saved: \(reportIssue)"
         }
         return Verdict(success: succeeded, message: completionMessage)
     }

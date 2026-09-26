@@ -90,13 +90,13 @@ struct TransferOutcomePresentationTests {
         let outcome = make(state: .cancelled, rows: partialRows)
         #expect(outcome.destinations.count == 2)
         #expect(outcome.destinations.allSatisfy { $0.detail.hasPrefix("Cancelled") })
-        #expect(outcome.destinations.first?.detail == "Cancelled: 1 of 2 file results verified before the stop")
+        #expect(outcome.destinations.first?.detail == "Cancelled: 1 of 2 files verified before the stop")
     }
 
     // Plant: in `makeDurationLabel`, return `"Completed in \(text)"` for every tone.
     @Test func durationSaysStoppedWhenCancelled() {
         #expect(make(state: .cancelled, rows: partialRows).durationLabel == "Stopped after 1m 15s")
-        let done = make(state: .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully")), rows: cleanRows)
+        let done = make(state: .completed(OperationCompletionInfo(success: true, message: "All files copied and verified")), rows: cleanRows)
         #expect(done.durationLabel == "Completed in 1m 15s")
     }
 
@@ -117,7 +117,7 @@ struct TransferOutcomePresentationTests {
             row("A002.mov", .failed, size: 50, backup: backupA),
             row("A003.mov", .copiedUnverified, size: 25, backup: backupB),
         ]
-        let outcome = make(state: .completed(OperationCompletionInfo(success: false, message: "Operation completed with 1 issue")), rows: rows)
+        let outcome = make(state: .completed(OperationCompletionInfo(success: false, message: "1 file failed")), rows: rows)
         #expect(outcome.bytesVerified == 300)
         #expect(outcome.counts == OutcomeFileCounts(verified: 2, copiedNotVerified: 1, needsAttention: 1))
     }
@@ -125,11 +125,11 @@ struct TransferOutcomePresentationTests {
     // Plant: in `OutcomeFileCounts.make`, count every success row as verified.
     @Test func quickCopiesAreNotCountedVerified() {
         let rows = [row("A001.mov", .copiedUnverified, backup: backupA)]
-        let outcome = make(state: .completed(OperationCompletionInfo(success: false, message: "contents have not been checksum verified.")), rows: rows)
+        let outcome = make(state: .completed(OperationCompletionInfo(success: false, message: "Not verified: Quick mode only compares file sizes.")), rows: rows)
         #expect(outcome.counts.verified == 0)
         #expect(outcome.bytesVerified == nil)
         #expect(outcome.tone == .needsReview)
-        #expect(outcome.issueLines == ["1 file result copied, not verified"])
+        #expect(outcome.issueLines == ["1 file copied, not verified"])
     }
 
     // MARK: Actions
@@ -137,14 +137,14 @@ struct TransferOutcomePresentationTests {
     // Plant: `primaryAction: needsRetry ? .retry : .newTransfer` (drop `canRetry &&`).
     @Test func retryIsPrimaryOnlyWhenItIsOffered() {
         let failedRows = [row("A001.mov", .failed, backup: backupA)]
-        let issues = OperationState.completed(OperationCompletionInfo(success: false, message: "Operation completed with 1 issue"))
+        let issues = OperationState.completed(OperationCompletionInfo(success: false, message: "1 file failed"))
         #expect(make(state: issues, rows: failedRows, canRetry: true).primaryAction == .retry)
         #expect(make(state: issues, rows: failedRows, canRetry: false).primaryAction == .newTransfer)
     }
 
     // Plant: `primaryAction: canRetry ? .retry : .newTransfer`.
     @Test func verifiedAndCancelledLeadWithNewTransfer() {
-        let done = make(state: .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully")), rows: cleanRows)
+        let done = make(state: .completed(OperationCompletionInfo(success: true, message: "All files copied and verified")), rows: cleanRows)
         #expect(done.tone == .verified)
         #expect(done.primaryAction == .newTransfer)
         #expect(make(state: .cancelled, rows: partialRows).primaryAction == .newTransfer)
@@ -198,7 +198,7 @@ struct NewTransferSelectionTests {
         let backup = try makeDir()
         defer { try? FileManager.default.removeItem(at: backup) }
         coordinator.destinationURLs = [backup]
-        coordinator.operationState = .completed(OperationCompletionInfo(success: true, message: "Operation completed successfully"))
+        coordinator.operationState = .completed(OperationCompletionInfo(success: true, message: "All files copied and verified"))
 
         coordinator.startNewTransfer()
 

@@ -266,7 +266,7 @@ struct LocalTransferJournalTests {
         try journal.finish(id: id, results: [ResultRow(path: "file", status: "✅ Copied", size: 1, checksum: nil, destination: "Backup")],
                            summary: "Done", hadIssues: false)
         #expect(journal.records.first?.state == .issues)
-        #expect(journal.records.first?.summary.contains("without checksum verification") == true)
+        #expect(journal.records.first?.summary.contains("Quick mode only compares file sizes") == true)
     }
 
     @Test func exportedHistoryPreservesUnverifiedVerdictWithoutBookmarks() throws {
@@ -283,7 +283,7 @@ struct LocalTransferJournalTests {
         let csvText = String(decoding: csv.data, as: UTF8.self)
         #expect(csvText.contains("verification,transfer_state,transfer_summary"))
         #expect(csvText.contains("\"Quick\",\"issues\""))
-        #expect(csvText.contains("without checksum verification"))
+        #expect(csvText.contains("Quick mode only compares file sizes"))
         let json = try TransferHistoryDocument(record: record, asCSV: false)
         let payload = try #require(JSONSerialization.jsonObject(with: json.data) as? [String: Any])
         #expect(payload["state"] as? String == "issues")
