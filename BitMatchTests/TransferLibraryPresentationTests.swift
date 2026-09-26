@@ -121,6 +121,35 @@ struct TransferLibraryPresentationTests {
         #expect(counts.queue == 5) // every state but .completed shows in the queue
     }
 
+    // MARK: - Recent transfers
+
+    @Test func recentTransfersExcludeQueuedAndRunningBeforeLimiting() {
+        let states: [LocalTransferState] = [.completed, .interrupted, .issues, .cancelled, .queued, .running]
+        let records = states.enumerated().map { index, state in
+            PresentationTestSupport.record(state: state, createdAt: Date(timeIntervalSince1970: Double(index)))
+        }
+        let recent = TransferLibraryPresentation.recent(records, limit: 3)
+        #expect(recent.map(\.id) == [records[3].id, records[2].id, records[1].id])
+    }
+
+    @Test func recentTransfersSortUnorderedHistoryNewestFirst() {
+        let oldest = PresentationTestSupport.record(state: .completed, createdAt: Date(timeIntervalSince1970: 1))
+        let newest = PresentationTestSupport.record(state: .issues, createdAt: Date(timeIntervalSince1970: 3))
+        let middle = PresentationTestSupport.record(state: .interrupted, createdAt: Date(timeIntervalSince1970: 2))
+        let recent = TransferLibraryPresentation.recent([middle, oldest, newest], limit: 10)
+        #expect(recent.map(\.id) == [newest.id, middle.id, oldest.id])
+        #expect(TransferLibraryPresentation.recent([oldest, newest, middle], limit: 1).map(\.id) == [newest.id])
+    }
+
+    @Test func recentTransfersHandleEmptyHistoryAndNonpositiveLimits() {
+        #expect(TransferLibraryPresentation.recent([], limit: 3).isEmpty)
+        let records = [PresentationTestSupport.record(state: .completed)]
+        #expect(TransferLibraryPresentation.recent(records, limit: 0).isEmpty)
+        #expect(TransferLibraryPresentation.recent(records, limit: -1).isEmpty)
+        let active = [LocalTransferState.queued, .running].map { PresentationTestSupport.record(state: $0) }
+        #expect(TransferLibraryPresentation.recent(active, limit: 3).isEmpty)
+    }
+
     // MARK: - Detail line
 
     /// Plant: in `detailLine(destinationCount:fileCount:)`, change
@@ -134,12 +163,13 @@ struct TransferLibraryPresentationTests {
 
 /// Shared minimal fixtures for these tests.
 private enum PresentationTestSupport {
-    static func record(state: LocalTransferState) -> LocalTransferRecord {
+    static func record(state: LocalTransferState, createdAt: Date = Date()) -> LocalTransferRecord {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try! FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
         let source = try! LocalTransferResource(url: root)
         var record = LocalTransferRecord(
-            id: UUID(), createdAt: Date(), source: source, destinations: [source],
+            id: UUID(), createdAt: createdAt, source: source, destinations: [source],
             verificationMode: .standard, cameraSettings: CameraLabelSettings(),
             reportSettings: ReportPrefs(), generateASCMHL: true, projectID: nil
         )

@@ -92,6 +92,14 @@ enum TransferLibraryPresentation {
         }
     }
 
+    static func recent(_ records: [LocalTransferRecord], limit: Int) -> [LocalTransferRecord] {
+        guard limit > 0 else { return [] }
+        return Array(records
+            .filter { $0.state != .queued && $0.state != .running }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit))
+    }
+
     /// The counts shown on the Queue/History segmented control.
     static func tabCounts(_ records: [LocalTransferRecord]) -> (queue: Int, history: Int) {
         let queue = records.filter { $0.state.showsInQueue }.count

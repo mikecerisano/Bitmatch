@@ -125,26 +125,11 @@ struct TransferLibraryView: View {
     }
 
     private func rowView(_ record: LocalTransferRecord) -> some View {
-        let state = TransferLibraryPresentation.stateLabel(record.state, verificationMode: record.verificationMode)
         let actions = TransferLibraryPresentation.actions(for: record)
-        let detail = TransferLibraryPresentation.detailLine(destinationCount: record.destinations.count, fileCount: record.results.count)
         return DisclosureGroup(isExpanded: expandedBinding(record.id)) {
             detailsView(record, actions: actions)
         } label: {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(record.title)
-                        .font(.body.weight(.semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    (Text(record.createdAt, style: .date) + Text(" · \(detail)"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                statePill(state)
+            TransferRecordRow(record: record) {
                 Menu {
                     menuItems(record, actions: actions)
                 } label: {
@@ -156,7 +141,6 @@ struct TransferLibraryView: View {
                 .modifier(TouchTarget())
                 .accessibilityLabel("More actions for \(record.title)")
             }
-            .padding(.vertical, 4)
         }
         .contextMenu { menuItems(record, actions: actions) }
         #if os(iOS)
@@ -181,16 +165,6 @@ struct TransferLibraryView: View {
                 if isExpanded { expandedIDs.insert(id) } else { expandedIDs.remove(id) }
             }
         )
-    }
-
-    private func statePill(_ state: TransferLibraryPresentation.StateLabel) -> some View {
-        Text(state.title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(state.tone.color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(state.tone.color.opacity(0.15), in: Capsule())
-            .accessibilityLabel(state.title)
     }
 
     @ViewBuilder
