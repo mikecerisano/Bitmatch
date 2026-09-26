@@ -120,7 +120,7 @@ enum BackupTargetPolicy {
         if path == "/" {
             return "\(name) is the startup disk. Choose a folder on it instead."
         }
-        if isWithin(path, root: "/System") {
+        if PathContainment.isWithin(path, root: "/System") {
             return "\(name) is a macOS system volume and cannot be a backup."
         }
         if let targetFacts, isVolumeRoot {
@@ -166,7 +166,7 @@ enum BackupTargetPolicy {
             // Anything in the temp folders, a volume mounted there included.
             // (A user may still pick one: the APFS fault harness mounts its
             // disposable backup volume under $TMPDIR.)
-            if temporaryRoots.contains(where: { isWithin(path, root: $0) }) {
+            if temporaryRoots.contains(where: { PathContainment.isWithin(path, root: $0) }) {
                 return "\(name) is a temporary folder."
             }
             // A network share's root is not internal, whatever macOS says
@@ -244,10 +244,10 @@ enum BackupTargetPolicy {
         // One side has no root at all (its facts are missing and it is not
         // under /Volumes). Inside the other side's reported mount means the
         // same volume; "/" says nothing, since every path is inside it.
-        if let root = sourceFacts?.volumeRootPath, root != "/", isWithin(targetPath, root: root) {
+        if let root = sourceFacts?.volumeRootPath, root != "/", PathContainment.isWithin(targetPath, root: root) {
             return root
         }
-        if let root = targetFacts?.volumeRootPath, root != "/", isWithin(sourcePath, root: root) {
+        if let root = targetFacts?.volumeRootPath, root != "/", PathContainment.isWithin(sourcePath, root: root) {
             return root
         }
         return nil
@@ -263,12 +263,5 @@ enum BackupTargetPolicy {
 
     static func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
-    private static func isWithin(_ path: String, root: String) -> Bool {
-        let pathComponents = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
-        let rootComponents = URL(fileURLWithPath: root).standardizedFileURL.pathComponents
-        guard pathComponents.count >= rootComponents.count else { return false }
-        return zip(rootComponents, pathComponents).allSatisfy(==)
     }
 }

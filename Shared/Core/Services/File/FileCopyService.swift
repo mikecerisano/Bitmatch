@@ -387,7 +387,7 @@ final class FileCopyService {
                         }
 
                         let resolvedSource = fileURL.resolvingSymlinksInPath()
-                        guard pathIsWithin(resolvedSource.path, root: src.resolvingSymlinksInPath().path) else {
+                        guard PathContainment.isWithin(resolvedSource.path, root: src.resolvingSymlinksInPath().path) else {
                             await onError(relativePath, NSError(
                                 domain: "FileCopyService",
                                 code: NSFileWriteNoPermissionError,
@@ -867,13 +867,6 @@ final class FileCopyService {
         )
     }
 
-    /// Security: compare path-components, not raw prefixes, to avoid boundary bypasses.
-    private static func pathIsWithin(_ candidatePath: String, root rootPath: String) -> Bool {
-        let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
-        let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
-        guard candidateComponents.count >= rootComponents.count else { return false }
-        return zip(rootComponents, candidateComponents).allSatisfy(==)
-    }
 
 
     private static func fileIdentity(from attributes: [FileAttributeKey: Any]) -> (volume: UInt64?, file: UInt64?) {

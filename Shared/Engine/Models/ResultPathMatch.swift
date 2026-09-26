@@ -7,11 +7,6 @@ enum ResultPathMatch {
     /// `/private/var`, `/private/tmp` and `/private/etc` are where macOS's
     /// `/var`, `/tmp` and `/etc` symlinks point, so both spellings compare equal.
     static func comparablePath(_ path: String) -> String {
-        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-        for linked in ["/var", "/tmp", "/etc"] where
-            standardized == "/private" + linked || standardized.hasPrefix("/private" + linked + "/") {
-            return String(standardized.dropFirst("/private".count))
-        }
-        return standardized
+        PathContainment.comparablePath(path)
     }
 }

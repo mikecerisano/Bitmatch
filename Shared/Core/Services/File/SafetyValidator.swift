@@ -31,7 +31,7 @@ final class SafetyValidator {
 
         try validateSourceTreeForCopy(source: source)
 
-        let uniqueDestinationPaths = Set(destinations.map { canonicalPath($0) })
+        let uniqueDestinationPaths = Set(destinations.map { PathContainment.comparablePath(canonicalPath($0)) })
         guard uniqueDestinationPaths.count == destinations.count else {
             throw FileOperationError.unsafeOperation("Destination folders must be unique")
         }
@@ -216,9 +216,9 @@ final class SafetyValidator {
     static func folderOverlap(_ first: URL, _ second: URL) -> FolderOverlap? {
         let firstPath = canonicalPath(first)
         let secondPath = canonicalPath(second)
-        if firstPath == secondPath { return .same }
-        if pathIsWithin(secondPath, root: firstPath) { return .secondInsideFirst }
-        if pathIsWithin(firstPath, root: secondPath) { return .firstInsideSecond }
+        if PathContainment.isSamePath(firstPath, secondPath) { return .same }
+        if PathContainment.isWithin(secondPath, root: firstPath) { return .secondInsideFirst }
+        if PathContainment.isWithin(firstPath, root: secondPath) { return .firstInsideSecond }
         return nil
     }
 
@@ -341,13 +341,13 @@ final class SafetyValidator {
     private static func destinationRootIsContained(_ root: URL, within destination: URL) -> Bool {
         let standardizedRoot = root.standardizedFileURL.path
         let standardizedDestination = destination.standardizedFileURL.path
-        guard pathIsStrictlyWithin(standardizedRoot, root: standardizedDestination) else {
+        guard PathContainment.isStrictlyWithin(standardizedRoot, root: standardizedDestination) else {
             return false
         }
 
         let canonicalRoot = canonicalPathResolvingExistingPrefixes(root)
         let canonicalDestination = canonicalPathResolvingExistingPrefixes(destination)
-        return pathIsStrictlyWithin(canonicalRoot, root: canonicalDestination)
+        return PathContainment.isStrictlyWithin(canonicalRoot, root: canonicalDestination)
     }
 
     private static func canonicalPathResolvingExistingPrefixes(_ url: URL) -> String {
@@ -401,7 +401,7 @@ final class SafetyValidator {
 
         for (index, path) in rootPaths.enumerated() {
             for (otherIndex, otherPath) in rootPaths.enumerated() where index != otherIndex {
-                if pathIsWithin(path, root: otherPath) {
+                if PathContainment.isWithin(path, root: otherPath) {
                     throw FileOperationError.unsafeOperation("Resolved destination folders cannot be nested inside each other")
                 }
             }
@@ -522,46 +522,19 @@ final class SafetyValidator {
     static func isProtectedSystemPath(_ url: URL) -> Bool {
         let path = canonicalPath(url)
         let temporaryPath = canonicalPath(FileManager.default.temporaryDirectory)
-        if pathIsWithin(path, root: temporaryPath) {
+        if PathContainment.isWithin(path, root: temporaryPath) {
             return false
         }
         #if os(iOS)
-        if iOSUserStorageRoots.contains(where: { pathIsWithin(path, root: $0) }) {
+        if iOSUserStorageRoots.contains(where: { PathContainment.isWithin(path, root: $0) }) {
             return false
         }
         #endif
-        return protectedSystemPrefixes.contains { path == $0 || pathIsWithin(path, root: $0) }
-    }
-
-    /// Standardizing drops "/private" from a path only when the rest exists
-    /// ("/private/var/mobile" becomes "/var/mobile", but a longer path that
-    /// does not exist keeps it), so the same place could fail to match
-    /// itself. Both sides drop it the way macOS aliases these folders.
-    private static func comparableComponents(_ path: String) -> [String] {
-        var components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
-        if components.count > 2, components[1] == "private", ["var", "etc", "tmp"].contains(components[2]) {
-            components.remove(at: 1)
-        }
-        return components
+        return protectedSystemPrefixes.contains { path == $0 || PathContainment.isWithin(path, root: $0) }
     }
 
     private static func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
-    /// Compare path-components, not raw prefixes, to avoid boundary bypasses.
-    private static func pathIsWithin(_ candidatePath: String, root rootPath: String) -> Bool {
-        let candidateComponents = comparableComponents(candidatePath)
-        let rootComponents = comparableComponents(rootPath)
-        guard candidateComponents.count >= rootComponents.count else { return false }
-        return zip(rootComponents, candidateComponents).allSatisfy(==)
-    }
-
-    private static func pathIsStrictlyWithin(_ candidatePath: String, root rootPath: String) -> Bool {
-        let candidateComponents = URL(fileURLWithPath: candidatePath).standardizedFileURL.pathComponents
-        let rootComponents = URL(fileURLWithPath: rootPath).standardizedFileURL.pathComponents
-        guard candidateComponents.count > rootComponents.count else { return false }
-        return zip(rootComponents, candidateComponents).allSatisfy(==)
     }
 }
 
