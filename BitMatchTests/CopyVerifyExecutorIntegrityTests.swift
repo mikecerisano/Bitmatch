@@ -187,11 +187,11 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         ]
         // No source or destination files are needed: export must preserve the
         // recorded verification, not silently recalculate or omit missing media.
-        try ReportExporter.writeRecordedChecksumManifest(results: rows, algorithm: .sha256, to: output)
+        try EvidenceWriter.writeRecordedChecksumManifest(results: rows, algorithm: .sha256, to: output)
         let text = try String(contentsOf: output, encoding: .utf8)
         XCTAssertTrue(text.contains("first  /backup/a/clip.mov"))
         XCTAssertTrue(text.contains("second  /backup/b/clip.mov"))
-        XCTAssertThrowsError(try ReportExporter.writeRecordedChecksumManifest(
+        XCTAssertThrowsError(try EvidenceWriter.writeRecordedChecksumManifest(
             results: rows, algorithm: .sha256, to: fixture.directory.appendingPathComponent("missing/report.txt")))
     }
 
@@ -199,7 +199,7 @@ final class CopyVerifyExecutorIntegrityTests: XCTestCase {
         let fixture = TestFixture()
         let output = fixture.directory.appendingPathComponent("checksums.txt")
         let row = ResultRow(path: "/source/clip.mov", status: "✅ Match", size: 10, checksum: nil, destination: "Backup")
-        XCTAssertThrowsError(try ReportExporter.writeRecordedChecksumManifest(results: [row], algorithm: .sha256, to: output))
+        XCTAssertThrowsError(try EvidenceWriter.writeRecordedChecksumManifest(results: [row], algorithm: .sha256, to: output))
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
 

@@ -40,7 +40,7 @@ struct ReportScannerTests {
             prefs: ReportPrefs(verificationMode: mode),
             photographerContext: nil
         )
-        return try ReportExporter.encodeEnhancedJSONReport(report)
+        return try EvidenceWriter.encodeEnhancedJSONReport(report)
     }
 
     /// Writes where and how the exporter does: `<backup>/Reports/BitMatch_Report_<date>.json`,
@@ -51,7 +51,7 @@ struct ReportScannerTests {
         let reports = root.appendingPathComponent("Backup/Reports", isDirectory: true)
         try FileManager.default.createDirectory(at: reports, withIntermediateDirectories: true)
         let url = reports
-            .appendingPathComponent(ReportExporter.reportFileName(finished: finished, pathExtension: "json"))
+            .appendingPathComponent(EvidenceWriter.reportFileName(finished: finished, pathExtension: "json"))
             .nonConflictingSibling()
         try reportData(mode: mode, fileCount: fileCount, matchCount: matchCount, root: root, finished: finished)
             .write(to: url)

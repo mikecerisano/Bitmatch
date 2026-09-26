@@ -38,12 +38,12 @@ struct PhotographerReportTests {
         var prefs = ReportPrefs()
         prefs.verifyWithChecksum = false
         prefs.verificationMode = .paranoid
-        #expect(ReportExporter.verificationDescription(for: prefs).method == "checksum-and-byte-compare")
-        #expect(ReportExporter.verificationDescription(for: prefs).algorithm == "SHA-256")
+        #expect(EvidenceWriter.verificationDescription(for: prefs).method == "checksum-and-byte-compare")
+        #expect(EvidenceWriter.verificationDescription(for: prefs).algorithm == "SHA-256")
         prefs.verificationMode = .thorough
-        #expect(ReportExporter.verificationDescription(for: prefs).algorithm == "SHA-256, MD5")
+        #expect(EvidenceWriter.verificationDescription(for: prefs).algorithm == "SHA-256, MD5")
         prefs.verificationMode = nil
-        #expect(ReportExporter.verificationDescription(for: prefs).method == "byte-compare")
+        #expect(EvidenceWriter.verificationDescription(for: prefs).method == "byte-compare")
     }
 
     @Test func oldReportPreferencesDecodeWithoutActualVerificationMode() throws {
@@ -127,7 +127,7 @@ struct PhotographerReportTests {
         #expect(report.photographyJob == nil)
         var legacyObject = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
         legacyObject.removeValue(forKey: "notes")
-        let decodedLegacyReport = try JSONDecoder().decode(EnhancedJSONReport.self, from: JSONSerialization.data(withJSONObject: legacyObject))
+        let decodedLegacyReport = try JSONDecoder().decode(ProjectJSONReport.self, from: JSONSerialization.data(withJSONObject: legacyObject))
         #expect(decodedLegacyReport.notes == nil)
         #expect(report.source.path == "/CARD")
         #expect(report.statistics.totalFiles == 2)

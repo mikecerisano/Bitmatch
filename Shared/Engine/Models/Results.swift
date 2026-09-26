@@ -83,6 +83,24 @@ struct ResultRow: Identifiable {
         let failureMarkers = ["❌", "⚠️", "mismatch", "fail", "error", "missing"]
         return !failureMarkers.contains { lowercased.contains($0) }
     }
+
+    var isVerifiedStatus: Bool {
+        Self.isVerifiedStatus(status)
+    }
+
+    /// Whether a row counts as verified, not just copied (Promise 2): only
+    /// `.verified`, or older text that is a success and says "verified" or
+    /// "match" without "unverified" / "not verified".
+    static func isVerifiedStatus(_ status: String) -> Bool {
+        guard isSuccessStatus(status) else { return false }
+        if let outcome = ResultOutcome(statusText: status) {
+            return outcome.isVerified
+        }
+        let lowercased = status.lowercased()
+        let saysVerified = lowercased.contains("verified") || lowercased.contains("match")
+        let deniesVerified = lowercased.contains("unverified") || lowercased.contains("not verified")
+        return saysVerified && !deniesVerified
+    }
 }
 
 // MARK: - Report Preferences  

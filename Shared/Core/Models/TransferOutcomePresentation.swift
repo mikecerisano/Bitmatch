@@ -161,7 +161,7 @@ struct TransferOutcomePresentation: Equatable, Sendable {
     /// Green only for a row that positively says it was verified; the same
     /// rule as the per-row symbol (`ResultStatusPresentation`).
     static func isVerified(_ row: ResultRow) -> Bool {
-        row.isSuccessStatus && ResultStatusPresentation.make(status: row.status).tone == .verified
+        row.isVerifiedStatus
     }
 
     /// Plain words for a row's status (audit L7: no emoji read aloud).

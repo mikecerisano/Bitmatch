@@ -74,7 +74,7 @@ struct EvidenceGoldenTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("golden-\(UUID().uuidString).sha256")
         defer { try? FileManager.default.removeItem(at: url) }
         let verifiedOnly = Self.rows.filter { $0.isSuccessStatus && $0.checksum != nil }
-        try ReportExporter.writeRecordedChecksumManifest(results: verifiedOnly, algorithm: .sha256, to: url)
+        try EvidenceWriter.writeRecordedChecksumManifest(results: verifiedOnly, algorithm: .sha256, to: url)
         try Self.check(String(contentsOf: url, encoding: .utf8), against: Self.expectedManifest, name: "manifest")
     }
 
@@ -88,7 +88,7 @@ struct EvidenceGoldenTests {
             fileCount: rows.count, matchCount: 1, totalBytesProcessed: 1_054_730, duration: 75,
             workers: 2, prefs: prefs, photographerContext: context
         )
-        return String(decoding: try ReportExporter.encodeEnhancedJSONReport(report), as: UTF8.self)
+        return String(decoding: try EvidenceWriter.encodeEnhancedJSONReport(report), as: UTF8.self)
     }
 
     /// Compares, and on a mismatch writes the actual text next to the test
