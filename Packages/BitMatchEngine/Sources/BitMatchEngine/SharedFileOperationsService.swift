@@ -1,6 +1,7 @@
 // SharedFileOperationsService.swift - Platform-agnostic file operations
 // Uses shared AsyncSemaphore from AsyncSemaphore.swift
 import Foundation
+import Synchronization
 
 private struct FileResultKey: Hashable {
     let sourcePath: String
@@ -163,64 +164,52 @@ private func safeMultiply(_ a: Int64, _ b: Int64) -> Int64 {
 
 /// Owns the single operation admitted by a service instance.
 /// Cancellation never releases the slot; only the matching operation's exit does.
-public final class ActiveOperationRegistry: @unchecked Sendable {
-    public init() {}
-
-    private struct Entry {
+public final class ActiveOperationRegistry: Sendable {
+    private struct State {
+        var activeID: UUID?
         var task: Task<FileOperation, Error>?
         var cancellationRequested = false
     }
 
-    private let lock = NSLock()
-    private var activeID: UUID?
-    private var entries: [UUID: Entry] = [:]
+    private let state = Mutex(State())
+
+    public init() {}
 
     public func reserve(_ id: UUID) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard activeID == nil else { return false }
-        activeID = id
-        entries[id] = Entry()
-        return true
+        state.withLock { state in
+            guard state.activeID == nil else { return false }
+            state = State(activeID: id)
+            return true
+        }
     }
 
+    /// Attaches the run's task. A cancel that arrived before this still
+    /// cancels it (I2); a task for a run that is not active is cancelled.
     public func attach(_ task: Task<FileOperation, Error>, to id: UUID) {
-        lock.lock()
-        guard activeID == id, var entry = entries[id] else {
-            lock.unlock()
-            task.cancel()
-            return
+        let shouldCancel = state.withLock { state in
+            guard state.activeID == id else { return true }
+            state.task = task
+            return state.cancellationRequested
         }
-        entry.task = task
-        entries[id] = entry
-        let shouldCancel = entry.cancellationRequested
-        lock.unlock()
-
         if shouldCancel {
             task.cancel()
         }
     }
 
     public func requestCancellation() {
-        lock.lock()
-        guard let id = activeID, var entry = entries[id] else {
-            lock.unlock()
-            return
+        let task = state.withLock { state -> Task<FileOperation, Error>? in
+            guard state.activeID != nil else { return nil }
+            state.cancellationRequested = true
+            return state.task
         }
-        entry.cancellationRequested = true
-        entries[id] = entry
-        let task = entry.task
-        lock.unlock()
-
         task?.cancel()
     }
 
     public func clear(_ id: UUID) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard activeID == id else { return }
-        entries[id] = nil
-        activeID = nil
+        state.withLock { state in
+            guard state.activeID == id else { return }
+            state = State()
+        }
     }
 }
 

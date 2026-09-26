@@ -1,6 +1,7 @@
 // FileCopyService.swift - Atomic file copy with streaming enumeration
 // Uses shared AsyncSemaphore from AsyncSemaphore.swift
 import Foundation
+import Synchronization
 import CryptoKit
 #if canImport(Darwin)
 import Darwin
@@ -329,14 +330,17 @@ public final class PinnedDestinationFile: @unchecked Sendable {
 
 public final class FileCopyService {
     // Perf 1: actor wrapping pre-enumerated file list for concurrent worker access
-    private actor _ArraySource {
-        private let urls: [URL]
-        private var index: Int = 0
-        init(_ urls: [URL]) { self.urls = urls }
+    /// Hands each copy worker the next manifest entry: one atomic index,
+    /// so every file is taken exactly once.
+    private final class ManifestCursor: Sendable {
+        private let files: [URL]
+        private let index = Atomic<Int>(0)
+
+        init(_ files: [URL]) { self.files = files }
+
         func next() -> URL? {
-            guard index < urls.count else { return nil }
-            defer { index += 1 }
-            return urls[index]
+            let position = index.wrappingAdd(1, ordering: .relaxed).oldValue
+            return position < files.count ? files[position] : nil
         }
     }
 
@@ -361,15 +365,14 @@ public final class FileCopyService {
         try await withThrowingTaskGroup(of: Void.self) { group in
             // Workers copy exactly the fail-closed source manifest, never a
             // second walk of the card.
-            let arraySource = _ArraySource(preEnumeratedFiles)
-            let nextFile: @Sendable () async -> URL? = { await arraySource.next() }
+            let cursor = ManifestCursor(preEnumeratedFiles)
 
             for _ in 0..<max(1, workers) {
                 group.addTask {
                     while true {
                         try Task.checkCancellation()
                         if let pauseCheck { try await pauseCheck() }
-                        guard let fileURL = await nextFile() else { break }
+                        guard let fileURL = cursor.next() else { break }
                         let relativePath: String
                         do {
                             relativePath = try sourceResolver.resolve(fileURL)
