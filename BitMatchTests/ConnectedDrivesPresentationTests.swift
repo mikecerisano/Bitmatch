@@ -39,12 +39,14 @@ struct ConnectedDrivesPresentationTests {
         internalDisk.isInternal = true
         var cameraOnFixedReader = volume("A002", camera: "ARRI")
         cameraOnFixedReader.isRemovable = false
+        var builtInSlot = volume("SD Slot")
+        builtInSlot.isInternal = true
         let rows = Presentation.queueCandidates(
-            volumes: [volume("Card"), ssd, internalDisk, cameraOnFixedReader, volume("Untitled SD")],
+            volumes: [volume("Card"), ssd, internalDisk, cameraOnFixedReader, volume("Untitled SD"), builtInSlot],
             sourceURL: URL(fileURLWithPath: "/Volumes/Card"),
             destinationURLs: [], queuedSourceURLs: []
         )
-        #expect(rows.map(\.displayName) == ["A002", "Untitled SD"])
+        #expect(rows.map(\.displayName) == ["A002", "SD Slot", "Untitled SD"])
     }
 
     @Test func hidesBootSystemHiddenAndAppImageVolumes() {

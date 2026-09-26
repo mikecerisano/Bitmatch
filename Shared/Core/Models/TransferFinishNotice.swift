@@ -14,8 +14,7 @@ struct TransferFinishNotice: Equatable, Sendable {
         state: OperationState,
         sourceName: String,
         backupCount: Int,
-        issueCount: Int,
-        mode: VerificationMode
+        issueCount: Int
     ) -> TransferFinishNotice? {
         let card = sourceName.isEmpty ? "The card" : sourceName
         let backups = backupCount == 1 ? "1 backup" : "\(backupCount) backups"
@@ -27,7 +26,9 @@ struct TransferFinishNotice: Equatable, Sendable {
             let files = issueCount == 1 ? "1 file" : "\(issueCount) files"
             return .init(title: "\(card) needs attention",
                          body: "\(files) had problems. Open BitMatch to review.")
-        case .completed where mode == .quick:
+        // Only when Quick was the one gap: a Quick run whose report or
+        // project failed still needs attention.
+        case .completed(let info) where info.copiedNotVerified:
             return .init(title: "\(card) copied, not verified",
                          body: "Quick mode only compared file sizes. Keep the card until it is verified.")
         case .completed:

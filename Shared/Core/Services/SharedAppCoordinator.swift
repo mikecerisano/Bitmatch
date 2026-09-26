@@ -366,8 +366,7 @@ class SharedAppCoordinator: ObservableObject {
             state: state,
             sourceName: sourceURL?.lastPathComponent ?? "",
             backupCount: destinationURLs.count,
-            issueCount: results.filter { !$0.isSuccessStatus }.count,
-            mode: verificationMode
+            issueCount: results.filter { !$0.isSuccessStatus }.count
         ) else { return }
         transferNotifier.post(notice)
     }
