@@ -25,7 +25,7 @@ struct SharedFileOperationsQuickModeTests {
                 checksum: SharedChecksumService.shared
             )
 
-            var final: OperationProgress?
+            let final = Locked<OperationProgress?>(nil)
             let op = try await sut.performFileOperation(
                 sourceURL: source,
                 destinationURLs: [dest],
@@ -33,12 +33,12 @@ struct SharedFileOperationsQuickModeTests {
                 settings: CameraLabelSettings(),
                 estimatedTotalBytes: nil,
                 progressCallback: { prog in
-                    final = prog
+                    final.set(prog)
                 },
                 onFileResult: { _ in }
             )
 
-            #expect(final?.overallProgress == 1.0)
+            #expect(final.value?.overallProgress == 1.0)
             #expect(op.results.count >= 2)
             #expect(op.results.allSatisfy { $0.success })
             // Quick mode should not attach verification results

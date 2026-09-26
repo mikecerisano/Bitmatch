@@ -16,7 +16,7 @@ import Foundation
 /// this rule can only refuse more, never let more in.
 ///
 /// Source: only a folder, and not overlapping a chosen backup.
-public enum DestinationSelectionPolicy {
+public enum DestinationSelectionPolicy: Sendable {
     public enum Decision: Equatable, Sendable {
         case accept
         case reject(String)

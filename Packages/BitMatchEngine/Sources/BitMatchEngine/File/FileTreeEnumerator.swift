@@ -50,7 +50,7 @@ public struct RelativePathResolver: Sendable {
     }
 }
 
-public enum FileTreeEnumerator {
+public enum FileTreeEnumerator: Sendable {
     /// macOS volume metadata directories written to the root of removable media. They are
     /// not user data and are frequently unreadable without Full Disk Access, so descending
     /// into them would abort the whole transfer with a permission error. Only direct

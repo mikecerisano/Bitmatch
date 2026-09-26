@@ -7,7 +7,7 @@ import Foundation
 /// "/private/tmp" treated as the "/var", "/etc" and "/tmp" macOS aliases
 /// them to. Callers resolve symlinks first when they need to; this works
 /// on text and never touches the disk.
-public enum PathContainment {
+public enum PathContainment: Sendable {
     /// Standardizing drops "/private" from a path only when the rest exists
     /// ("/private/var/mobile" becomes "/var/mobile", but a longer path that
     /// does not exist keeps it), so the same place could fail to match

@@ -30,7 +30,7 @@ final class ChecksumTruncationTests: XCTestCase {
         return url
     }
 
-    private func truncate(_ url: URL, to size: UInt64) {
+    private static func truncate(_ url: URL, to size: UInt64) {
         guard let handle = FileHandle(forWritingAtPath: url.path) else {
             XCTFail("Could not open \(url.path) for truncation")
             return
@@ -39,14 +39,14 @@ final class ChecksumTruncationTests: XCTestCase {
         try? handle.close()
     }
 
-    private func appendByte(to url: URL) throws {
+    private static func appendByte(to url: URL) throws {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: Data([0xff]))
     }
 
-    private func growAndMutateNextChunk(of url: URL) throws {
+    private static func growAndMutateNextChunk(of url: URL) throws {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: 64 * 1024)
@@ -65,9 +65,9 @@ final class ChecksumTruncationTests: XCTestCase {
             _ = try await SharedChecksumService.shared.generateChecksum(
                 for: file,
                 type: .sha256
-            ) { [self] _, _ in
+            ) { _, _ in
                 if !truncated.getAndSet() {
-                    truncate(file, to: 64 * 1024)
+                    Self.truncate(file, to: 64 * 1024)
                 }
             }
             XCTFail("Expected checksum of a shrinking file to throw")
@@ -85,10 +85,10 @@ final class ChecksumTruncationTests: XCTestCase {
             try await SharedChecksumService.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
-            ) { [self] _, _ in
+            ) { _, _ in
                 if !truncated.getAndSet() {
-                    truncate(source, to: 64 * 1024)
-                    truncate(destination, to: 64 * 1024)
+                    Self.truncate(source, to: 64 * 1024)
+                    Self.truncate(destination, to: 64 * 1024)
                 }
             }
         }
@@ -122,9 +122,9 @@ final class ChecksumTruncationTests: XCTestCase {
             _ = try await SharedChecksumService.shared.generateChecksum(
                 for: file,
                 type: .sha256
-            ) { [self] progress, _ in
+            ) { progress, _ in
                 if progress >= 1, !appended.getAndSet() {
-                    try? appendByte(to: file)
+                    try? Self.appendByte(to: file)
                 }
             }
             XCTFail("Expected checksum of a growing file to throw")
@@ -142,9 +142,9 @@ final class ChecksumTruncationTests: XCTestCase {
             _ = try await SharedChecksumService.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
-            ) { [self] progress, _ in
+            ) { progress, _ in
                 if progress >= 1, !appended.getAndSet() {
-                    try? appendByte(to: source)
+                    try? Self.appendByte(to: source)
                 }
             }
             XCTFail("Expected byte comparison of a growing file to throw")
@@ -162,9 +162,9 @@ final class ChecksumTruncationTests: XCTestCase {
             _ = try await SharedChecksumService.shared.performByteComparison(
                 sourceURL: source,
                 destinationURL: destination
-            ) { [self] progress, _ in
+            ) { progress, _ in
                 if progress >= 0.5, !mutated.getAndSet() {
-                    try? growAndMutateNextChunk(of: source)
+                    try? Self.growAndMutateNextChunk(of: source)
                 }
             }
             XCTFail("Expected byte comparison of a growing file to throw before a mismatch verdict")

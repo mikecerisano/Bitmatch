@@ -28,7 +28,7 @@ struct SharedFileOperationsServiceTests {
                 checksum: SharedChecksumService.shared
             )
 
-            var lastProgress = OperationProgress(
+            let lastProgress = Locked(OperationProgress(
                 overallProgress: 0,
                 currentFile: nil,
                 filesProcessed: 0,
@@ -36,7 +36,7 @@ struct SharedFileOperationsServiceTests {
                 currentStage: .idle,
                 speed: nil,
                 timeRemaining: nil
-            )
+            ))
 
             // Act: perform copy to a single destination
             let op = try await sut.performFileOperation(
@@ -46,15 +46,15 @@ struct SharedFileOperationsServiceTests {
                 settings: CameraLabelSettings(),
                 estimatedTotalBytes: nil,
                 progressCallback: { prog in
-                    lastProgress = prog
+                    lastProgress.set(prog)
                 },
                 onFileResult: { _ in }
             )
 
             // Assert basic invariants
             #expect(op.results.count >= 2)
-            #expect(lastProgress.totalFiles >= 2)
-            #expect(lastProgress.overallProgress == 1.0)
+            #expect(lastProgress.value.totalFiles >= 2)
+            #expect(lastProgress.value.overallProgress == 1.0)
 
             // Verify result mapping and destination existence using returned operation data
             let resultA = op.results.first { $0.success && $0.sourceURL.lastPathComponent == "A.txt" }

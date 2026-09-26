@@ -1,8 +1,8 @@
 import Foundation
 import os.log
 
-public enum SharedLogger {
-      public enum Category: String {
+public enum SharedLogger: Sendable {
+      public enum Category: String, Sendable {
           case general = "General"
           case transfer = "Transfer"
           case error = "Error"

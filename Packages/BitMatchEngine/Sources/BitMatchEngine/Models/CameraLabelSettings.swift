@@ -2,7 +2,7 @@
 import Foundation
 
 // MARK: - Camera Label Settings
-public struct CameraLabelSettings: Codable {
+public struct CameraLabelSettings: Codable, Sendable {
     public var label: String = ""
     public var position: LabelPosition = .prefix
     public var separator: Separator = .underscore
@@ -93,12 +93,12 @@ public struct CameraLabelSettings: Codable {
         }
     }
     
-    public enum LabelPosition: String, CaseIterable, Codable {
+    public enum LabelPosition: String, CaseIterable, Codable, Sendable {
         case prefix = "Prefix"
         case suffix = "Suffix"
     }
     
-    public enum Separator: String, CaseIterable, Codable {
+    public enum Separator: String, CaseIterable, Codable, Sendable {
         case underscore = "_"
         case dash = "-"
         case dot = "."

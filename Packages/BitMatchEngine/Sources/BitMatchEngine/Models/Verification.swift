@@ -2,7 +2,7 @@
 import Foundation
 
 // MARK: - Checksum Algorithm
-public enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
+public enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable, Sendable {
     case sha256 = "SHA-256"
     case sha1 = "SHA-1"
     case md5 = "MD5"
@@ -27,7 +27,7 @@ public enum ChecksumAlgorithm: String, CaseIterable, Identifiable, Codable {
 }
 
 // MARK: - BitMatch Error Types
-public enum BitMatchError: LocalizedError {
+public enum BitMatchError: LocalizedError, Sendable {
     case fileAccessDenied(URL)
     case fileNotFound(URL)
     case checksumMismatch(String, String)
@@ -57,7 +57,7 @@ public enum BitMatchError: LocalizedError {
 }
 
 // MARK: - Verification Result
-public struct VerificationResult: Codable {
+public struct VerificationResult: Codable, Sendable {
     public let sourceChecksum: String
     public let destinationChecksum: String
     public let matches: Bool
@@ -86,7 +86,7 @@ public struct VerificationResult: Codable {
 }
 
 // MARK: - Verification Mode
-public enum VerificationMode: String, CaseIterable, Identifiable, Codable {
+public enum VerificationMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case quick = "Quick"
     case standard = "Standard"
     case thorough = "Thorough" 

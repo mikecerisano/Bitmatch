@@ -6,7 +6,7 @@ import Darwin
 /// Existing histories are intentionally never replaced or extended. SHA-256 remains
 /// the copy-verification algorithm; an independent MD5 digest provides ASC compatibility.
 /// No directory/root hashes are claimed: only the supplied files are inventoried.
-public enum ASCMHLGenerator {
+public enum ASCMHLGenerator: Sendable {
     public struct VerifiedFile: Sendable {
         public let relativePath: String
         public let size: Int64
@@ -19,7 +19,7 @@ public enum ASCMHLGenerator {
         }
     }
 
-    public enum GenerationError: LocalizedError {
+    public enum GenerationError: LocalizedError, Sendable {
         case sourceOverlap
         case emptyInventory, existingHistory, invalidPath(String), duplicatePath(String)
         case changedFile(String), invalidChecksum(String), unsupportedFile(String)

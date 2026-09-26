@@ -31,7 +31,7 @@ public enum ResultOutcome: CaseIterable, Equatable, Sendable {
 }
 
 // MARK: - Result Row
-public struct ResultRow: Identifiable {
+public struct ResultRow: Identifiable, Sendable {
     public let id: UUID
     public let path: String
     public let status: String
@@ -104,7 +104,7 @@ public struct ResultRow: Identifiable {
 }
 
 // MARK: - Report Preferences  
-public struct ReportPrefs: Codable {
+public struct ReportPrefs: Codable, Sendable {
     /// Actual copy mode; nil preserves legacy folder-comparison preferences.
     public var verificationMode: VerificationMode? = nil
     public var includeThumbnails: Bool = false
@@ -138,7 +138,7 @@ public struct ReportPrefs: Codable {
 }
 
 extension ResultRow: Codable {
-    public enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey, Sendable {
         case id, path, status, size, checksum, destination, destinationPath
     }
 

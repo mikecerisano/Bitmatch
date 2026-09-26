@@ -5,7 +5,7 @@ import Foundation
 /// per backup, which backups get an ASC MHL history, and the verdict. The
 /// app's `CopyVerifyExecutor` runs these and owns progress, timing and the
 /// project lifecycle.
-public enum TransferCompletion {
+public enum TransferCompletion: Sendable {
     // MARK: - Rows
 
     public static func row(from result: FileOperationResult, destinationRoots: [URL]) -> ResultRow {

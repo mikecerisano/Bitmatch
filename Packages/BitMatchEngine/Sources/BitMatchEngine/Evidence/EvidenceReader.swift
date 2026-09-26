@@ -5,7 +5,7 @@ import Foundation
 /// Master Report needs. Mac and iPad/iPhone share this one rule for which
 /// files count, how large they may be, which day they belong to, and what
 /// "verified" means. The app's `ReportScanner` turns each into a card.
-public enum EvidenceReader {
+public enum EvidenceReader: Sendable {
     /// Reports larger than this are skipped rather than read into memory.
     /// A JSON report lists every file, so this allows roughly 150,000 files.
     public static let maxReportBytes = 64 * 1024 * 1024
@@ -182,7 +182,7 @@ public enum EvidenceReader {
         public let performance: Performance
         public let verification: Verification?
 
-        public struct Source: Decodable {
+        public struct Source: Decodable, Sendable {
             public let path: String
             public let name: String?
             public let totalSize: Int64
@@ -198,14 +198,14 @@ public enum EvidenceReader {
             }
         }
 
-        public struct Destination: Decodable {
+        public struct Destination: Decodable, Sendable {
             public let path: String
 
             public init(path: String) {
                 self.path = path
             }
         }
-        public struct Statistics: Decodable {
+        public struct Statistics: Decodable, Sendable {
             public let matches: Int
             public let issues: Int
 
@@ -215,14 +215,14 @@ public enum EvidenceReader {
             }
         }
 
-        public struct Performance: Decodable {
+        public struct Performance: Decodable, Sendable {
             public let totalDuration: TimeInterval
 
             public init(totalDuration: TimeInterval) {
                 self.totalDuration = totalDuration
             }
         }
-        public struct Verification: Decodable {
+        public struct Verification: Decodable, Sendable {
             public let method: String
             public let algorithm: String?
 

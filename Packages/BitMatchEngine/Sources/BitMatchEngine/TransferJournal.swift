@@ -153,7 +153,7 @@ public final class LocalTransferAccess: Sendable {
     deinit { release() }
 }
 
-public enum LocalTransferJournalError: LocalizedError {
+public enum LocalTransferJournalError: LocalizedError, Sendable {
     case unavailable(String), invalidState, missingDestinations, unreadableJournal(String), busy
     case identityMismatch(name: String), unverifiableIdentity(name: String)
 

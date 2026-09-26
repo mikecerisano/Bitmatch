@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-final class DisposableTransferFixture {
+final class DisposableTransferFixture: Sendable {
     let source: URL
     let destinations: [URL]
     let manifest: [String: String]

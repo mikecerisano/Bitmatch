@@ -25,7 +25,7 @@ struct SharedFileOperationsParanoidTests {
                 checksum: SharedChecksumService.shared
             )
 
-            var finalProgress: OperationProgress?
+            let finalProgress = Locked<OperationProgress?>(nil)
             let op = try await sut.performFileOperation(
                 sourceURL: source,
                 destinationURLs: [dest],
@@ -33,13 +33,13 @@ struct SharedFileOperationsParanoidTests {
                 settings: CameraLabelSettings(),
                 estimatedTotalBytes: nil,
                 progressCallback: { prog in
-                    finalProgress = prog
+                    finalProgress.set(prog)
                 },
                 onFileResult: { _ in }
             )
 
             // Assert: completed, verified results
-            #expect(finalProgress?.overallProgress == 1.0)
+            #expect(finalProgress.value?.overallProgress == 1.0)
             #expect(op.results.count >= 2)
             let verifiedCount = op.results.filter { $0.verificationResult?.isValid == true }.count
             #expect(verifiedCount >= 2)

@@ -36,7 +36,7 @@
 // pick gets `message` back to show.
 import Foundation
 
-public enum BackupTargetPolicy {
+public enum BackupTargetPolicy: Sendable {
     /// Who is adding the backup.
     public enum Origin: Equatable, Sendable {
         /// The user picked or dropped it (also queue replay, whose backups

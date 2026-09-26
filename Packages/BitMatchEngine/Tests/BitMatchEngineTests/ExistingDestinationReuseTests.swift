@@ -152,9 +152,7 @@ private final class RecordingChecksumService: ChecksumService, @unchecked Sendab
         type: ChecksumAlgorithm,
         progressCallback: ProgressCallback?
     ) async throws -> String {
-        lock.lock()
-        types.append(type)
-        lock.unlock()
+        lock.withLock { types.append(type) }
         return Self.hex(of: reportedContents, type: type)
     }
 

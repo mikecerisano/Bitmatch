@@ -4,7 +4,7 @@ import Foundation
 /// `FileAccess` for local folders that need no security scope: the Mac app
 /// (not sandboxed) and the engine's own tests. iPad and iPhone use their own
 /// service, which opens security-scoped access for picked folders.
-public struct LocalFileAccess: FileAccess {
+public struct LocalFileAccess: FileAccess, Sendable {
     public init() {}
 
     public func validateFileAccess(url: URL) async -> Bool {

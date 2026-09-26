@@ -11,14 +11,11 @@ let package = Package(
         .library(name: "BitMatchEngine", targets: ["BitMatchEngine"]),
     ],
     targets: [
-        .target(
-            name: "BitMatchEngine",
-            swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]
-        ),
+        .target(name: "BitMatchEngine"),
         .testTarget(
             name: "BitMatchEngineTests",
             dependencies: ["BitMatchEngine"]
         ),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )

@@ -48,7 +48,7 @@ public protocol FileOperationsService: Sendable {
 
 // MARK: - Shared Result Types
 
-public struct FileOperation {
+public struct FileOperation: Sendable {
     public let id = UUID()
     public let sourceURL: URL
     public let destinationURLs: [URL]
@@ -76,7 +76,7 @@ public struct FileOperation {
     }
 }
 
-public struct FileOperationResult {
+public struct FileOperationResult: Sendable {
     public let sourceURL: URL
     public let destinationURL: URL
     public let success: Bool

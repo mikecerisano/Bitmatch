@@ -540,7 +540,7 @@ public final class SafetyValidator {
 
 // MARK: - Error Types
 
-public enum FileOperationError: LocalizedError, Equatable {
+public enum FileOperationError: LocalizedError, Equatable, Sendable {
     case operationAlreadyInProgress
     case sourceNotFound(String)
     case sourceNotDirectory(String)

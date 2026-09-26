@@ -1,7 +1,7 @@
 // CompareStats.swift - What a folder comparison found.
 import Foundation
 
-public struct CompareStats: Equatable {
+public struct CompareStats: Equatable, Sendable {
     public let onlyInLeftCount: Int
     public let onlyInRightCount: Int
     public let commonCount: Int

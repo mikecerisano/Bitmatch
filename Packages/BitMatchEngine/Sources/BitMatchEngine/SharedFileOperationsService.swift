@@ -79,7 +79,7 @@ public actor ProgressState {
     private var lastProgressCallbackTime = Date.distantPast
     private var lastCopyLogCount = 0
 
-    public struct CopyUpdate {
+    public struct CopyUpdate: Sendable {
         public let processedFiles: Int
         public let totalBytesProcessed: Int64
         public let shouldEmitProgress: Bool

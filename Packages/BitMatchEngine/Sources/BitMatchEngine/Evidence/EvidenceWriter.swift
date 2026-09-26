@@ -6,7 +6,7 @@ import Foundation
 /// Thrown when the requested automatic report cannot be saved. Carried into the
 /// completion message, the journal record, and the queue decision so verified
 /// media is never confused with a failed requested report.
-public enum ReportExportError: LocalizedError {
+public enum ReportExportError: LocalizedError, Sendable {
     case noSaveLocation
     case missingChecksum(String)
     public var errorDescription: String? {
@@ -39,7 +39,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
     public let photographyJob: Project?
     public var notes: String? = nil
     
-    public struct SourceInfo: Codable {
+    public struct SourceInfo: Codable, Sendable {
         public let path: String
         public let name: String
         public let totalSize: Int64
@@ -57,7 +57,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct DestinationInfo: Codable {
+    public struct DestinationInfo: Codable, Sendable {
         public let path: String
         public let name: String
         public let availableSpace: Int64
@@ -76,7 +76,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct Statistics: Codable {
+    public struct Statistics: Codable, Sendable {
         public let totalFiles: Int
         public let totalBytes: Int64
         public let matches: Int
@@ -98,7 +98,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct FileInfo: Codable {
+    public struct FileInfo: Codable, Sendable {
         public let path: String
         public let size: Int64
 
@@ -108,7 +108,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct Performance: Codable {
+    public struct Performance: Codable, Sendable {
         public let totalDuration: TimeInterval
         /// Copy, verify and peak speed are not measured separately; nil
         /// rather than a guess (Promise 3).
@@ -134,7 +134,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct Verification: Codable {
+    public struct Verification: Codable, Sendable {
         public let method: String
         public let algorithm: String?
         public let issuesByType: [String: Int]
@@ -148,7 +148,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
         }
     }
     
-    public struct CacheStats: Codable {
+    public struct CacheStats: Codable, Sendable {
         public let hits: Int
         public let misses: Int
         public let hitRate: Double
@@ -178,7 +178,7 @@ public struct EnhancedJSONReport<Project: Codable & Sendable>: Codable, Sendable
 }
 
 // MARK: - JSON Report Item Structure
-public struct JSONReportItem: Codable {
+public struct JSONReportItem: Codable, Sendable {
     public let path: String
     public let target: String?
     public let status: String
@@ -234,7 +234,7 @@ public struct ProjectCSVEvidence: Sendable {
 }
 
 // MARK: - Evidence Writer
-public enum EvidenceWriter {
+public enum EvidenceWriter: Sendable {
     
     /// `BitMatch_Report_<finish time>.<ext>`. The PDF, CSV, JSON and checksum
     /// files share this name; `ReportScanner` looks for the JSON one.
