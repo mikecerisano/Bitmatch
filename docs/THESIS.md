@@ -47,7 +47,7 @@ Mike delegated these to the recommendations; the plans in `docs/superpowers/plan
 - The engine writes result text from one typed `ResultOutcome`, and the success rule reads it back through the same type, so the two cannot drift. Older saved text keeps the fail-safe "✅" rule; unknown text is never a success.
 
 **Engine (step 5)**
-- iPad and iPhone get a PDF report too (P3, P5). **Done 2026-09-25**: one `ReportPDFRenderer` on every platform. Open: a page break can fall through a row, and very large reports are rendered in memory at once.
+- iPad and iPhone get a PDF report too (P3, P5). **Done 2026-09-25**: one `ReportPDFRenderer` on every platform. Page breaks never split a row and pages render one at a time (2026-09-26).
 - Delete `DriveBenchmarkService`; estimate time from observed copy speed. **Done 2026-09-25** on branch `cloud/estimate-from-speed`: the benchmark, `TransferEstimateModel` and the iOS per-file-count guess are gone, so Setup shows no time estimate on any platform. The progress screen shows time left from measured copy speed across every backup, and "Estimating…" until two seconds of copying are measured.
 
 **UI (step 4)**
@@ -74,5 +74,5 @@ Mike delegated these to the recommendations; the plans in `docs/superpowers/plan
 - ~~A NAS/SMB share root restored at launch may be refused when macOS does not report whether it is internal.~~ **Done 2026-09-25** (branch `cloud/backup-policy-followups`): a volume that reports itself not local (`volumeIsLocal == false`) is never treated as internal, so its root is restored at launch. Discovery still never adds a network share by itself. Not yet checked against a real NAS/SMB mount.
 - ~~The source-card same-volume check is skipped if volume facts cannot be read.~~ **Done 2026-09-25**: with facts missing on either side, the mount the other side reports, or the `/Volumes/<name>` a path sits under, stands in for the volume. A target that looks to be on the source's volume is refused unless the facts that can be read show a fixed disk; the source drive's root is always refused. When neither side reveals a mount (for example two folders outside /Volumes), the pick is allowed and the overlap rule still applies.
 - ~~Compare system volume names case-insensitively.~~ **Done 2026-09-25**: "RECOVERY", "recovery 2" and "macintosh hd - data" are system names too.
-- ARRI Mini LF from an ALE is named "Alexa LF" (camera naming checks are case-sensitive; accessibility audit finding G). A known-issue test pins it.
-- A PDF page break can fall through a file row; very large reports are rendered in memory at once.
+- (Fixed 2026-09-26) ARRI Mini LF from an ALE was named "Alexa LF"; ALE model names are now read regardless of case.
+- (Fixed 2026-09-26) PDF page breaks could fall through a file row; reports now paginate by content, one page at a time.

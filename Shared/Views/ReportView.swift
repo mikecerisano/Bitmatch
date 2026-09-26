@@ -93,10 +93,7 @@ struct ReportView: View {
 
             if let notes = s.notes, !notes.isEmpty {
                 Divider().padding(.vertical, 12)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Notes & handoff issues").font(.headline)
-                    Text(notes).font(.body).fixedSize(horizontal: false, vertical: true)
-                }
+                notesSection(notes)
             }
 
             if s.photographyJob != nil {
@@ -140,13 +137,7 @@ struct ReportView: View {
             // Success Badge or Issues Summary
             Spacer(minLength: 20)
             
-            if Self.shouldShowSuccessBadge(issueCount: issueCount, photographyJob: s.photographyJob) {
-                successBadge
-            } else if let notice = Self.photographerVerificationNotice(for: s.photographyJob) {
-                incompletePhotographerVerificationSummary(notice: notice)
-            } else {
-                issuesSummaryTable
-            }
+            outcomeSection
             
             Spacer(minLength: 0)
             
@@ -162,6 +153,95 @@ struct ReportView: View {
         .background(Color.white)
     }
     
+    private func notesSection(_ notes: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Notes & handoff issues").font(.headline)
+            Text(notes).font(.body).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var outcomeSection: some View {
+        if Self.shouldShowSuccessBadge(issueCount: issueCount, photographyJob: s.photographyJob) {
+            successBadge
+        } else if let notice = Self.photographerVerificationNotice(for: s.photographyJob) {
+            incompletePhotographerVerificationSummary(notice: notice)
+        } else {
+            issuesSummaryTable
+        }
+    }
+
+    var pdfBlocks: [ReportPDFBlock] {
+        var blocks: [ReportPDFBlock] = []
+        func append<V: View>(_ view: V, separated: Bool = true, manifest: Bool = false) {
+            blocks.append(ReportPDFBlock(view: AnyView(
+                VStack(alignment: .leading, spacing: 0) {
+                    if separated { Divider().padding(.vertical, 12) }
+                    view
+                }
+            ), continuesManifest: manifest))
+        }
+
+        append(headerSection, separated: false)
+        append(summarySection)
+        if let notes = s.notes, !notes.isEmpty { append(notesSection(notes)) }
+        if s.photographyJob != nil { append(photographyJobSection) }
+        append(metricsSection)
+        append(environmentSection)
+        append(technicalSection)
+        append(statisticsSection)
+        if !extensionBreakdown.isEmpty { append(extensionSection) }
+        if rows.isEmpty {
+            append(VStack(alignment: .leading, spacing: 10) {
+                Text("Complete Result Manifest").font(.system(size: 14, weight: .semibold))
+                Text("No result rows were recorded in this run.")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+            })
+        } else {
+            // The first row carries its header so the header cannot be stranded.
+            for (index, row) in rows.enumerated() {
+                append(VStack(alignment: .leading, spacing: 0) {
+                    if index == 0 {
+                        Text("Complete Result Manifest")
+                            .font(.system(size: 14, weight: .semibold))
+                            .padding(.bottom, 10)
+                    }
+                    VStack(spacing: 0) {
+                        if index == 0 { manifestHeaderRow(compact: true) }
+                        Divider()
+                        manifestDataRow(for: row, compact: true)
+                    }.padding(.horizontal, 8)
+                }, separated: index == 0, manifest: index > 0)
+            }
+        }
+        if issueCount > 0 {
+            append(Text("Issues Detail (\(issueCount))").font(.system(size: 14, weight: .semibold)))
+            for group in ResultPresentation.issueGroups(rows) {
+                for (index, row) in group.rows.prefix(10).enumerated() {
+                    append(VStack(alignment: .leading, spacing: 4) {
+                        if index == 0 { issueGroupHeader(group) }
+                        issueDataRow(row).padding(.leading, 16)
+                    }.padding(.top, index == 0 ? 12 : 4), separated: false)
+                }
+                if group.rows.count > 10 {
+                    append(issueOverflowNotice(group).padding(.leading, 16), separated: false)
+                }
+            }
+        }
+        append(outcomeSection.padding(.top, 20), separated: false)
+        append(footerSection)
+        return blocks
+    }
+
+    func pdfContinuationHeader(manifest: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("BitMatch Verification Report - continued")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+            if manifest { manifestHeaderRow(compact: true).padding(.horizontal, 8) }
+        }
+    }
+
     @ViewBuilder
     private var headerSection: some View {
         HStack(alignment: .top) {
@@ -488,7 +568,7 @@ struct ReportView: View {
                     .foregroundColor(.secondary)
             } else {
                 VStack(spacing: 0) {
-                    manifestHeaderRow
+                    manifestHeaderRow()
                     Divider()
                     ForEach(manifestPreview, id: \.id) { row in
                         manifestDataRow(for: row)
@@ -513,55 +593,55 @@ struct ReportView: View {
     }
     
     @ViewBuilder
-    private var manifestHeaderRow: some View {
-        HStack(spacing: 12) {
+    private func manifestHeaderRow(compact: Bool = false) -> some View {
+        HStack(spacing: compact ? 8 : 12) {
             Text("Status")
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 44, alignment: .leading)
+                .frame(width: compact ? 32 : 44, alignment: .leading)
             Text("File")
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 150, alignment: .leading)
+                .frame(width: compact ? 132 : 150, alignment: .leading)
             Text("Source")
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 140, alignment: .leading)
+                .frame(width: compact ? 132 : 140, alignment: .leading)
             Text("Destination")
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 140, alignment: .leading)
+                .frame(width: compact ? 132 : 140, alignment: .leading)
             Text("Size")
                 .font(.system(size: 9, weight: .semibold))
-                .frame(width: 65, alignment: .trailing)
+                .frame(width: compact ? 72 : 65, alignment: .trailing)
         }
         .foregroundColor(.secondary)
         .padding(.vertical, 6)
     }
     
-    private func manifestDataRow(for row: ResultRow) -> some View {
-        HStack(spacing: 12) {
+    private func manifestDataRow(for row: ResultRow, compact: Bool = false) -> some View {
+        HStack(spacing: compact ? 8 : 12) {
             let status = ResultStatusPresentation.make(status: row.status)
             Image(systemName: status.symbol)
                 .foregroundColor(status.color)
                 .font(.system(size: 10))
-                .frame(width: 44, alignment: .leading)
+                .frame(width: compact ? 32 : 44, alignment: .leading)
             Text(row.fileName)
                 .font(.system(size: 10, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 150, alignment: .leading)
+                .frame(width: compact ? 132 : 150, alignment: .leading)
             Text(shortDirectoryPath(for: row.path))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 140, alignment: .leading)
+                .frame(width: compact ? 132 : 140, alignment: .leading)
             Text(destinationDisplay(for: row))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 140, alignment: .leading)
+                .frame(width: compact ? 132 : 140, alignment: .leading)
             Text(row.formattedSize)
                 .font(.system(size: 10, weight: .medium))
-                .frame(width: 65, alignment: .trailing)
+                .frame(width: compact ? 72 : 65, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -577,46 +657,15 @@ struct ReportView: View {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(groups) { group in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            let status = ResultStatusPresentation.make(status: group.status)
-                            Image(systemName: status.symbol)
-                                .foregroundColor(status.color)
-                                .font(.system(size: 10))
-                            Text("\(group.status) (\(group.rows.count))")
-                                .font(.system(size: 11, weight: .medium))
-                        }
+                        issueGroupHeader(group)
                         
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(group.rows.prefix(10), id: \.id) { row in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(row.fileName)
-                                        .font(.system(size: 10, weight: .medium))
-                                    Text("Source: \(shortDirectoryPath(for: row.path))")
-                                        .font(.system(size: 8, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    let destination = destinationDisplay(for: row)
-                                    if destination != "—" {
-                                        Text("Destination: \(destination)")
-                                            .font(.system(size: 8, design: .monospaced))
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                    }
-                                    if let checksum = row.checksum, !checksum.isEmpty {
-                                        Text("Checksum: \(checksum.prefix(16))…")
-                                            .font(.system(size: 8, design: .monospaced))
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
+                                issueDataRow(row)
                             }
                             
                             if group.rows.count > 10 {
-                                Text("Showing 10 of \(group.rows.count) files; \(group.rows.count - 10) more in the complete result manifest.")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.secondary)
-                                    .italic()
+                                issueOverflowNotice(group)
                             }
                         }
                         .padding(.leading, 16)
@@ -626,6 +675,49 @@ struct ReportView: View {
         }
     }
     
+    private func issueGroupHeader(_ group: ResultIssueGroup) -> some View {
+        HStack {
+            let status = ResultStatusPresentation.make(status: group.status)
+            Image(systemName: status.symbol)
+                .foregroundColor(status.color)
+                .font(.system(size: 10))
+            Text("\(group.status) (\(group.rows.count))")
+                .font(.system(size: 11, weight: .medium))
+        }
+    }
+
+    private func issueDataRow(_ row: ResultRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(row.fileName)
+                .font(.system(size: 10, weight: .medium))
+            Text("Source: \(shortDirectoryPath(for: row.path))")
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            let destination = destinationDisplay(for: row)
+            if destination != "—" {
+                Text("Destination: \(destination)")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if let checksum = row.checksum, !checksum.isEmpty {
+                Text("Checksum: \(checksum.prefix(16))…")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func issueOverflowNotice(_ group: ResultIssueGroup) -> some View {
+        Text("Showing 10 of \(group.rows.count) files; \(group.rows.count - 10) more in the complete result manifest.")
+            .font(.system(size: 9))
+            .foregroundColor(.secondary)
+            .italic()
+    }
+
     @ViewBuilder
     private var successBadge: some View {
         HStack {

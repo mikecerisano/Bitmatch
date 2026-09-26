@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 - Compare Folders and Master Report now share Copy & Verify’s grouped location pickers and full-width action panels on Mac, iPad, and iPhone.
+- Reports: PDF pages keep file rows together, repeat column headers, and show page numbers while rendering one page at a time on Mac, iPad, and iPhone.
 
 - Mac: Queue cards from setup while keeping backups, run the queue from its compact strip, and queue connected cards during a one-time transfer.
 
